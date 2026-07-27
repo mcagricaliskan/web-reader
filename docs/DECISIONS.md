@@ -1,0 +1,633 @@
+# Web Reader — Decisions
+
+> The architectural decisions, why they were made, and what would reverse them.
+> Status: all decisions are **initial** — taken before any code exists. None have survived contact
+> with an implementation yet. Each carries an explicit reversal trigger; that is the honest form of a
+> pre-code decision.
+> Revised 2026-07-25: D21–D24 added (dependency-version policy, working identity, vertical-slice-first
+> ordering, authentication deferred); D03 de-versioned per D21.
+
+Format: **Decision** · *Why* · *Consequence* · *Reverse if*.
+
+---
+
+## Platform and stack
+
+### D01 — Flutter for the client
+
+**Decision.** Flutter, single codebase, iOS and Android.
+
+*Why.* The app is one embedded WebView plus a lot of local UI and local data — Flutter's strongest
+shape. It matches the house stack (`astrolith-mobile`), so tooling, lints, and habits transfer. A
+native-per-platform build would double the capture engine, which is the hard part and is
+platform-agnostic Dart.
+
+*Consequence.* The WebView is a plugin surface, not a first-class API; anything the plugin does not
+expose needs platform-channel work (§15 of the technical spec lists the known cases).
+
+*Reverse if.* WebView control turns out to be insufficient through any Flutter plugin — specifically,
+if reliable in-page asset acquisition proves impossible on iOS. That would be discovered at M1f.
+
+### D02 — iOS Simulator is the first development target
+
+**Decision.** Develop and validate on the iOS Simulator (Xcode 26.6, iOS 26.5 runtime available
+locally). Android stays architecturally supported but unbuilt.
+
+*Why.* Fastest iteration loop, Safari Web Inspector attaches to the WebView (with
+`isInspectable: true`, required since iOS 16.4), and it is the environment already set up here.
+
+*Consequence.* Timing constants tuned on the Simulator are optimistic — its network and disk are the
+Mac's. Thermal limits, memory pressure, and real backgrounding cannot be validated there. Every
+timing number in the spec is provisional until measured on a device.
+
+*Reverse if.* Nothing; this is a starting point, not a commitment. A device pass is required before
+anyone claims the reliability numbers.
+
+### D03 — `flutter_inappwebview` for the WebView
+
+**Decision.** `flutter_inappwebview`, behind our own `BrowserController` interface. Version resolved
+at implementation time per D21 — this decision is about the *package*, not a version.
+
+*Why.* Two capabilities that capture depends on and the official `webview_flutter` does not expose
+*[both verified 2026-07-25 against `webview_flutter` 4.14.1 / `flutter_inappwebview` 6.1.5 sources —
+re-verify at implementation, per D21]*:
+
+1. **Document-start user scripts.** The bridge must be installed before page scripts run and must
+   survive every navigation. `flutter_inappwebview` registers a `UserScript` at `atDocumentStart`;
+   `webview_flutter` uses `WKUserScript` internally for its own channel plumbing but offers no public
+   API, leaving manual re-injection from `onPageStarted` — which races the page.
+2. **`callAsyncJavaScript`** — passes a JSON argument map and awaits a returned promise.
+   `runJavaScriptReturningResult` returns only an immediate value and requires interpolating
+   arguments into JS source. Every call our bridge makes is async and parameterised.
+
+*Correction to an earlier draft of this entry:* cookie enumeration (`getCookies`) and `setInspectable`
+are **not** differentiators — `webview_flutter` has both. The two points above are the real basis.
+
+*Consequence.* A large, effectively single-maintainer dependency sits on the critical path. The
+`BrowserController` interface and the injected JS are the insulation: a swap is one implementation
+file, not a rewrite.
+
+*Reverse if.* The plugin stops tracking iOS/Android WebView changes, or a specific capability breaks
+and stays broken. The interface makes this a bounded, planned move.
+
+### D04 — Drift (SQLite) for the local database
+
+**Decision.** `drift` + `drift_flutter`. Not Isar, ObjectBox, Realm, or raw `sqflite`.
+
+*Why.* The requirement list — migrations, typed queries, transactions, indexes, reactive queries,
+reliable persistence, a future sync path — describes SQLite with a typed layer. Drift is the only
+option that has all of them, and it keeps plain SQL available for the multi-table ordering queries
+(Continue Reading, New Chapters) that a NoSQL store would force into application code. Realm's device
+sync has been sunset `[Unverified — confirm]`; ObjectBox's sync is commercial; Isar's maintenance
+trajectory is uncertain `[Unverified]`.
+
+*Consequence.* Codegen in the build loop (`build_runner`). Also: **do not add
+`sqlite3_flutter_libs`** — it is `0.6.0+eol` and empty; `package:sqlite3` 3.x now ships SQLite through
+Dart build hooks *[Verified 2026-07-25 from the local pub cache]*.
+
+*Reverse if.* Build-hook-based native bundling causes iOS build problems that cannot be resolved. The
+data model is plain relational, so a port to another SQLite wrapper stays mechanical.
+
+### D05 — Riverpod and go_router
+
+**Decision.** `flutter_riverpod` + `go_router`, matching `astrolith-mobile`.
+
+*Why.* House stack, so no new vocabulary. Riverpod's `StreamProvider` maps 1:1 onto drift `.watch()`,
+which is the whole reactive-library requirement with no glue. `go_router` gives deep links to a
+chapter, which the reader wants anyway.
+
+*Consequence.* None significant. State management is a small part of this app; the hard state lives in
+SQLite and in the capture state machine.
+
+*Reverse if.* Not worth reversing.
+
+---
+
+## Capture architecture
+
+### D06 — Foreground autonomous crawling only
+
+**Decision.** Capture runs only while the app is in the foreground. No background crawling, no
+background update checks.
+
+*Why.* **This is a platform fact, not a preference.** iOS suspends the app shortly after
+backgrounding, and WKWebView JavaScript timers stop with it. There is no supported way to keep an
+autonomous WebView crawl running in the background.
+
+*Consequence.* The session UI must make a long foreground run tolerable: screen kept awake, status
+always visible, accidental-touch protection. A backgrounded session pauses and resumes.
+
+*Reverse if.* Never on iOS with an in-app WebView. The real escape hatch is remote capture workers —
+explicitly a future possibility, not a design input now.
+
+### D07 — Explicit state machine, not a procedural loop
+
+**Decision.** Capture is a sealed-class state machine with persisted state, driven by an orchestrator.
+No state-machine package.
+
+*Why.* Every hard requirement — pause, resume, skip, retry with bounded attempts, recovery after a
+restart, honest UI status — is a question about *which state we are in*. A procedural loop makes each
+one a flag, and flags are how "captured but empty" bugs happen. Dart 3 sealed classes give exhaustive
+`switch` at compile time in ~150 lines we own; a library would add vocabulary without removing work.
+
+*Consequence.* One small SQLite write per transition. Irrelevant next to a page load, and it is what
+makes recovery truthful.
+
+*Reverse if.* The state count grows past comprehension (say beyond ~25). Then extract a
+table-driven transition map — still not a package.
+
+### D08 — Real content extraction, not screenshots
+
+**Decision.** Store the original image files for webtoons; cleaned HTML plus plain text for articles.
+A raw page snapshot is a debugging fallback only.
+
+*Why.* Screenshots cannot be re-flowed, re-read at a different size, searched, or exported, and they
+capture ads and chrome along with the content. The offline reader's quality is the product; a
+screenshot library is a worse product wearing the same shape.
+
+*Consequence.* Extraction must be good enough per site, which is why the extractor chain and (later)
+recipes exist. Extraction failure is a real, visible state rather than a silently degraded capture.
+
+*Reverse if.* Never as the primary format. A snapshot may be added as an explicit fallback the user
+opts into for an unsupported site.
+
+### D09 — Page stability is measured, never assumed from load events
+
+**Decision.** A dedicated stability detector (MutationObserver + height sampling + image completion +
+a quiet window + a second scroll pass) gates extraction. `onLoadStop` is treated as meaningless for
+content readiness.
+
+*Why.* `onLoadStop` fires before lazy images, before hydration, before infinite-scroll injection.
+Trusting it produces chapters that are missing their last third — the single most likely way this app
+silently fails.
+
+*Consequence.* Capture is slower than a naive implementation, and there are constants to tune per
+site class. Both are acceptable; wrong content is not.
+
+*Reverse if.* Nothing. This is the core of the product.
+
+### D10 — Assets are downloaded Dart-side, with an in-page fallback
+
+**Decision.** Primary: `dio` with the WebView's cookies, UA, and a Referer, streamed to disk.
+Fallback: in-page `fetch` + base64 over the bridge. Resource interception is not used.
+
+*Why.* `shouldInterceptRequest` — the "reuse the bytes the WebView already fetched" approach — is
+**Android and Windows only** in `flutter_inappwebview 6.1.5` *[Verified 2026-07-25]*. iOS offers only
+`WKURLSchemeHandler`, which does not apply to `https:`. On an iOS-first build, interception cannot be
+the primary path. The in-page fallback covers hotlink protection, because it inherits the page's exact
+credential and Referer context.
+
+*Consequence.* Assets are fetched twice in the worst case (once by the page, once by us), mitigated by
+the WebView's HTTP cache. The fallback is memory-hungry and must be chunked.
+
+*Reverse if.* Android becomes a primary target — interception is then a legitimate optimisation
+*there*, never the only path.
+
+### D11 — Site adapters are a seam now, recipes are data later
+
+**Decision.** Define `ContentExtractor` and `NextPageStrategy` as priority-ordered chains from day
+one, and reserve the `site_recipe` table. Do not build recipes or a recipe editor in the MVP.
+
+*Why.* Site-specific behaviour is inevitable; a marketplace or an editor is not. Defining the
+interfaces costs nothing and means "support this site" later is a data change plus one class, not a
+refactor of the orchestrator. Building the editor now would be designing for a user who does not exist.
+
+*Consequence.* One unused table and two interfaces with a single implementation each. Cheap.
+
+*Reverse if.* If, after several sites, generic heuristics turn out to be sufficient, drop the recipe
+table at a migration. More likely the reverse.
+
+### D12 — URL-number incrementing is not a trusted next-page strategy
+
+**Decision.** Next-page detection is a confidence-ordered chain (recipe → `rel=next` → labelled
+control → chapter-list ordering → generic link heuristic). Fabricating a URL by incrementing a number,
+with no matching link on the page, is **off by default** and opt-in per recipe.
+
+*Why.* Incrementing invents URLs that may 404, may point at a different series, or may skip
+back-catalogue gaps — and it produces *phantom chapters*, which corrupt the library rather than merely
+failing. Every other strategy reads something the page actually asserts.
+
+*Consequence.* Some sites will end a session early with `completed(endOfChain)`. That is the correct
+failure: honest, visible, and fixable by the user.
+
+*Reverse if.* Never as a default. Per-recipe opt-in only, always labelled low confidence.
+
+### D13 — One shared, visible WebView
+
+**Decision.** Manual browsing and capture use the same non-incognito `InAppWebView`. It stays visible
+and attached during capture. Headless capture is deferred.
+
+*Why.* A separate or incognito WebView would lose the login the user performed manually — which
+defeats the main use case. Offscreen WKWebViews can differ in layout, rendering, and
+`IntersectionObserver` behaviour, which is precisely the machinery lazy loading depends on. Visible
+also gives the user something to watch and a place to intervene.
+
+*Consequence.* The capture screen owns the WebView; the UI must prevent accidental touches reaching
+the page.
+
+*Reverse if.* Measurements show headless behaves identically on both platforms, and a background-ish
+capture UX becomes worth it. That is a post-MVP experiment (Q02).
+
+---
+
+## Data and library
+
+### D14 — Local-first, no backend, no account
+
+**Decision.** Everything on the device. No accounts, no sync, no telemetry, no server of any kind.
+
+*Why.* Nothing in the MVP needs a server, and adding one would add auth, privacy obligations, hosting,
+and a sync model to a proof of concept whose actual risk is autonomous capture. Local-first also makes
+the privacy story trivially honest: the only network traffic is to the sites the user is already
+browsing.
+
+*Consequence.* Losing the device loses the library. Acceptable for the MVP; it is what makes cloud
+backup the most likely first post-MVP feature.
+
+*Reverse if.* Never fully — local-first stays the base. Cloud becomes an addition (backup first, then
+sync), never a dependency.
+
+### D15 — Cloud features are postponed, and not designed now
+
+**Decision.** No cloud storage, sync, remote workers, or desktop reader in the MVP — and no
+speculative architecture for them beyond two cheap habits: client-generated UUIDs, and a relational
+store that a sync layer could later sit on.
+
+*Why.* Designing sync before the capture engine works optimises the wrong risk. Those two habits cost
+nothing today and remove the worst obstacle later (server-assigned IDs).
+
+*Consequence.* Sync design starts from scratch when it starts. That is correct.
+
+*Reverse if.* Reading on a PC becomes the primary use case. Then design it properly, then.
+
+### D16 — Reading and library state are durable and never implicitly discarded
+
+**Decision.** Reading progress, library metadata, archive state, pin state, favorite state, and last
+successful source information survive every operation: restart, crash, capture failure, archive,
+content deletion, source outage. Only an explicit user action removes data.
+
+*Why.* This is the difference between a downloader and a library. Users forgive a failed capture; they
+do not forgive losing where they were in chapter 340.
+
+*Consequence.* Extra care in migrations (every one ships a no-loss test) and in cleanup routines
+(never keyed on lifecycle). Progress is written on a throttle, not only on close.
+
+*Reverse if.* Nothing.
+
+### D17 — Archive is not deletion, and deletion has two distinct sizes
+
+**Decision.** Archive is a visibility flag, fully reversible, that writes only lifecycle columns.
+Deletion is explicit and comes in two clearly separated forms: *Free up space* (files only, history
+kept) and *Delete item* (everything, confirmed, visually separated).
+
+*Why.* Archiving is how users tidy without committing. Conflating it with deletion is the failure mode
+that makes a library untrustworthy, and it is unrecoverable when it happens.
+
+*Consequence.* A hard rule with teeth: **no cleanup, sweep, or query may use `lifecycle` as a deletion
+predicate.** M9's acceptance criteria test exactly this.
+
+*Reverse if.* Nothing.
+
+### D18 — Lifecycle, pinned, and favorite are independent
+
+**Decision.** `lifecycle` (active/dormant/archived), `pinned` (+ order), and `favorite` are four
+orthogonal attributes. Every combination is legal, including an archived favorite.
+
+*Why.* They answer different questions — *is it in my rotation*, *should it be prominent*, *do I like
+it*. Collapsing them into one status enum forces users to give up one meaning to express another, and
+that is the sort of model error that is expensive to undo once data exists.
+
+*Consequence.* Slightly more UI surface, and views must state which attributes they filter on.
+
+*Reverse if.* Nothing.
+
+### D19 — Chapter identity is the normalised URL; four pointers stay separate
+
+**Decision.** `url_key` (normalised URL, unique per item) is chapter identity, with `canonical_url`
+and `content_hash` as secondary signals. *Latest known*, *latest captured*, *last opened*, and *last
+completed* are four separate fields.
+
+*Why.* Duplicate chapters and navigation loops are the two most likely capture bugs, and both are
+identity problems. Separately: collapsing any two pointers produces a specific known bug —
+mark-on-download, opening counting as finishing, or a new-chapter badge that clears when you download
+without reading.
+
+*Consequence.* More columns, and pointer maintenance inside the transactions that cause them, plus a
+`repairPointers()` routine.
+
+*Reverse if.* Nothing. See [DATA_MODEL.md](./DATA_MODEL.md) §5 for the worked example.
+
+### D20 — Manual, foreground update checking for the MVP
+
+**Decision.** *Check for updates* is user-triggered while the app is open. No scheduling, no
+background fetch. Results record a **check quality** (`complete` / `partial`) and never touch read
+state.
+
+*Why.* Background scheduling inherits D06's constraint and adds iOS background-task budgeting to a
+milestone whose actual risk is capture reliability. Manual checking delivers the whole user value —
+"do my series have new chapters" — with none of that. The quality field is there because a bounded
+forward walk can only prove "at least N new", and reporting that as a definitive count would be a lie
+the UI repeats.
+
+*Consequence.* The user initiates catch-up. Acceptable, and arguably preferable for battery and
+politeness.
+
+*Reverse if.* Users check daily and find it tedious. Then evaluate `BGAppRefreshTask` for the *check*
+only — never for capture.
+
+---
+
+## Process and sequencing
+
+*(Added 2026-07-25.)*
+
+### D21 — Dependency versions are resolved at implementation time, not pinned in documentation
+
+**Decision.** These docs name *packages*, never version constraints. At M0 — and again whenever a
+dependency is added — resolve the latest stable, mutually compatible versions available at that
+moment; prefer stable over prerelease; never add deprecated or end-of-life compatibility packages;
+commit `pubspec.lock`; and record any version-driven architectural limitation here as a new decision.
+
+*Why.* A version number written into a design document hardens into a false architectural commitment
+within weeks, and then gets copied forward by anyone reading the doc later. The *choice* of
+`flutter_inappwebview` over `webview_flutter` is a real decision with a rationale that survives
+version bumps (D03). "`^6.1.5`" is a fact about one afternoon. Separating the two keeps the durable
+part durable and stops the perishable part from masquerading as architecture.
+
+*Consequence.* An implementer must actually resolve versions rather than copy a list — which is the
+point. The lockfile, not the doc, is the reproducibility mechanism. Package *observations* in
+[TECHNICAL_SPEC.md](./TECHNICAL_SPEC.md) §2 (which APIs exist, which platforms they cover) carry a
+verification date and must be re-checked, not assumed.
+
+*Reverse if.* Nothing. If a specific version ever becomes load-bearing — a capability that exists
+only there, or a regression to avoid — that gets its own decision entry naming the version *and the
+reason*, which is exactly the case this policy is designed to make visible.
+
+### D22 — Working product identity: `Web Reader` / `com.mcagricaliskan.webreader`
+
+**Decision.**
+
+| | |
+|---|---|
+| Product name | `Web Reader` |
+| Working description | `Archive and read web content offline` |
+| iOS bundle identifier | `com.mcagricaliskan.webreader` |
+| Internal slug | `webread` — storage directory, database filename, JS bridge namespace |
+
+This is a **development identity, not a finalised brand.** The display name and bundle identifier may
+be reviewed before distribution. No generic identifier (`com.example.*`) is used at any stage.
+
+*Why.* Naming discussions are unbounded and this is not the moment for one. A concrete identity
+unblocks the project scaffold immediately. Choosing a real reverse-DNS identifier now avoids the
+specific trap of a placeholder that survives into signing.
+
+*Consequence.* Renaming the **display name** stays cheap indefinitely. Renaming the **bundle
+identifier** gets progressively more inconvenient once signing, provisioning profiles, TestFlight, or
+any release setup exist — so if it is going to change, change it before any of that. The **internal
+slug is deliberately decoupled from the display name**: a rebrand must never require renaming a
+directory that holds user data, so `webread/` and `webread.db` stay put regardless of what the app is
+called.
+
+*Reverse if.* A real brand is chosen. Do it before signing setup, and change the display name only —
+leave the slug alone.
+
+### D23 — Vertical slice first; build order is PoC → MVP → Full product
+
+**Decision.** The first gate is one vertical slice: *open one webtoon chapter, load all relevant
+images, save the actual image files locally, restart or go offline, and read the saved chapter without
+contacting the source website.* Milestones are staged **Stage 0 (PoC, M0–M3) → Stage 1 (MVP, M4–M11)
+→ Stage 2 (Full product)**. The database, JS bridge, scroll driver, stability detector, image
+extractor, asset store, and state machine are **sub-steps of one milestone (M1a–M1g)** with a single
+vertical acceptance gate, not seven separate milestones.
+
+*Why.* The previous plan built those seven layers in sequence before anything was readable, which
+deferred the only question that actually determines whether this product is possible — *can we capture
+a chapter and read it offline?* — until seven milestones in. A layer-first order also lets each layer
+be "done" against its own local criteria while the composition is untested, which is where integration
+surprises live. The slice is small enough to reach quickly and complete enough to prove the claim.
+
+*Consequence.* M1 is a large milestone by line count. That is mitigated by explicit sub-steps with
+their own checks, not by splitting the gate. Anything not needed for the slice — library organisation,
+reading progress, text extraction, update checks, login — is M4+ and stays there.
+
+*Reverse if.* Nothing. If M1 proves too large to hold in one head, split the *gate* only if the slice
+itself is still reachable within a milestone.
+
+### D24 — Authentication is deferred to M10
+
+**Decision.** Login, cookie persistence, and authenticated-site capture move to M10, after public-page
+capture works end to end. Cookie persistence is explicitly **not** an acceptance criterion for M0 or
+M1.
+
+*Why.* Login is not the first product risk. Most initial target sites are public, so authentication
+gates nothing early — while the genuinely unproven parts (lazy-image stability detection, asset
+acquisition, offline readback) gate everything. Making cookie persistence the first acceptance test
+would have spent the first milestone validating a plugin behaviour instead of the product's central
+claim.
+
+*Consequence.* The architecture still accommodates it from day one at zero cost: one shared,
+non-incognito WebView with the persistent data store (D13). M10 is largely a verification milestone
+plus the `awaitingUser` path for expired sessions. Its acceptance criteria include two hard
+constraints that hold from day one: **no automatic credential collection** and **no cloud transfer of
+cookies** ([TECHNICAL_SPEC.md](./TECHNICAL_SPEC.md) §16).
+
+*Reverse if.* The chosen test fixture site turns out to require a login to reach any chapter. Then
+pull the *manual login* part of M10 forward into M1 — but not the expired-session handling, which
+still belongs with M3's session states.
+
+---
+
+### D25 — Swift Package Manager is disabled for this project
+
+**Decision.** `pubspec.yaml` sets `flutter: config: enable-swift-package-manager: false`, pinning the
+iOS build to CocoaPods.
+
+*Why.* `flutter_inappwebview_ios` does not ship a Swift package. With SPM on, `flutter run` against a
+physical device fails outright at *"Xcode failed to resolve Swift Package Manager dependencies"* — it
+is a build-blocker on device, not the cosmetic warning it appears to be in Simulator builds. The
+alternative was to drop the plugin, and its capabilities (D14) are the reason it was chosen.
+
+*Consequence.* CocoaPods stays a required toolchain dependency, and `pod install` must run after
+dependency changes. Flutter has stated SPM will eventually become mandatory, so this is a dated
+decision, not a permanent one.
+
+*Reverse if.* `flutter_inappwebview` adds a Swift package, or Flutter removes the opt-out. Either
+forces a move to SPM — and if the plugin has not adopted it by then, that is the trigger to
+re-evaluate the WebView plugin choice entirely.
+
+---
+
+### D26 — A stored asset's dimensions come from its own bytes
+
+**Decision.** After a successful download, the asset's pixel dimensions are decoded from the file
+header (`core/image_dimensions.dart`) and recorded in the manifest as the truth the reader lays out
+with. DOM-reported values are kept only as `domWidth`/`domHeight` diagnostics. Manifests written
+before this are repaired from the files when the reader opens them.
+
+*Why.* The reader showed a real captured chapter (uzaymanga 885) with wrong panel proportions. The
+investigation showed why the DOM can never be the durable source: those panels are 800×13850 to
+800×16000 strips carrying **no** width/height attributes, styled `w-full h-auto` — so the probe's
+report is whatever the WebView happened to have resolved at that instant (a lazy placeholder, a
+partially decoded strip), while the file on disk is unambiguous. A wrong height in a fixed-height
+list box shows a cropped slice of the panel, which reads as "compressed".
+
+*Consequence.* A pure-Dart header parser (PNG, JPEG + EXIF orientation, GIF, BMP, WebP, AVIF/HEIC
+`ispe`) becomes part of the capture path — covering exactly the formats `detectImageMime` accepts,
+verified against the real AVIF strips. Repair-on-open adds one cheap header read per panel, once
+ever per file.
+
+*Reverse if.* Never for stored assets. If a format appears that the parser cannot read, the entry
+stays unverified and the reader falls back to a crop-not-stretch box — extend the parser then.
+
+---
+
+### D27 — Duplicate decisions during a run are session-scoped, never global
+
+**Decision.** When a running capture walks onto an already-captured chapter it pauses and asks
+(Skip / Re-download / Stop), with "use this choice for all already captured chapters in this
+capture session". The answer is persisted on the job row — surviving an interrupted-session resume —
+and dies with the job. The requested chapter count means **new capture attempts**; skips do not
+consume it, and a skip bound (`maxSkippedPerJob`) keeps a fully-captured stretch from becoming a
+crawl.
+
+*Why.* Silently skipping hides data the user asked for; silently re-downloading wastes their
+bandwidth on the source's dime. Both are decisions, so the user makes them — once per session, not
+per chapter, and not forever: the right answer for repairing a broken chapter today is the wrong
+default for a routine range capture next week.
+
+*Reverse if.* Users demonstrably answer the same way every session. Then add a settings-level
+default — as a *default answer*, still shown in the prompt, never as silent behaviour.
+
+---
+
+### D28 — Design system: flat theme, no token layer
+
+**Decision.** The Claude Design UI is implemented as one flat `appTheme()`
+(`lib/ui/theme.dart`) plus shared status-vocabulary widgets
+(`lib/ui/status_style.dart`). Colours, radii and type are written as the
+design's literal values at the point of use. A `ThemeExtension`-based token
+layer (`WrColors`/`WrSpace`/`WrType`, `context.wr.*`) was built first and
+then removed at the user's direction ("tokens must be removed for now").
+
+*Why.* The prototype is light-only and expresses itself in literals; a token
+indirection had no second consumer (no dark theme yet, no theming setting)
+and every widget would have paid the abstraction without a demonstrated use
+case. The Material `ColorScheme` inside `appTheme()` already centralises the
+palette for the framework's own widgets.
+
+*Consequence.* Dark mode later means either reintroducing an extension or a
+second `ColorScheme` — an additive change. Until then the design's dark
+surfaces exist only where the design itself has them (the pure-black reader).
+
+*Reverse if.* A real second theme or per-user appearance setting lands
+(M17). Reintroduce tokens then, driven by that concrete need.
+
+---
+
+### D29 — flutter_inappwebview pinned to 6.2.0-beta.3
+
+**Decision.** The WebView plugin is pinned to the exact prerelease
+`6.2.0-beta.3` (no caret). Chosen over (a) staying on stable 6.1.5 and
+downgrading AGP 9→8.x, and (b) deferring Android entirely.
+
+*Why.* Stable 6.1.5's Android package cannot build under AGP 9 (hard error on
+its legacy proguard reference); only the 6.2 betas fix it. The two unknowns
+that made a beta scary were both measured: `apk --debug` builds under AGP 9,
+and the complete iOS battery (334 unit/widget + all 5 Simulator integration
+suites) passed on the pin. The beta also ships SPM support — the SPM-off
+workaround (D25) stays until a physical-device pass verifies it.
+
+*Consequence.* Prerelease code sits under every capture until 6.2 stables.
+Version switches leave stale Xcode module state ("different definitions in
+different modules") — fix is `flutter clean` + removing `ios/Pods`.
+
+*Reverse if.* Any WebView regression appears on iOS: fall back to stable
+6.1.5 + AGP 8.13 (tested path). Retire the pin for `^6.2.0` on stable
+release.
+
+---
+
+### D30 — Original image bytes are stored; no conversion, ever (for stored assets)
+
+**Decision.** Captured images stay byte-for-byte in their source format. No
+WebP/AVIF/JPEG/PNG conversion, no quality profiles, no post-capture
+optimizer.
+
+*Why (measured, 2026-07-27 audit).* Real sources already use the strongest
+codecs: uzaymanga ships AVIF (800×16000 strip = 344 KB); re-encoding that
+strip measured 4.4× larger as JPEG-q80 and 16× as PNG. WebP has a hard
+16383-px dimension limit that real strips brush against. On-device encoding
+would cost seconds-to-minutes of CPU and a ~49 MB decoded bitmap per tall
+panel, to make files bigger.
+
+*Reverse if.* A source class emerges whose assets are oversized legacy JPEGs
+(Asura serves some 2.6 MB JPEG panels) AND storage pressure is a real user
+complaint — then an opt-in, post-capture, JPEG-only recompression is the
+only variant worth building.
+
+---
+
+### D31 — Stored file extensions come from sniffed MIME, not the URL
+
+**Decision.** `AssetDownloader` names files from the verified magic bytes
+(`001.jpg` for JPEG bytes) and falls back to the URL extension only for
+unrecognised types. Existing mismatched files are not renamed — the manifest
+is the source of truth and the reader decodes by content; re-capture
+normalises names naturally.
+
+*Why.* Live-verified: Asura's CDN serves `image/jpeg` (2.6 MB) under `.webp`
+URLs. The stored extension is what any future export/share touches.
+
+---
+
+### D32 — WebView automation pauses on an unrendered surface
+
+**Decision.** Capture and update checks never scroll, measure, or extract
+when the WebView reports a zero viewport. The engine holds in a distinct
+`waitingForBrowser` state ("Open the Browser to continue capture."), the
+Library strip shows the banner with an Open Browser action, wait time does
+not consume the chapter deadline, and a defensive extraction guard refuses
+to store when the final candidate set collapses far below what scrolling saw.
+
+*Why (live-verified).* An offstage WKWebView answers probes with real DOM
+data but zero viewport and a frozen scroll position — reproduced on Asura
+ch137, where it produced an extraction of 8 comment avatars that would have
+been stored as a *complete* chapter. Pausing beats failing: the page and the
+partial run are both still valid.
+
+---
+
+### D33 — Capture scrolling is adaptive (fast over resolved, careful near lazy)
+
+**Decision.** Two paces: careful (0.8 vp / 300 ms — the old behavior) near
+pending images, height changes, or the bottom; fast (3.5 vp / 70 ms) after
+two consecutive fully-resolved lookaheads. The eligibility lookahead covers
+the whole jump plus a margin, so a leap can never clear unloaded ground.
+Stopping conditions, second pass, and bounds are unchanged. Irrelevant
+pending images (avatar-sized, outside content) no longer hold the asset wait.
+
+*Why (measured).* Scrolling was 90–98 % of real capture time — 47 s of a 48 s
+uzaymanga capture; ~88 s on Asura whose panels were fully loaded before the
+first step.
+
+*Reverse if.* A site's lazy loader defeats the resolved-lookahead signal
+(images report complete before bytes exist). The second pass plus the
+partial-status pipeline bound the damage; drop `fastScrollStepViewports` to
+re-tune, not the mechanism.
+
+---
+
+### D34 — Disk policy via a hand-rolled two-method platform channel
+
+**Decision.** `webread/device_storage` (iOS Swift / Android Kotlin) exposes
+`freeBytes` and `excludeFromBackup`. No plugin dependency for two calls.
+Policy (centralised in `CaptureConfig`): 500 MB floor to start · 200 MB
+emergency reserve · 50 MB unknown-chapter estimate (median of the series'
+own chapters when known) · rolling check before each chapter · both-copies
+check before atomic replacement · distinct `insufficientStorage` error class.
+`webread/` (assets) is excluded from iCloud backup at startup; the database,
+settings and rules stay backed up. Android backup exclusion is a documented
+no-op (auto-backup's 25 MB cap makes it moot; revisit at release).
+
+*Why.* The audit found no safeguard at any layer, and the maintained-plugin
+options for "one statfs call" are heavier than the channel itself.

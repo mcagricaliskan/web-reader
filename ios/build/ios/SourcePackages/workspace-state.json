@@ -1,0 +1,69 @@
+{
+  "object" : {
+    "artifacts" : [
+
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "flutterframework",
+          "kind" : "fileSystem",
+          "location" : "/Users/cagri/Desktop/engineering/neuralith/web-read/ios/Flutter/ephemeral/Packages/.packages/FlutterFramework",
+          "name" : "FlutterFramework"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/Users/cagri/Desktop/engineering/neuralith/web-read/ios/Flutter/ephemeral/Packages/.packages/FlutterFramework"
+        },
+        "subpath" : "flutterframework"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "integration_test",
+          "kind" : "fileSystem",
+          "location" : "/Users/cagri/Desktop/engineering/neuralith/web-read/ios/Flutter/ephemeral/Packages/.packages/integration_test",
+          "name" : "integration_test"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/Users/cagri/Desktop/engineering/neuralith/web-read/ios/Flutter/ephemeral/Packages/.packages/integration_test"
+        },
+        "subpath" : "integration_test"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "package_info_plus-10.2.1",
+          "kind" : "fileSystem",
+          "location" : "/Users/cagri/Desktop/engineering/neuralith/web-read/ios/Flutter/ephemeral/Packages/.packages/package_info_plus-10.2.1",
+          "name" : "package_info_plus"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/Users/cagri/Desktop/engineering/neuralith/web-read/ios/Flutter/ephemeral/Packages/.packages/package_info_plus-10.2.1"
+        },
+        "subpath" : "package_info_plus-10.2.1"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "wakelock_plus-1.7.0",
+          "kind" : "fileSystem",
+          "location" : "/Users/cagri/Desktop/engineering/neuralith/web-read/ios/Flutter/ephemeral/Packages/.packages/wakelock_plus-1.7.0",
+          "name" : "wakelock_plus"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/Users/cagri/Desktop/engineering/neuralith/web-read/ios/Flutter/ephemeral/Packages/.packages/wakelock_plus-1.7.0"
+        },
+        "subpath" : "wakelock_plus-1.7.0"
+      }
+    ],
+    "prebuilts" : [
+
+    ]
+  },
+  "version" : 7
+}
