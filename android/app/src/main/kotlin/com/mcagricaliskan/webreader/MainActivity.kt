@@ -25,6 +25,21 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                // Total + available in one call, so the percentage the
+                // Library shows is assembled from a single moment.
+                "capacity" -> {
+                    try {
+                        val stat = StatFs(filesDir.absolutePath)
+                        result.success(
+                            mapOf(
+                                "free" to stat.availableBytes,
+                                "total" to stat.totalBytes,
+                            ),
+                        )
+                    } catch (e: Exception) {
+                        result.success(null)
+                    }
+                }
                 "excludeFromBackup" -> result.success(false)
                 else -> result.notImplemented()
             }

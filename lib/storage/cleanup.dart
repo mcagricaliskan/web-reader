@@ -43,6 +43,18 @@ class CleanupService {
   /// screen; cleanup refuses to touch it.
   final ValueNotifier<String?> openReaderChapterId = ValueNotifier(null);
 
+  /// Bumped once per removal batch that actually freed something.
+  ///
+  /// Removal happens from five places (series selection, whole series, the
+  /// Storage screen, the finished-chapter flow, the queue). Anything showing
+  /// a storage figure listens here instead of every one of those call sites
+  /// remembering to refresh it.
+  final ValueNotifier<int> removals = ValueNotifier(0);
+
+  void _noteRemoval(int removed) {
+    if (removed > 0) removals.value++;
+  }
+
   /// Why a chapter cannot be removed right now, or null when it can.
   ///
   /// Locked chapters are *kept*, never errors: bulk operations skip them and
@@ -112,6 +124,7 @@ class CleanupService {
     if (undoable.isNotEmpty) {
       handle._timer = Timer(undoWindow, handle.finalize);
     }
+    _noteRemoval(removed);
     return CleanupResult(
       removed: removed,
       freedBytes: freed,
@@ -149,6 +162,7 @@ class CleanupService {
       }
       onProgress?.call(processed, freed);
     }
+    _noteRemoval(removed);
     return CleanupResult(
       removed: removed,
       freedBytes: freed,

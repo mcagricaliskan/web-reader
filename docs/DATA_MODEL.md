@@ -243,6 +243,14 @@ failed}`. A retry starts a **new** attempt from `notCaptured` with a fresh stagi
 
 - Opening a chapter sets `inProgress`, `first_opened_at` (once), and `last_read_at`. **It never sets
   `completed`.**
+- **`source_url` is durable.** Removing offline files, archiving, restoring,
+  re-downloading and every reading-state write preserve it, along with the
+  chapter label and number, the series relationship, the reading progress and
+  read state, and the discovery/update-check columns. That is structural, not
+  a convention: `CleanupService._writeRemoved` names `content_path`,
+  `byte_size` and `offline_removed_at` and nothing else.
+  `SeriesRepository.repairChapterSourceUrls()` restores rows an older build
+  left blank, from `url_key`; it never invents one.
 - **A completed chapter is 100%.** `progress_fraction` is forced to 1 whenever `read_status` is
   `completed` — on the dwell completion, on *Mark as read*, and on every progress save afterwards.
   Re-reading a finished chapter moves the *anchor* (so resuming still lands where the reader is) but

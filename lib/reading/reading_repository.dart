@@ -142,9 +142,7 @@ class ReadingRepository {
       ChaptersCompanion(
         readStatus: const Value('unread'),
         completedAt: const Value(null),
-        progressFraction: wasCompleted
-            ? const Value(0)
-            : const Value.absent(),
+        progressFraction: wasCompleted ? const Value(0) : const Value.absent(),
         // Stamped so a progress write that was already in flight when the
         // user tapped is recognisable as the older one.
         progressUpdatedAt: Value(DateTime.now()),

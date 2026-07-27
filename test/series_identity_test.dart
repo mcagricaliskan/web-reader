@@ -232,4 +232,103 @@ void main() {
       expect(list.first.capturedAt, early);
     });
   });
+
+  group('chapter numbers from real-world shapes', () {
+    test('localized wrappers, both word orders', () {
+      expect(parseChapterNumber(title: 'Chapter 487'), 487);
+      expect(parseChapterNumber(title: '487. Bölüm'), 487);
+      expect(parseChapterNumber(title: 'Bölüm 487'), 487);
+      expect(parseChapterNumber(title: 'Kapitel 12'), 12);
+      expect(parseChapterNumber(title: 'Capítulo 33'), 33);
+      expect(parseChapterNumber(title: 'Episode 9'), 9);
+    });
+
+    test('decimals, with either separator', () {
+      expect(parseChapterNumber(title: 'Chapter 487.5'), 487.5);
+      expect(parseChapterNumber(title: '487,5. Bölüm'), 487.5);
+      expect(parseChapterNumber(title: 'Bölüm 385,5'), 385.5);
+    });
+
+    test('URLs: word-then-number, number-then-word, and path separators', () {
+      expect(
+        parseChapterNumber(url: 'https://x.example/comics/slug/chapter/137'),
+        137,
+      );
+      expect(
+        parseChapterNumber(url: 'https://x.example/manga/foo/883-bolum-oku'),
+        883,
+      );
+      expect(parseChapterNumber(url: 'https://x.example/s/chapter-101'), 101);
+    });
+
+    test('a URL decimal is only read next to a chapter word', () {
+      expect(
+        parseChapterNumber(url: 'https://x.example/s/chapter-385-5'),
+        385.5,
+        reason: 'the site spells 385.5 this way',
+      );
+      expect(
+        parseChapterNumber(url: 'https://x.example/s/12-3'),
+        12,
+        reason: 'no chapter word: 12-3 is as likely a date as a decimal',
+      );
+    });
+
+    test('headings and breadcrumbs are read when the title is unhelpful', () {
+      expect(
+        parseChapterNumber(
+          title: 'Read Online | Asura Scans',
+          extra: const ['Chapter 512', null],
+        ),
+        512,
+      );
+      expect(
+        parseChapterNumber(
+          title: 'Manga Oku',
+          url: 'https://x.example/s/xyz',
+          extra: const [null, null, '77. Bölüm'],
+        ),
+        77,
+      );
+    });
+
+    test('the title wins over a weaker source', () {
+      expect(
+        parseChapterNumber(
+          title: 'Chapter 500',
+          url: 'https://x.example/s/chapter-499',
+          extra: const ['Chapter 498'],
+        ),
+        500,
+      );
+    });
+
+    test('non-numeric chapters stay non-numeric', () {
+      expect(parseChapterNumber(title: 'Prologue'), isNull);
+      expect(parseChapterNumber(title: 'Extra'), isNull);
+      expect(
+        parseChapterNumber(
+          title: 'Side Story',
+          url: 'https://x.example/s/side',
+        ),
+        isNull,
+        reason: 'inventing a number here would reorder the whole series',
+      );
+    });
+
+    test('the raw label is kept, separately from the display label', () {
+      const title = 'Efsanevi Büyü İmparatoru 883. Bölüm - Oku';
+      final number = parseChapterNumber(title: title);
+      expect(number, 883);
+      expect(chapterLabelFrom(title: title, number: number), '883. Bölüm');
+      expect(
+        chapterDisplayLabel(
+          number: number,
+          rawLabel: chapterLabelFrom(title: title, number: number),
+        ),
+        'Chapter 883',
+        reason: 'one product label, no redundant source strings',
+      );
+    });
+  });
 }

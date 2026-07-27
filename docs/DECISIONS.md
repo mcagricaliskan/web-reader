@@ -803,3 +803,133 @@ order still produced a confident "up to date".
   keys, which is what makes "my library starts at chapter 100 of 400" an
   ordinary check rather than a special case.
 - Chapters cut by `maxNewChapters` are logged, never silently dropped.
+
+### D41 — The Library shows device fullness, from one throttled call
+
+**Decision.** The Library header carries a disk glyph and one number: the
+percentage of **device** storage in use, `(total - free) / total`, read from a
+single `capacity` platform call behind `deviceCapacityProvider`. When the
+platform cannot report both halves, the glyph stands alone — no percentage is
+invented. Detailed figures stay on Settings → Storage.
+
+*Why (the slow indicator).* The previous pill watched `storageDeviceProvider`,
+which bundled the free-space channel call with `stagingByteSize()` — a
+**recursive walk of the staging tree**. Drawing the Library header therefore
+waited on a directory listing that only the Storage screen needs, and the pill
+stayed blank until it finished. Two providers now: `deviceCapacityProvider`
+(one channel call, throttled) for the header, `stagingBytesProvider` (the walk)
+for the Storage screen alone.
+
+*Why a percentage rather than free bytes.* `formatBytes` produces
+variable-width text — "1.2 GB free" then "834 MB free" — so the pill changed
+width whenever it refreshed and nudged the Archive and Settings buttons. The
+percentage is at most four characters, and the box is a fixed 52 pt with the
+number scaled down rather than clipped, so nothing beside it can move.
+
+*Corollaries.*
+
+- The **library's** share of the disk is a different fact and is never shown
+  as though it were device usage.
+- The low-space warning still keys off *free bytes*, not the percentage: 8%
+  left of a small disk is urgent in a way "92% used" is not on a large one. It
+  is a colour change only — no text is added to the header.
+- Refreshes are throttled to `kCapacityRefreshInterval` (2 min) so a
+  twenty-chapter capture does not fire twenty channel calls, and forced at the
+  two moments the disk actually changed: automation falling idle, and a
+  cleanup removing files (`CleanupService.removals`).
+
+### D42 — A chapter keeps its source URL, and a chapter without files offers it
+
+**Decision.** `chapters.source_url` is the durable record of where a chapter
+came from. No second URL field was added: the column already exists, is
+`NOT NULL`, and is written by both capture and remote discovery.
+
+*Why it already survives.* Every writer that touches a chapter names its
+columns explicitly — `CleanupService._writeRemoved` sets `content_path`,
+`byte_size` and `offline_removed_at` and nothing else, and the reading writers
+are equally narrow. Removal, archive, restore, re-download and reading updates
+therefore preserve the URL, the label and number, the series relationship, the
+reading progress and read state, and the discovery and update-check metadata
+**by construction** rather than by remembering to.
+
+*What was missing.* Rows written blank by an older build (or reconciled from a
+manifest without one). `SeriesRepository.repairChapterSourceUrls()` restores
+those from `url_key` — the normalised form of the same address, stored beside
+it — at boot, idempotently. A row with neither is left blank: the UI disables
+"Open on website" and says the original page is unknown rather than guessing.
+
+*Behaviour.* Tapping a chapter with no offline files no longer does nothing
+and does not open the reader onto an unavailable screen; it offers **Open on
+website · Capture again · Cancel**. Opening the website uses the stored URL and
+only that — never the series page, never a sibling chapter — checks the network
+first so the WebView's own error page is not how the user learns they are
+offline, and refuses while a capture owns the browser. Tapping a chapter that
+*is* offline still opens the reader; the source page moves to a long-press
+sheet so it never competes with reading.
+
+### D43 — The episode list shows a painted progress value, newest first
+
+**Decision.** Three changes to the episode list, all in service of the same
+thing — the list should answer "where am I in this series?" at a glance.
+
+1. **The progress pie is painted from the real fraction.** `ChapterProgressRing`
+   is a `CustomPainter`: a track circle plus one wedge from twelve o'clock, and
+   a solid disc at 100%. Not a set of range icons — the design's pie is a
+   continuous quantity, and bucketing it would draw 51% and 74% identically.
+   It is the *only* read-state indicator now, so an unread chapter cannot
+   render as finished by picking the wrong icon. `shouldRepaint` compares the
+   value, so an unchanged row costs nothing on a list rebuild, and the
+   semantics label spells the percentage out.
+2. **Newest first by default**, with a two-state toggle beside the section
+   label and the choice persisted in `settings` (`series.chapterSort`). A
+   reader who is up to date cares about the end of the list; a 400-chapter
+   series should not open at chapter 1. Descending is the *same* ordering
+   reversed, never a second comparison, so a non-numeric `Extra` keeps the same
+   neighbours either way.
+3. **Chapter numbers are the display label.** `chapterDisplayLabel` prints
+   `Chapter 487` / `Chapter 487.5`; the raw source marker (`487. Bölüm`) stays
+   on the row and is shown in the details sheet. The product noun is
+   `kChapterNoun` — one word, one place.
+
+*Why the raw label survives.* It is what the site called the chapter, it is the
+only material a future chapter-*name* field can be built from, and it is the
+honest fallback when no number can be parsed. `Prologue`, `Extra` and
+`Side Story` print as themselves; a number is never invented for them, because
+an invented number would corrupt the ordering and the update check together.
+
+### D44 — Long press explains, tap reads
+
+**Decision.** A tap on an offline chapter opens the reader, unchanged. A long
+press opens a details bottom sheet: number, raw source label, progress, read
+state, offline availability, capture status and image count, stored size,
+capture and last-read dates, source host and URL — plus the actions that make
+sense for *that* chapter's state.
+
+*Why a sheet.* It is the phone-native surface for "tell me about this and let
+me act on it", it is dismissible by drag, and it does not fight the list
+underneath. Long press also gets a `selectionClick` haptic, matching how
+selection mode is entered elsewhere.
+
+*What it costs to open.* Nothing measured. Every fact comes from the chapter
+row the list already holds — including `byteSize`, which capture records at
+commit time. A details sheet must not stat a directory tree to show a size.
+
+*Actions, and their words.* **Remove offline files** when the metadata stays;
+**Delete episode** would mean the record goes, so it is *not offered* —
+permanent metadata deletion does not exist in this product (D35) and adding it
+from a details sheet would be the worst possible place to introduce it.
+**Re-fetch** is the ordinary queued capture with `DuplicatePolicy.replaceAll`,
+which is the flow that already guarantees the same row, an atomic file swap and
+reading state carried over verbatim; a bespoke re-fetch path would be a second
+set of bugs.
+
+### D45 — No "First chapter" action on Series Detail
+
+**Decision.** Removed. The list is right there and now opens newest-first with
+a sort toggle, so a dedicated jump-to-the-start button is a second way to do
+something the list already does — and it sat next to Continue Reading, where it
+competed with the one action that actually knows where the user is.
+
+Continue Reading is unaffected: it already falls back from "the unfinished
+chapter" to "the earliest unfinished one" to "nothing to read yet", and a
+series with one chapter, no history, or nothing offline is unchanged.

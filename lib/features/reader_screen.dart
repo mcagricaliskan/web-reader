@@ -668,7 +668,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                   final layout = _layout;
                   if (layout == null) return;
                   controller.animateTo(
-                    _leadingExtent + layout.offsetForPosition(_restoredPosition),
+                    _leadingExtent +
+                        layout.offsetForPosition(_restoredPosition),
                     duration: const Duration(milliseconds: 240),
                     curve: Curves.easeOut,
                   );

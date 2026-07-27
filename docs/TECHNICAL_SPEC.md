@@ -836,6 +836,15 @@ row are untouched.
 
 ## 12. Reading-progress persistence
 
+### 12.0 How progress is shown
+
+The episode list paints the stored fraction (`ChapterProgressRing`), rather
+than choosing among range icons: the value is continuous, and a bucketed icon
+would render 51% and 74% identically. It is the only read-state indicator on a
+row, so "unread" and "finished" cannot disagree with the number. Input is
+always `readProgressFor`, so a completed chapter is 100% before it reaches the
+painter (§12.3).
+
 ### 12.1 Representation
 
 Store **both** an anchor and a normalised fraction:

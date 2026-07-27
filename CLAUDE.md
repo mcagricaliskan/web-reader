@@ -103,6 +103,26 @@ flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only,
 - Update-check chapter-list ordering is **measured from the page**, never
   assumed. Emission is oldest-first; "nothing new" ends a check only when the
   ordering was unambiguous, otherwise the chain walk still runs.
+- **The episode list's progress pie is painted from the real fraction** (D43)
+  and is the only read-state indicator. Newest-first by default, with the sort
+  persisted in `settings['series.chapterSort']`. Descending is the same
+  ordering reversed, never a second comparison.
+- **Chapter numbers are the display label** (D43): `chapterDisplayLabel` prints
+  `Chapter 487`; the raw source marker is kept on the row for the details
+  sheet. Never invent a number — `Prologue` prints as itself.
+- **Tap reads, long press explains** (D44). The details sheet reads only from
+  the chapter row (including `byteSize`); it never measures the disk.
+  "Remove offline files" keeps metadata; "Delete episode" is not offered
+  because permanent metadata deletion does not exist (D35).
+- **A chapter's `source_url` is durable metadata** (D42). It survives removal,
+  archive, restore, re-download and reading updates because every writer names
+  its columns; it is what "Open on website" and "Capture again" stand on. A
+  chapter with no usable URL disables those actions rather than guessing one.
+- **The Library's storage indicator is a glyph and a percentage** (D41):
+  device usage from one throttled `capacity` call, fixed width, no filesystem
+  walk. Detailed figures live on Settings → Storage. Never show the library's
+  own share as though it were device usage, and never invent a percentage when
+  the platform will not report capacity.
 - **Removing offline files is never deleting a chapter** (D35): bytes go,
   every piece of metadata and reading history stays, and the chapter reads
   as "Not available offline — capture again". Permanent metadata deletion is

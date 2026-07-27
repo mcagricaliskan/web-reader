@@ -35,9 +35,9 @@ void main() {
     Directory(
       p.join(root.path, FileStore.libraryFolderName),
     ).createSync(recursive: true);
-    Directory(p.join(root.path, FileStore.tmpFolderName)).createSync(
-      recursive: true,
-    );
+    Directory(
+      p.join(root.path, FileStore.tmpFolderName),
+    ).createSync(recursive: true);
   });
 
   tearDown(() async {

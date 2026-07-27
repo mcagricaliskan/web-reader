@@ -13,6 +13,8 @@ import '../storage/database.dart';
 import '../storage/manifest.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'chapter_actions.dart';
+import 'chapter_details_sheet.dart';
 import 'cleanup_dialogs.dart';
 import 'library_screen.dart'
     show
@@ -246,11 +248,15 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
 
   @override
   Widget build(BuildContext context) {
-    final chapters = sortChaptersForReading(group.capturedChapters);
-    final knownRemote = sortChaptersForReading(group.knownRemoteChapters);
+    final sort =
+        ref.watch(chapterSortProvider).value ?? ChapterSort.newestFirst;
+    // Reading order drives selection helpers and the reading state; the list
+    // itself is presented in the user's chosen direction.
+    final readingOrder = sortChaptersForReading(group.capturedChapters);
+    final chapters = sortChapters(group.capturedChapters, sort);
+    final knownRemote = sortChapters(group.knownRemoteChapters, sort);
     final reading = computeSeriesReadingState(group.chapters);
     final resume = reading.continueChapter;
-    final first = chapters.isEmpty ? null : chapters.first;
     final checker = ref.watch(updateCheckerProvider);
     final warning = group.warningLine;
     final bytes = group.chapters.fold<int>(0, (sum, c) => sum + c.byteSize);
@@ -268,11 +274,11 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
               title: Text('${_selection!.length} selected'),
               actions: [
                 TextButton(
-                  onPressed: () => _selectAllOffline(chapters),
+                  onPressed: () => _selectAllOffline(readingOrder),
                   child: const Text('All offline'),
                 ),
                 TextButton(
-                  onPressed: () => _selectFinished(chapters),
+                  onPressed: () => _selectFinished(readingOrder),
                   child: const Text('Finished'),
                 ),
               ],
@@ -393,25 +399,6 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
                     ),
                   ),
                 ),
-                if (first != null && first.id != resume?.id) ...[
-                  const SizedBox(width: 9),
-                  OutlinedButton(
-                    onPressed: () => context.push('/reader/${first.id}'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: Text(
-                      first.chapterLabel ?? 'First',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -426,10 +413,7 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
             ),
           SectionLabel(
             'SAVED CHAPTERS · ${chapters.length}',
-            trailing: Text(
-              'reading order',
-              style: monoStyle(color: const Color(0xFFA39D93)),
-            ),
+            trailing: _ChapterSortToggle(sort: sort),
           ),
           const Divider(),
           for (final chapter in chapters) ...[
@@ -952,15 +936,16 @@ class _UpdateCheckCard extends ConsumerWidget {
 }
 
 /// Chapters the source has and this device does not. Dashed, deliberately
-/// unreadable-looking, and never tappable into the reader.
-class _RemoteChapters extends StatelessWidget {
+/// unreadable-looking, and never tappable into the reader — tapping one
+/// offers its source page or a capture instead.
+class _RemoteChapters extends ConsumerWidget {
   const _RemoteChapters({required this.chapters, required this.onCapture});
 
   final List<Chapter> chapters;
   final VoidCallback onCapture;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context, WidgetRef ref) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       const SectionLabel('NEW ON SOURCE — NOT DOWNLOADED'),
@@ -975,40 +960,51 @@ class _RemoteChapters extends StatelessWidget {
         child: Column(
           children: [
             for (final chapter in chapters)
-              Container(
+              InkWell(
                 key: ValueKey('remoteRow-${chapter.id}'),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 13,
-                  vertical: 11,
-                ),
-                decoration: const BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Color(0xFFF1EEE9))),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.cloud, size: 20, color: Color(0xFFA39D93)),
-                    const SizedBox(width: 11),
-                    Expanded(
-                      child: Text(
-                        chapter.chapterLabel?.trim().isNotEmpty == true
-                            ? chapter.chapterLabel!
-                            : chapter.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: monoStyle(
-                          size: 13,
-                          color: const Color(0xFF4A463F),
+                onTap: () => showUnavailableChapterSheet(context, ref, chapter),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 11,
+                  ),
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: Color(0xFFF1EEE9)),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.cloud,
+                        size: 20,
+                        color: Color(0xFFA39D93),
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Text(
+                          chapterDisplayLabel(
+                            number: chapter.chapterNumber,
+                            rawLabel: chapter.chapterLabel,
+                            title: chapter.title,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: monoStyle(
+                            size: 13,
+                            color: const Color(0xFF4A463F),
+                          ),
                         ),
                       ),
-                    ),
-                    Text(
-                      'found ${formatRelative(chapter.discoveredAt)}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF8C877E),
+                      Text(
+                        'found ${formatRelative(chapter.discoveredAt)}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF8C877E),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             Material(
@@ -1048,7 +1044,7 @@ class _RemoteChapters extends StatelessWidget {
   );
 }
 
-class _ChapterRow extends StatelessWidget {
+class _ChapterRow extends ConsumerWidget {
   const _ChapterRow({
     required this.chapter,
     this.selecting = false,
@@ -1066,13 +1062,19 @@ class _ChapterRow extends StatelessWidget {
   final VoidCallback? onToggle;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final status = captureStatusFromName(chapter.captureStatus);
     final offline =
         chapter.contentPath != null &&
         (status == CaptureStatus.complete || status == CaptureStatus.partial);
     final look = captureLook(chapter);
-    final label = chapter.chapterLabel?.trim();
+    // Number-first: "Chapter 487", not "487. Bölüm Oku". The raw label is
+    // kept on the row and shown in the details sheet.
+    final displayLabel = chapterDisplayLabel(
+      number: chapter.chapterNumber,
+      rawLabel: chapter.chapterLabel,
+      title: chapter.title,
+    );
     // Selectable = offline and not in use. Everything else stays visible but
     // dimmed with a lock, so "why can't I pick that one" answers itself.
     final selectable = selecting && offline && lockReason == null;
@@ -1083,9 +1085,18 @@ class _ChapterRow extends StatelessWidget {
         color: selected ? const Color(0xFFEFF4F6) : Colors.transparent,
         child: InkWell(
           key: ValueKey('chapterRow-${chapter.id}'),
+          // Offline → the reader, exactly as before. Not offline → the two
+          // things that can still be done with it, rather than a dead row.
           onTap: selecting
               ? (selectable ? onToggle : null)
-              : (offline ? () => context.push('/reader/${chapter.id}') : null),
+              : offline
+              ? () => context.push('/reader/${chapter.id}')
+              : () => showUnavailableChapterSheet(context, ref, chapter),
+          // The source page stays reachable for a chapter that IS offline,
+          // without competing with reading it.
+          onLongPress: selecting
+              ? null
+              : () => showChapterDetailsSheet(context, ref, chapter),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 11, 16, 11),
             child: Row(
@@ -1118,9 +1129,7 @@ class _ChapterRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        label != null && label.isNotEmpty
-                            ? label
-                            : chapter.title,
+                        displayLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: monoStyle(
@@ -1190,6 +1199,104 @@ class _ChapterRow extends StatelessWidget {
 }
 
 /// Reading order: parsed chapter number, then capture sequence, then time.
+/// Two states, so it is a toggle rather than a panel: tapping flips the list
+/// and persists the choice.
+class _ChapterSortToggle extends ConsumerWidget {
+  const _ChapterSortToggle({required this.sort});
+
+  final ChapterSort sort;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final next = sort == ChapterSort.newestFirst
+        ? ChapterSort.oldestFirst
+        : ChapterSort.newestFirst;
+    return Semantics(
+      button: true,
+      label: 'Sorted ${sort.label} first. Tap for ${next.label} first.',
+      excludeSemantics: true,
+      child: Material(
+        color: const Color(0xFFF3F1ED),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(999),
+          side: const BorderSide(color: Color(0xFFE7E3DC)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: const ValueKey('chapterSortToggle'),
+          onTap: () => setChapterSort(ref, next),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  sort == ChapterSort.newestFirst
+                      ? Icons.arrow_downward
+                      : Icons.arrow_upward,
+                  size: 14,
+                  color: const Color(0xFF3E3A34),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  sort.label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF3E3A34),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Which way the episode list runs.
+enum ChapterSort {
+  /// Newest first. The default: a reader who is up to date cares about the
+  /// end of the list, and a 400-chapter series should not open at chapter 1.
+  newestFirst,
+
+  /// Oldest first — reading order, for someone starting a series.
+  oldestFirst;
+
+  String get label => this == ChapterSort.newestFirst ? 'Newest' : 'Oldest';
+}
+
+const String kChapterSortKey = 'series.chapterSort';
+
+ChapterSort chapterSortFromName(String? name) =>
+    name == ChapterSort.oldestFirst.name
+    ? ChapterSort.oldestFirst
+    : ChapterSort.newestFirst;
+
+/// The persisted episode-list order. One setting for every series: it is a
+/// reading habit, not a per-series fact.
+final chapterSortProvider = StreamProvider<ChapterSort>(
+  (ref) => ref
+      .watch(databaseProvider)
+      .watchSetting(kChapterSortKey)
+      .map(chapterSortFromName),
+);
+
+Future<void> setChapterSort(WidgetRef ref, ChapterSort sort) =>
+    ref.read(databaseProvider).setSetting(kChapterSortKey, sort.name);
+
+/// Reading order, then flipped if asked.
+///
+/// The comparison is always the same one — parsed chapter number first
+/// (decimal-safe, so `385 < 385.5 < 386`), then capture sequence, then
+/// capture time for entries that have no number at all. Descending reverses
+/// that single ordering rather than being a second, subtly different one, so
+/// a non-numeric `Extra` keeps the same neighbours either way.
+List<Chapter> sortChapters(List<Chapter> chapters, ChapterSort sort) {
+  final ordered = sortChaptersForReading(chapters);
+  return sort == ChapterSort.newestFirst ? ordered.reversed.toList() : ordered;
+}
+
 List<Chapter> sortChaptersForReading(List<Chapter> chapters) {
   final sorted = [...chapters];
   sorted.sort(

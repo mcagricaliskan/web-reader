@@ -399,6 +399,69 @@ hands on the device; see §10 for the exact checklist. Uninstalling the app
 removes all local data by design — that is iOS container semantics, not a
 persistence failure.
 
+### Episode list: real progress, ordering, details, labels ✅ *(2026-07-27)*
+
+**Progress (D43).** `ChapterProgressRing` in `lib/ui/status_style.dart` — a
+`CustomPainter` drawing a track circle plus a wedge from twelve o'clock, a
+solid disc at 100%. It replaces the three-icon `ReadGlyph` switch entirely, so
+there is one indicator and one source of truth (`readProgressFor`, D39).
+`shouldRepaint` compares the value; semantics announce the percentage.
+
+**Ordering (D43).** `ChapterSort` + `sortChapters()`; default `newestFirst`,
+persisted at `settings['series.chapterSort']` and exposed as a two-state pill
+beside the SAVED CHAPTERS label. Descending is `sortChaptersForReading()`
+reversed, so the decimal-safe comparison and the non-numeric fallback are
+shared by both directions. Selection helpers still work in reading order.
+
+**Labels (D43).** `chapterDisplayLabel()` prints `Chapter 487` / `Chapter 487.5`
+from the parsed number; `chapterLabelFrom()` still records the raw source
+marker on the row. `parseChapterNumber` now takes an `extra` list — the capture
+engine feeds it the page `<h1>`, `og:title` and the last breadcrumb — and its
+URL rules are separate from its prose rules, so `/chapter-385-5` reads as
+385.5 and `/chapter/137` as 137 while "Chapter 487 - 5 pages" does not become
+487.5.
+
+**Details (D44).** `lib/features/chapter_details_sheet.dart`, on long press.
+Reads only from the chapter row; re-fetch delegates to the queued
+`DuplicatePolicy.replaceAll` capture. No permanent-delete action.
+
+**First chapter (D45).** Removed from Series Detail.
+
+### Chapter source URL + Library storage indicator ✅ *(2026-07-27)*
+
+**Source URL (D42).** No schema change: `chapters.source_url` already existed,
+is `NOT NULL`, and is written by both the capture engine and remote discovery.
+It already survived removal, archive, restore, re-download and reading updates
+because every writer names its columns — `CleanupService._writeRemoved` touches
+`content_path`, `byte_size` and `offline_removed_at` only. The gap was rows
+written blank by an older build, closed by
+`SeriesRepository.repairChapterSourceUrls()` at boot (restores from `url_key`,
+idempotent, never invents one) plus the narrow writer `writeChapterSource`.
+
+`lib/features/chapter_actions.dart` owns the behaviour: tapping a chapter with
+no offline files opens a sheet (**Open on website · Capture again · Cancel**)
+instead of the reader; opening uses the stored URL and only that, checks the
+network through an injectable `Connectivity` seam (a `dart:io` DNS probe, no
+new dependency), and refuses while automation owns the browser.
+`BrowserController.requestOpen` holds the URL until the WebView attaches, since
+the Browser tab builds lazily. Offline chapters still open the reader on tap;
+their source page is on the long-press sheet.
+
+**Storage indicator (D41).** The header now shows a disk glyph and the device
+usage percentage, from a new `capacity` platform call (iOS
+`volumeTotalCapacity` + `volumeAvailableCapacityForImportantUsage`, Android
+`StatFs`) behind `deviceCapacityProvider`. Fixed 52 pt box, number scaled down
+rather than clipped, one merged semantics node (`Device storage 72% used`),
+tap → Settings → Storage.
+
+*Root cause of the slow indicator:* the old pill watched a provider that
+bundled the free-space call with `stagingByteSize()`, a recursive walk of the
+staging tree — so drawing the Library header waited on a directory listing only
+the Storage screen needs. Split into `deviceCapacityProvider` (one throttled
+call) and `stagingBytesProvider` (the walk, Storage screen only). Refreshes are
+throttled to 2 minutes and forced at the two moments the disk changes:
+automation falling idle, and `CleanupService.removals` firing.
+
 ### M8 — Update checking and New Chapters ✅ *(2026-07-27)*
 
 `lib/library/update_checker.dart`: foreground, user-triggered, metadata only.
@@ -793,7 +856,7 @@ Fixture paths for manual driving: `/chapter/N` (rel=next), `/tr/N`, `/de/N`,
 
 ### Unit and widget — 314 tests, all passing
 
-`flutter test` → `00:11 +438: All tests passed!`
+`flutter test` → `00:12 +504: All tests passed!`
 
 | File | Tests | Covers |
 |---|---|---|
@@ -822,6 +885,12 @@ Fixture paths for manual driving: `/chapter/N` (rel=next), `/tr/N`, `/de/N`,
 | `image_dimensions_test.dart` | 12 | PNG/JPEG(+EXIF orientation)/GIF/BMP/WebP(3 variants)/AVIF(`ispe`, largest-wins) headers; truncation and garbage → null |
 | `manifest_repair_test.dart` | 5 | DOM-claim correction from stored files, verify-once, unparseable/missing files left alone, **progress approximately valid across repair** |
 | `session_duplicate_test.dart` | 10 | Mid-run prompt (real loop + real downloads over local HTTP), skip/re-download once vs for-session, stop-not-a-policy, partial actions, **resume keeps session decisions, new job resets**, requested-count semantics, skip bound |
+| `chapter_progress_ring_test.dart` | 8 | 0% / partial / 100% rendering and semantics, completed always reads 100%, `shouldRepaint` only on a real change, compact 14pt row size |
+| `chapter_sort_test.dart` | 10 | Default newest-first, ascending, decimal ordering (`385 < 385.5 < 386`), non-numeric stable fallback and exact mirroring, preference persistence incl. an unrecognised stored value, display-label rules |
+| `chapter_details_sheet_test.dart` | 11 | Tap opens the reader with no sheet; long press opens the sheet and does **not** fire the tap; facts shown; mark-read from inside the sheet; state-appropriate actions; no re-fetch without a URL; unnumbered chapters keep their name; sort toggle flips and persists; the First-chapter action is gone. All at 320 pt |
+| `chapter_source_url_test.dart` | 9 | Capture and discovery both record `source_url`; removal preserves URL, label, number, series, progress, read state and discovery metadata; re-download keeps the same identity; blank/scheme-less URLs are unusable; the boot repair restores from `url_key` and invents nothing |
+| `chapter_actions_test.dart` | 6 | Offline tap → reader; non-offline tap → website/capture/cancel sheet; Open on website sends the Browser to the stored URL; offline device says so and does not navigate; unknown URL disables the action; an available chapter still reaches its source on long-press |
+| `storage_indicator_test.dart` | 12 | Percentage maths incl. unknown/nonsense readings; compact layout at 320 pt with no neighbour shift and no overflow; no free-MB text; semantics label; tap → Settings → Storage; unavailable fallback; low-storage colour; **no re-read across 20 unrelated rebuilds**; throttled vs forced refresh |
 | `update_checker_test.dart` | 21 | Chain discovery without downloads, no duplicate rows on re-check, persisted failure state, bounds, cancel keeps findings, series-exit stop, mutual exclusion, pure chapter-list discovery; **newest-first lists recorded oldest-first, decimals (`385 < 385.5 < 386`), unnumbered chapters interpolated between their neighbours, jump links above the list not defeating the ordering, dedup, starting-from-the-middle, and an unorderable list falling through to the chain walk instead of claiming "up to date"** |
 
 ### Integration — real WebView on the iOS Simulator

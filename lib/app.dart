@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -14,7 +16,9 @@ import 'features/cleanup_dialogs.dart';
 import 'features/settings_screen.dart';
 import 'features/storage_screen.dart';
 import 'library/update_checker.dart';
+import 'core/device_capacity_provider.dart';
 import 'providers.dart';
+import 'storage/cleanup.dart';
 import 'ui/theme.dart';
 
 /// The browser tab keeps its WebView alive across tab switches — the session
@@ -95,6 +99,13 @@ class _ShellState extends ConsumerState<_Shell> {
   bool _wasBusy = false;
 
   late final ValueNotifier<int?> _tabRequest;
+  late final CleanupService _cleanup;
+
+  /// Files just went away: the device figure the Library shows is stale by
+  /// exactly the amount that was freed.
+  void _onStorageChanged() {
+    unawaited(ref.read(deviceCapacityProvider.notifier).refresh(force: true));
+  }
 
   @override
   void initState() {
@@ -105,6 +116,8 @@ class _ShellState extends ConsumerState<_Shell> {
     _job.addListener(_onAutomationChanged);
     _checker.addListener(_onAutomationChanged);
     _tabRequest.addListener(_onTabRequested);
+    _cleanup = ref.read(cleanupProvider);
+    _cleanup.removals.addListener(_onStorageChanged);
   }
 
   @override
@@ -112,6 +125,7 @@ class _ShellState extends ConsumerState<_Shell> {
     _job.removeListener(_onAutomationChanged);
     _checker.removeListener(_onAutomationChanged);
     _tabRequest.removeListener(_onTabRequested);
+    _cleanup.removals.removeListener(_onStorageChanged);
     super.dispose();
   }
 
@@ -159,6 +173,12 @@ class _ShellState extends ConsumerState<_Shell> {
     final busy = _job.isRunning || _checker.isRunning;
     if (busy && !_wasBusy && _index != 1) {
       setState(() => _index = 1);
+    }
+    // Falling idle is the moment the disk actually changed: a capture just
+    // wrote (or a check just did not). Re-read then, rather than polling —
+    // the Library's percentage is otherwise as stale as its throttle allows.
+    if (!busy && _wasBusy) {
+      unawaited(ref.read(deviceCapacityProvider.notifier).refresh(force: true));
     }
     _wasBusy = busy;
   }

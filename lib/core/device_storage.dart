@@ -1,6 +1,40 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+/// How full the device is, as one reading.
+///
+/// Both halves come from a single platform call so they describe the same
+/// moment: a percentage assembled from two round-trips can straddle a write
+/// and land outside 0..1. Either half may be null — the platform is allowed
+/// to not know, and "unknown" must stay distinguishable from "zero".
+class DeviceCapacity {
+  const DeviceCapacity({this.freeBytes, this.totalBytes});
+
+  static const DeviceCapacity unknown = DeviceCapacity();
+
+  final int? freeBytes;
+  final int? totalBytes;
+
+  /// 0..1 of the device in use, or null when it cannot be established
+  /// honestly. Never guessed, and never the app's own share of the disk.
+  double? get usedFraction {
+    final total = totalBytes;
+    final free = freeBytes;
+    if (total == null || free == null || total <= 0) return null;
+    final used = total - free;
+    if (used < 0) return null;
+    return (used / total).clamp(0.0, 1.0);
+  }
+
+  /// The rounded percentage shown in the Library, or null when unknown.
+  int? get usedPercent {
+    final fraction = usedFraction;
+    return fraction == null ? null : (fraction * 100).round();
+  }
+
+  bool get isKnown => usedFraction != null;
+}
+
 /// Free-space queries and backup exclusion, via one small platform channel.
 ///
 /// A hand-rolled channel instead of a plugin (D30): the whole need is two
@@ -25,6 +59,25 @@ class DeviceStorage {
       return v?.toInt();
     } catch (_) {
       return null;
+    }
+  }
+
+  /// Total and available bytes for the volume holding the app container.
+  ///
+  /// Fails soft to [DeviceCapacity.unknown]: a device that will not report
+  /// its size makes the indicator go quiet, never wrong.
+  Future<DeviceCapacity> capacity() async {
+    try {
+      final v = await _channel.invokeMapMethod<String, dynamic>('capacity');
+      if (v == null) return DeviceCapacity.unknown;
+      final free = v['free'];
+      final total = v['total'];
+      return DeviceCapacity(
+        freeBytes: free is num ? free.toInt() : null,
+        totalBytes: total is num ? total.toInt() : null,
+      );
+    } catch (_) {
+      return DeviceCapacity.unknown;
     }
   }
 

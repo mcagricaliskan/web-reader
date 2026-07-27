@@ -147,46 +147,114 @@ String stripChapterMarker(String title) {
 /// Handles decimals (`12.5`) and reads the URL when the title is unhelpful.
 /// Returns null for identifiers that are not numeric at all (`"Extra"`,
 /// `"Prologue"`), which the ordering falls back on capture sequence for.
-double? parseChapterNumber({String? title, String? url}) {
-  for (final source in [title, url]) {
-    if (source == null || source.trim().isEmpty) continue;
+double? parseChapterNumber({
+  String? title,
+  String? url,
+  List<String?> extra = const [],
+}) {
+  // Text sources, best first: the link/page title the site wrote, then the
+  // page's own headings and metadata, then its breadcrumb trail. A number
+  // sitting next to a chapter word beats a number that merely appears.
+  for (final source in [title, ...extra]) {
+    final n = _numberInText(source);
+    if (n != null) return n;
+  }
+  return _numberInUrl(url);
+}
 
-    // Prefer a number sitting next to a chapter word.
-    final near = RegExp(
-      _chapterWordPattern + r'\s*[\.\-–—:#]?\s*(\d+(?:[.,]\d+)?)',
-      caseSensitive: false,
-      unicode: true,
-    ).firstMatch(source);
-    if (near != null) {
-      final n = double.tryParse(near.group(1)!.replaceAll(',', '.'));
-      if (n != null) return n;
-    }
+/// A chapter number in prose: `Chapter 487`, `487. Bölüm`, `Bölüm 487,5`.
+double? _numberInText(String? source) {
+  if (source == null || source.trim().isEmpty) return null;
 
-    final before = RegExp(
-      r'(\d+(?:[.,]\d+)?)\s*\.?\s*' + _chapterWordPattern,
-      caseSensitive: false,
-      unicode: true,
-    ).firstMatch(source);
-    if (before != null) {
-      final n = double.tryParse(before.group(1)!.replaceAll(',', '.'));
-      if (n != null) return n;
-    }
+  // Number after a chapter word.
+  final near = RegExp(
+    '$_chapterWordPattern'
+    r'\s*[\.\-–—:#]?\s*(\d+(?:[.,]\d+)?)',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(source);
+  if (near != null) {
+    final n = double.tryParse(near.group(1)!.replaceAll(',', '.'));
+    if (n != null) return n;
   }
 
-  // Fall back to the last number in the URL's final segment.
-  if (url != null) {
-    final uri = Uri.tryParse(url);
-    final segments = uri?.pathSegments.where((s) => s.isNotEmpty).toList();
-    if (segments != null && segments.isNotEmpty) {
-      final m = RegExp(r'(\d+(?:[.,]\d+)?)').firstMatch(segments.last);
-      if (m != null) return double.tryParse(m.group(1)!.replaceAll(',', '.'));
-    }
+  // Number before it — `487. Bölüm`, `487 화`.
+  final before = RegExp(
+    r'(\d+(?:[.,]\d+)?)\s*\.?\s*'
+    '$_chapterWordPattern',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(source);
+  if (before != null) {
+    final n = double.tryParse(before.group(1)!.replaceAll(',', '.'));
+    if (n != null) return n;
   }
   return null;
 }
 
-/// A short human label for a chapter — `"Bölüm 883"`, `"Chapter 101"` — or the
-/// cleaned title when no marker is present.
+/// A chapter number in a URL path.
+///
+/// Separate from the prose rules because URLs spell decimals with a
+/// separator — `/chapter-385-5/` is chapter 385.5 — and because `/` is a
+/// legitimate gap between the word and the number (`/chapter/137`). Neither
+/// reading is safe to apply to prose, where "Chapter 487 - 5 pages" is a
+/// sentence and not a decimal.
+double? _numberInUrl(String? url) {
+  if (url == null || url.trim().isEmpty) return null;
+  final uri = Uri.tryParse(url);
+  final path = uri?.path ?? url;
+
+  double? build(RegExpMatch m, int whole, int frac) {
+    final head = m.group(whole);
+    if (head == null) return null;
+    final tail = m.group(frac);
+    return double.tryParse(tail == null ? head : '$head.$tail');
+  }
+
+  // Word then number, with an optional decimal tail: `/chapter-385-5`,
+  // `/chapter/137`, `/bolum_12`.
+  final after = RegExp(
+    '$_chapterWordPattern'
+    r'[\s._\-/]*(\d+)(?:[-_.](\d{1,2}))?(?!\d)',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(path);
+  if (after != null) {
+    final n = build(after, 1, 2);
+    if (n != null) return n;
+  }
+
+  // Number then word: `/883-bolum-oku`, `/487-5-bolum`.
+  final beforeWord = RegExp(
+    r'(\d+)(?:[-_.](\d{1,2}))?[\s._\-/]*'
+    '$_chapterWordPattern',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(path);
+  if (beforeWord != null) {
+    final n = build(beforeWord, 1, 2);
+    if (n != null) return n;
+  }
+
+  // Last resort: a bare number in the final path segment. No decimal
+  // splitting here — without a chapter word, `/12-3/` is as likely to be a
+  // date or a volume as a decimal chapter, and guessing wrong reorders a
+  // whole series.
+  final segments = uri?.pathSegments.where((s) => s.isNotEmpty).toList();
+  if (segments != null && segments.isNotEmpty) {
+    final m = RegExp(r'(\d+(?:[.,]\d+)?)').firstMatch(segments.last);
+    if (m != null) return double.tryParse(m.group(1)!.replaceAll(',', '.'));
+  }
+  return null;
+}
+
+/// The **raw** marker as the source wrote it — `"Bölüm 883"`, `"Chapter 101"`
+/// — or the cleaned title when the page carries no marker.
+///
+/// Deliberately not the display label. This is what the site called the
+/// chapter, kept verbatim so the details sheet can show it and so a future
+/// chapter-name field has something to build on. What the list prints comes
+/// from [chapterDisplayLabel] instead.
 String chapterLabelFrom({String? title, String? url, double? number}) {
   if (title != null && title.trim().isNotEmpty) {
     final head = title.split(_titleSeparators).first.trim();
@@ -202,13 +270,43 @@ String chapterLabelFrom({String? title, String? url, double? number}) {
   }
   if (number != null) {
     final asInt = number == number.roundToDouble();
-    return 'Chapter ${asInt ? number.round() : number}';
+    return '$kChapterNoun ${asInt ? number.round() : number}';
   }
   final segments = Uri.tryParse(
     url ?? '',
   )?.pathSegments.where((s) => s.isNotEmpty);
   if (segments != null && segments.isNotEmpty) return segments.last;
-  return title?.trim() ?? 'Chapter';
+  return title?.trim() ?? kChapterNoun;
+}
+
+/// The product's word for one unit of a series. One term, everywhere.
+const String kChapterNoun = 'Chapter';
+
+/// What the episode list actually prints for a chapter.
+///
+/// Number-first when there is a reliable number, because that is the thing
+/// readers scan a list for — and because the raw source label is full of
+/// redundancy the site needed and this app does not (`"487. Bölüm Oku"`,
+/// `"Chapter 103" + "2 days ago"`). One consistent product label:
+///
+/// ```text
+/// Chapter 487
+/// Chapter 487.5
+/// ```
+///
+/// With no reliable number, the raw label is used verbatim — `Prologue`,
+/// `Extra`, `Side Story` are real chapters with real names, and inventing a
+/// number for them would corrupt both the ordering and the update check.
+/// [rawLabel] is never discarded; it stays on the row for the details sheet.
+String chapterDisplayLabel({double? number, String? rawLabel, String? title}) {
+  if (number != null) {
+    final asInt = number == number.roundToDouble();
+    return '$kChapterNoun ${asInt ? number.round() : number}';
+  }
+  final raw = rawLabel?.trim();
+  if (raw != null && raw.isNotEmpty) return raw;
+  final fallback = title?.trim();
+  return fallback != null && fallback.isNotEmpty ? fallback : kChapterNoun;
 }
 
 /// Work out which series a chapter belongs to, and what to call it.

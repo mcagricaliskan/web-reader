@@ -13,8 +13,8 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
-    // webread/device_storage: free-space + backup exclusion. Kept to two
-    // calls on purpose — see lib/core/device_storage.dart (D30).
+    // webread/device_storage: free-space, device capacity, backup exclusion.
+    // Kept small on purpose — see lib/core/device_storage.dart (D30).
     let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "webread.device_storage")!
     let channel = FlutterMethodChannel(
       name: "webread/device_storage",
@@ -31,6 +31,28 @@ import UIKit
           } else {
             result(nil)
           }
+        } catch {
+          result(nil)
+        }
+      // Total + available for the Library's device-usage indicator. Returns
+      // a map so the two values are read in one call and therefore describe
+      // the same moment — a percentage assembled from two round-trips can
+      // straddle a write and land outside 0...1.
+      case "capacity":
+        do {
+          let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+          let values = try url.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey,
+            .volumeTotalCapacityKey,
+          ])
+          var payload: [String: Any] = [:]
+          if let free = values.volumeAvailableCapacityForImportantUsage {
+            payload["free"] = NSNumber(value: free)
+          }
+          if let total = values.volumeTotalCapacity {
+            payload["total"] = NSNumber(value: total)
+          }
+          result(payload)
         } catch {
           result(nil)
         }

@@ -15,6 +15,7 @@ import 'package:web_reader/library/update_checker.dart';
 import 'package:web_reader/reading/reading_position.dart';
 import 'package:web_reader/reading/reading_repository.dart';
 import 'package:web_reader/providers.dart';
+import 'package:web_reader/ui/status_style.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
 
@@ -156,7 +157,7 @@ void main() {
       expect(seriesRows, findsOneWidget);
       expect(find.textContaining('3 unread'), findsOneWidget);
       // The chapter labels belong on the detail screen, not the library list.
-      expect(find.text('884. Bölüm'), findsNothing);
+      expect(find.text('Chapter 884'), findsNothing);
     });
 
     screenTest('two series on one host appear as two rows', (tester) async {
@@ -191,14 +192,21 @@ void main() {
             .descendant(of: seriesRows.first, matching: find.byType(InkWell))
             .first,
       );
-      await pumpUntil(tester, find.text('883. Bölüm'));
+      await pumpUntil(tester, find.text('Chapter 883'));
 
       expect(lastPushedRoute, '/series/$id');
-      expect(find.text('883. Bölüm'), findsOneWidget);
+      expect(find.text('Chapter 883'), findsOneWidget);
     });
   });
 
   group('continue reading', _continueReadingTests);
+
+  /// The progress ring for one chapter row, so the read state is asserted on
+  /// the real value rather than on which icon happened to be picked.
+  ChapterProgressRing readRing(String chapterId, WidgetTester tester) =>
+      tester.widget<ChapterProgressRing>(
+        find.byKey(ValueKey('progressRing-$chapterId')),
+      );
 
   final chapterRows = find.byWidgetPredicate(
     (w) =>
@@ -207,7 +215,7 @@ void main() {
   );
 
   group('series detail screen', () {
-    screenTest('lists chapters in reading order', (tester) async {
+    screenTest('lists chapters newest first by default', (tester) async {
       final id = await seedSeries();
       await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
       await pumpUntil(tester, chapterRows);
@@ -217,10 +225,10 @@ void main() {
           ((row.key! as ValueKey<String>).value),
       ];
       expect(labels, [
-        'chapterRow-c883-uzay.example',
-        'chapterRow-c884-uzay.example',
         'chapterRow-c885-uzay.example',
-      ]);
+        'chapterRow-c884-uzay.example',
+        'chapterRow-c883-uzay.example',
+      ], reason: 'a reader who is up to date cares about the newest end');
     });
 
     screenTest('shows stored counts and capture status', (tester) async {
@@ -235,9 +243,9 @@ void main() {
     screenTest('a chapter tile opens the offline reader', (tester) async {
       final id = await seedSeries();
       await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, find.text('884. Bölüm'));
+      await pumpUntil(tester, find.text('Chapter 884'));
 
-      await tester.tap(find.text('884. Bölüm'));
+      await tester.tap(find.text('Chapter 884'));
       await pumpUntil(tester, find.text('READER'));
 
       expect(lastPushedRoute, '/reader/c884-uzay.example');
@@ -272,15 +280,25 @@ void main() {
       expect(after.sourceUrl, before.sourceUrl);
     });
 
-    screenTest('a chapter with no local files is not tappable', (tester) async {
+    screenTest('a chapter with no local files offers its source instead', (
+      tester,
+    ) async {
       final id = await seedSeries(chapters: const [883]);
       await db.markChapterContentMissing('c883-uzay.example');
 
       await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
       await pumpUntil(tester, chapterRows);
 
-      final row = tester.widget<InkWell>(chapterRows);
-      expect(row.onTap, isNull, reason: 'nothing to open');
+      await tester.tap(chapterRows);
+      await tester.pumpAndSettle();
+
+      expect(
+        lastPushedRoute,
+        isNull,
+        reason: 'there is nothing to read, so the reader must not open',
+      );
+      expect(find.text('Open on website'), findsOneWidget);
+      expect(find.text('Capture again'), findsOneWidget);
     });
   });
 
@@ -291,14 +309,12 @@ void main() {
       final id = await seedSeries(); // three complete, all unread
 
       await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, find.text('884. Bölüm'));
+      await pumpUntil(tester, find.text('Chapter 884'));
 
       expect(
-        find.byIcon(Icons.check_circle_outline),
-        findsNothing,
-        reason:
-            'the checkmark is the READ vocabulary; capture-complete must '
-            'not borrow it',
+        find.byIcon(Icons.download_for_offline),
+        findsWidgets,
+        reason: 'capture-complete uses the download/offline vocabulary',
       );
       expect(
         find.descendant(
@@ -309,10 +325,11 @@ void main() {
         reason: 'capture-complete uses the download/offline vocabulary',
       );
       expect(
-        find.byKey(const ValueKey('unreadDot-c883-uzay.example')),
-        findsOneWidget,
-        reason: 'unread chapters carry an explicit unread indicator',
+        readRing('c883-uzay.example', tester).completed,
+        isFalse,
+        reason: 'an unread chapter must never render as finished',
       );
+      expect(readRing('c883-uzay.example', tester).fraction, 0);
     });
 
     screenTest('reading a chapter moves only the read indicator', (
@@ -322,9 +339,10 @@ void main() {
       await ReadingRepository(db).markRead('c883-uzay.example');
 
       await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, find.byIcon(Icons.check_circle_outline));
+      await pumpUntil(tester, chapterRows);
 
-      expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
+      expect(readRing('c883-uzay.example', tester).completed, isTrue);
+      expect(readRing('c884-uzay.example', tester).completed, isFalse);
       expect(
         find.descendant(
           of: chapterRows,
@@ -332,10 +350,6 @@ void main() {
         ),
         findsNWidgets(3),
         reason: 'capture state is untouched by reading',
-      );
-      expect(
-        find.byKey(const ValueKey('unreadDot-c883-uzay.example')),
-        findsNothing,
       );
     });
 
@@ -352,7 +366,12 @@ void main() {
       await pumpUntil(tester, find.text('42%'));
 
       expect(find.text('42%'), findsOneWidget);
-      expect(find.byIcon(Icons.check_circle_outline), findsNothing);
+      expect(readRing('c884-uzay.example', tester).completed, isFalse);
+      expect(
+        readRing('c884-uzay.example', tester).fraction,
+        closeTo(0.42, 0.01),
+        reason: 'the ring shows the real value, not a bucketed icon',
+      );
     });
 
     screenTest('the series card counts unread offline chapters', (
@@ -394,9 +413,9 @@ void main() {
       expect((await db.chapterById('bare'))!.readStatus, 'unread');
 
       await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, find.text('990. Bölüm'));
-      expect(find.byKey(const ValueKey('unreadDot-bare')), findsOneWidget);
-      expect(find.byIcon(Icons.check_circle_outline), findsNothing);
+      await pumpUntil(tester, find.text('Chapter 990'));
+      expect(readRing('bare', tester).completed, isFalse);
+      expect(readRing('bare', tester).fraction, 0);
     });
   });
 
@@ -491,7 +510,7 @@ void main() {
       await pumpUntil(tester, find.textContaining('NEW ON SOURCE'));
 
       expect(find.textContaining('SAVED CHAPTERS · 3'), findsOneWidget);
-      expect(find.text('886. Bölüm'), findsOneWidget);
+      expect(find.text('Chapter 886'), findsOneWidget);
       expect(find.textContaining('Capture 1 new chapter'), findsOneWidget);
       expect(find.text('Check now'), findsOneWidget);
 

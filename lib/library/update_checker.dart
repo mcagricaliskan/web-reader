@@ -976,7 +976,8 @@ ChapterListDiscovery discoverFromChapterList(
     newChapters: fresh
         .take(maxNew)
         .map(
-          (c) => DiscoveredChapter(url: c.url, title: c.title, number: c.number),
+          (c) =>
+              DiscoveredChapter(url: c.url, title: c.title, number: c.number),
         )
         .toList(),
     knownSeen: knownSeen,

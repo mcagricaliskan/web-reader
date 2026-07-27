@@ -244,108 +244,112 @@ void main() {
   // asks the pure discovery function what it sees, so the ordering assumptions
   // in D40 are checked against real markup rather than fixtures alone.
   for (final entry in liveSeriesTargets.entries) {
-    testWidgets('live chapter list: ${entry.key}', (tester) async {
-      await bootApp(tester);
+    testWidgets(
+      'live chapter list: ${entry.key}',
+      (tester) async {
+        await bootApp(tester);
 
-      debugPrint('=== ${entry.key} series page :: ${entry.value}');
-      await browser.loadAndWait(
-        entry.value,
-        timeout: const Duration(seconds: 45),
-      );
-      await pumpFor(tester, const Duration(seconds: 4));
-
-      late final PageProbe probe;
-      try {
-        probe = await browser.probe(withLinks: true);
-      } catch (e) {
-        debugPrint('[LIVE][${entry.key}] RESULT: BLOCKED probe failed: $e');
-        return;
-      }
-      if (probe.links.isEmpty) {
-        debugPrint(
-          '[LIVE][${entry.key}] RESULT: BLOCKED series page returned no links',
+        debugPrint('=== ${entry.key} series page :: ${entry.value}');
+        await browser.loadAndWait(
+          entry.value,
+          timeout: const Duration(seconds: 45),
         );
-        return;
-      }
+        await pumpFor(tester, const Duration(seconds: 4));
 
-      final seriesKey = seriesFingerprint(probe.url);
-
-      // Nothing held: what the very first check would see, in list order.
-      final firstEver = discoverFromChapterList(
-        probe,
-        seriesKey: seriesKey,
-        latestKnownNumber: null,
-        knownUrlKeys: const {},
-        maxNew: 500,
-      );
-      debugPrint(
-        '[${entry.key}] links=${probe.links.length} seriesKey=$seriesKey '
-        'listed=${firstEver.newChapters.length} '
-        'direction=${firstEver.direction.name} '
-        'confident=${firstEver.orderingConfident}',
-      );
-      if (firstEver.newChapters.isNotEmpty) {
-        final numbers = firstEver.newChapters
-            .map((c) => c.number)
-            .whereType<double>()
-            .toList();
-        debugPrint(
-          '[${entry.key}] emitted first=${firstEver.newChapters.first.title} '
-          'last=${firstEver.newChapters.last.title} '
-          'numeric=${numbers.length}/${firstEver.newChapters.length}',
-        );
-        // Emission order is the contract: oldest first, whichever way the page
-        // runs. Only checked where numbers exist to check it with.
-        for (var i = 1; i < numbers.length; i++) {
-          expect(
-            numbers[i],
-            greaterThanOrEqualTo(numbers[i - 1]),
-            reason: 'new chapters must be emitted oldest first',
-          );
+        late final PageProbe probe;
+        try {
+          probe = await browser.probe(withLinks: true);
+        } catch (e) {
+          debugPrint('[LIVE][${entry.key}] RESULT: BLOCKED probe failed: $e');
+          return;
         }
-      }
+        if (probe.links.isEmpty) {
+          debugPrint(
+            '[LIVE][${entry.key}] RESULT: BLOCKED series page returned no links',
+          );
+          return;
+        }
 
-      // Now the realistic case: pretend the middle of the list is already
-      // held, and confirm the checkpoint continues upward from there.
-      final listed = firstEver.newChapters;
-      if (listed.length >= 6) {
-        final mid = listed[listed.length ~/ 2];
-        final held = listed
-            .where((c) => (c.number ?? 0) <= (mid.number ?? 0))
-            .toList();
-        final resumed = discoverFromChapterList(
+        final seriesKey = seriesFingerprint(probe.url);
+
+        // Nothing held: what the very first check would see, in list order.
+        final firstEver = discoverFromChapterList(
           probe,
           seriesKey: seriesKey,
-          latestKnownNumber: mid.number,
-          knownUrlKeys: {for (final c in held) normalizeUrl(c.url)},
+          latestKnownNumber: null,
+          knownUrlKeys: const {},
           maxNew: 500,
         );
         debugPrint(
-          '[${entry.key}] resuming from ${mid.title}: '
-          'recognised=${resumed.listRecognised} '
-          'known=${resumed.knownSeen} new=${resumed.newChapters.length}',
+          '[${entry.key}] links=${probe.links.length} seriesKey=$seriesKey '
+          'listed=${firstEver.newChapters.length} '
+          'direction=${firstEver.direction.name} '
+          'confident=${firstEver.orderingConfident}',
         );
-        expect(
-          resumed.listRecognised,
-          isTrue,
-          reason: 'a page holding chapters we know is a recognisable list',
-        );
-        for (final c in resumed.newChapters) {
-          final n = c.number;
-          if (n != null && mid.number != null) {
+        if (firstEver.newChapters.isNotEmpty) {
+          final numbers = firstEver.newChapters
+              .map((c) => c.number)
+              .whereType<double>()
+              .toList();
+          debugPrint(
+            '[${entry.key}] emitted first=${firstEver.newChapters.first.title} '
+            'last=${firstEver.newChapters.last.title} '
+            'numeric=${numbers.length}/${firstEver.newChapters.length}',
+          );
+          // Emission order is the contract: oldest first, whichever way the page
+          // runs. Only checked where numbers exist to check it with.
+          for (var i = 1; i < numbers.length; i++) {
             expect(
-              n,
-              greaterThan(mid.number!),
-              reason: 'nothing at or below the checkpoint may be re-reported',
+              numbers[i],
+              greaterThanOrEqualTo(numbers[i - 1]),
+              reason: 'new chapters must be emitted oldest first',
             );
           }
         }
-      }
 
-      debugPrint(
-        '[LIVE][${entry.key}] RESULT: PASSED url=${entry.value} '
-        '(read-only chapter-list ordering probe)',
-      );
-    }, timeout: const Timeout(Duration(minutes: 3)));
+        // Now the realistic case: pretend the middle of the list is already
+        // held, and confirm the checkpoint continues upward from there.
+        final listed = firstEver.newChapters;
+        if (listed.length >= 6) {
+          final mid = listed[listed.length ~/ 2];
+          final held = listed
+              .where((c) => (c.number ?? 0) <= (mid.number ?? 0))
+              .toList();
+          final resumed = discoverFromChapterList(
+            probe,
+            seriesKey: seriesKey,
+            latestKnownNumber: mid.number,
+            knownUrlKeys: {for (final c in held) normalizeUrl(c.url)},
+            maxNew: 500,
+          );
+          debugPrint(
+            '[${entry.key}] resuming from ${mid.title}: '
+            'recognised=${resumed.listRecognised} '
+            'known=${resumed.knownSeen} new=${resumed.newChapters.length}',
+          );
+          expect(
+            resumed.listRecognised,
+            isTrue,
+            reason: 'a page holding chapters we know is a recognisable list',
+          );
+          for (final c in resumed.newChapters) {
+            final n = c.number;
+            if (n != null && mid.number != null) {
+              expect(
+                n,
+                greaterThan(mid.number!),
+                reason: 'nothing at or below the checkpoint may be re-reported',
+              );
+            }
+          }
+        }
+
+        debugPrint(
+          '[LIVE][${entry.key}] RESULT: PASSED url=${entry.value} '
+          '(read-only chapter-list ordering probe)',
+        );
+      },
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
   }
 }

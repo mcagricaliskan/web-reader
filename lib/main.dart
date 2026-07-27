@@ -41,6 +41,10 @@ Future<void> main() async {
       db,
     ).backfillExistingCaptures(log: (m) => debugPrint('[library] $m'));
     if (report.didAnything) debugPrint('[library] backfill: $report');
+    // Rows written blank by an older build: the chapter's own address is what
+    // "Open on website" and "Capture again" both depend on.
+    final urls = await SeriesRepository(db).repairChapterSourceUrls();
+    if (urls > 0) debugPrint('[library] source urls repaired: $urls');
   } catch (e) {
     debugPrint('[library] backfill failed: $e');
   }

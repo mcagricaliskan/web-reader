@@ -176,7 +176,34 @@ class BrowserController extends ChangeNotifier {
 
   void attach(InAppWebViewController controller) {
     _webView = controller;
+    final pending = _pendingUrl;
+    _pendingUrl = null;
+    if (pending != null) unawaited(load(pending));
     notifyListeners();
+  }
+
+  /// A page the app asked for before the WebView existed.
+  ///
+  /// The Browser tab builds its WebView lazily, so "open this chapter's page"
+  /// from the Library arrives with nothing to load into. Held here rather
+  /// than making every caller wait for an attach it cannot observe.
+  String? _pendingUrl;
+
+  /// Show [url] in the Browser, whether or not the tab has been opened yet.
+  ///
+  /// The caller is still responsible for switching to the Browser tab; this
+  /// only guarantees the URL is not dropped when it gets there.
+  /// The queued page, for tests that assert *where* the app tried to go
+  /// without standing up a WebView.
+  @visibleForTesting
+  String? get debugPendingUrl => _pendingUrl;
+
+  Future<void> requestOpen(String url) async {
+    if (_webView == null) {
+      _pendingUrl = url;
+      return;
+    }
+    await load(url);
   }
 
   void detach() {

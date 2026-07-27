@@ -471,6 +471,14 @@ class AppDatabase extends _$AppDatabase {
   Future<void> writeChapterReading(String id, ChaptersCompanion values) =>
       (update(chapters)..where((t) => t.id.equals(id))).write(values);
 
+  /// Narrow writer for the chapter's source address. Separate from every
+  /// other update so that "where did this come from" can only ever be
+  /// changed deliberately.
+  Future<void> writeChapterSource(String id, String sourceUrl) =>
+      (update(chapters)..where((t) => t.id.equals(id))).write(
+        ChaptersCompanion(sourceUrl: Value(sourceUrl)),
+      );
+
   Future<void> writeSeriesReading(String id, LibraryItemsCompanion values) =>
       (update(libraryItems)..where((t) => t.id.equals(id))).write(values);
 
@@ -627,6 +635,12 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> setSetting(String key, String value) =>
       into(settings).insertOnConflictUpdate(Setting(key: key, value: value));
+
+  /// One-shot read. Boot paths and tests want the value now, not the first
+  /// emission of a stream.
+  Future<String?> setting(String key) async => (await (select(
+    settings,
+  )..where((t) => t.key.equals(key))).getSingleOrNull())?.value;
 
   Stream<String?> watchSetting(String key) =>
       (select(settings)..where((t) => t.key.equals(key)))

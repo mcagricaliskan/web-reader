@@ -380,6 +380,8 @@ Future: scheduled/background checking, batched "check all active", change detect
 | **Capture session** | Observe and control one autonomous run | Current chapter/URL · captured count vs. limit · current state · asset progress when known · retry count · last error · Pause / Resume / Retry / Skip / Stop |
 | **Library / Home** | Get back to reading | Continue Reading, New Chapters, Pinned, Recently Read; entry to Active / Dormant / Archive |
 | **Series detail** | Everything about one library item | Title + source · lifecycle · pin/favorite toggles · last read, last completed, latest known · unread count · last check time · *Check for updates* · *Continue reading* · *Capture more* · local chapter list · failed/incomplete captures called out · Archive/Restore · *Delete item* (separated, destructive) |
+| **Episode list** | Find and resume | Newest first by default with a compact sort toggle · number-first labels (`Chapter 487`) · a painted progress ring per row · long press for details |
+| **Chapter (not offline)** | Get it back, or read it at the source | Tapping offers *Open on website* · *Capture again* · *Cancel* — never a dead row and never an empty reader. The chapter stays listed with its history |
 | **Reader** | Read offline | Vertical webtoon view or text view · saved position · prev/next captured chapter · **swipe right to go back to the episode list** · mark read/unread · explicit banner when a chapter is incomplete/failed · explicit state when the next chapter is known but not offline |
 
 **Capture-screen UX considerations** (documented, not implemented device-specifically in the MVP):

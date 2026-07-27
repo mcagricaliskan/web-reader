@@ -307,7 +307,10 @@ void main() {
         [3.0, 4.0, 5.0, 6.0],
         reason: 'sequence runs forward even though the page runs backward',
       );
-      expect(discovered.every((c) => c.discoveryBasis == 'chapterList'), isTrue);
+      expect(
+        discovered.every((c) => c.discoveryBasis == 'chapterList'),
+        isTrue,
+      );
     });
 
     test('an unorderable list does not stop the check early', () async {
@@ -571,11 +574,7 @@ void main() {
         probe,
         seriesKey: '/manga/foo',
         latestKnownNumber: 5,
-        knownUrlKeys: {
-          chapterUrl(2),
-          chapterUrl(3),
-          chapterUrl(5),
-        },
+        knownUrlKeys: {chapterUrl(2), chapterUrl(3), chapterUrl(5)},
       );
 
       expect(result.listRecognised, isTrue);

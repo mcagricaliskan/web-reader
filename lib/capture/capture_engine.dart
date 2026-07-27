@@ -427,7 +427,19 @@ class CaptureEngine {
       staging = null;
 
       final byteSize = await fileStore.chapterByteSize(relativePath);
-      final chapterNumber = parseChapterNumber(title: pageTitle, url: pageUrl);
+      // The page's own headings and breadcrumb tail are read too: some sites
+      // put a clean "Chapter 487" in an <h1> while the <title> carries the
+      // site name and a tagline.
+      final hints = probeWithLinks.seriesHints;
+      final chapterNumber = parseChapterNumber(
+        title: pageTitle,
+        url: pageUrl,
+        extra: [
+          hints.h1,
+          hints.ogTitle,
+          if (hints.breadcrumbs.isNotEmpty) hints.breadcrumbs.last.text,
+        ],
+      );
       await db.upsertChapter(
         Chapter(
           id: chapterId,

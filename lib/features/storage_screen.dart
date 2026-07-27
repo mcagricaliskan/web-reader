@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../app.dart';
+import '../core/device_capacity_provider.dart';
 import '../providers.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
@@ -95,14 +98,15 @@ final storageSummaryProvider = Provider<AsyncValue<StorageSummary>>(
   }),
 );
 
-/// Free space + temporary-file size. A future, not a stream: both are
-/// filesystem reads, wanted once per screen visit rather than per rebuild.
-final storageDeviceProvider = FutureProvider<({int? freeBytes, int tempBytes})>(
-  (ref) async {
-    final free = await ref.watch(captureJobProvider).deviceStorage.freeBytes();
-    final temp = await ref.watch(fileStoreProvider).stagingByteSize();
-    return (freeBytes: free, tempBytes: temp);
-  },
+/// Size of the staging tree, for this screen only.
+///
+/// This one **does** walk a directory, which is why it is scoped to the
+/// Storage screen rather than bundled with the device reading: the Library
+/// header must never wait on a recursive listing to draw a percentage.
+/// Device capacity comes from [deviceCapacityProvider] instead, so the pill
+/// and this screen quote the same number.
+final stagingBytesProvider = FutureProvider<int>(
+  (ref) => ref.watch(fileStoreProvider).stagingByteSize(),
 );
 
 /// Where offline content actually goes, and how to get it back.
@@ -119,7 +123,8 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
   @override
   Widget build(BuildContext context) {
     final summary = ref.watch(storageSummaryProvider);
-    final device = ref.watch(storageDeviceProvider);
+    final capacity = ref.watch(deviceCapacityProvider).value;
+    final staging = ref.watch(stagingBytesProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Storage')),
@@ -127,8 +132,9 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('$e')),
         data: (s) {
-          final free = device.value?.freeBytes;
-          final temp = device.value?.tempBytes ?? 0;
+          final free = capacity?.freeBytes;
+          final usedPercent = capacity?.usedPercent;
+          final temp = staging.value ?? 0;
           final series = [...s.series];
           if (!_sortBySize) {
             series.sort(
@@ -186,6 +192,12 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                       free == null ? '—' : formatBytes(free),
                       'available on device',
                       warn: free != null && free < 1024 * 1024 * 1024,
+                    ),
+                    // The number the Library shows, spelled out where there
+                    // is room for it.
+                    _Metric(
+                      usedPercent == null ? '—' : '$usedPercent%',
+                      'device storage used',
                     ),
                     _Metric(formatBytes(temp), 'temporary files'),
                   ],
@@ -387,7 +399,10 @@ class _TempFilesCard extends ConsumerWidget {
           ),
           onPressed: () async {
             final swept = await ref.read(fileStoreProvider).sweepStaging();
-            ref.invalidate(storageDeviceProvider);
+            ref.invalidate(stagingBytesProvider);
+            unawaited(
+              ref.read(deviceCapacityProvider.notifier).refresh(force: true),
+            );
             if (!context.mounted) return;
             showCleanupToast(
               context,
@@ -565,55 +580,91 @@ class _CleanupRow extends StatelessWidget {
   );
 }
 
-/// The minimal storage entry for the Library header (design: a quiet pill
-/// that only raises its voice when space is short).
+/// The Library header's storage entry: a disk glyph and one number.
+///
+/// Deliberately tiny. It shows **device** usage — not the library's share of
+/// the disk, which would be a different and far less useful fact — and it
+/// reads that from [deviceCapacityProvider], which is one throttled platform
+/// call and nothing else. The previous version watched a provider that also
+/// walked the staging tree, so drawing the Library header waited on a
+/// recursive directory listing.
+///
+/// Fixed width, because a variable-width readout ("1.2 GB free" → "834 MB
+/// free") nudged the Archive and Settings buttons every time it refreshed.
 class StoragePill extends ConsumerWidget {
   const StoragePill({super.key});
 
+  /// Enough for "100%" at 11pt mono, and never more. Sized so nothing beside
+  /// it can move — the number changing must not nudge the buttons next to it.
+  static const double width = 52;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final device = ref.watch(storageDeviceProvider);
-    final free = device.value?.freeBytes;
+    final capacity = ref.watch(deviceCapacityProvider).value;
+    final percent = capacity?.usedPercent;
+    // Low-space warning stays on *free* bytes: 8% left of a small disk is
+    // urgent in a way 92% used does not convey on a large one.
+    final free = capacity?.freeBytes;
     final low = free != null && free < 1024 * 1024 * 1024;
     final critical = free != null && free < 500 * 1024 * 1024;
 
-    final (bg, fg, border) = critical
-        ? (
-            const Color(0xFFF7DDD8),
-            const Color(0xFF8E3B31),
-            const Color(0xFFEBC4BC),
-          )
+    final fg = critical
+        ? const Color(0xFF8E3B31)
         : low
-        ? (
-            const Color(0xFFF8EEDA),
-            const Color(0xFF8A5A1F),
-            const Color(0xFFE8D5B2),
-          )
-        : (Colors.transparent, const Color(0xFF7A756C), Colors.transparent);
+        ? const Color(0xFF8A5A1F)
+        : const Color(0xFF7A756C);
 
-    return Tooltip(
-      message: 'Storage',
-      child: Material(
-        color: bg,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(999),
-          side: BorderSide(color: border),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => LeaveBrowserGuard.push(context, '/storage'),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(9, 6, 11, 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.storage, size: 15, color: fg),
-                const SizedBox(width: 5),
-                Text(
-                  free == null ? 'Storage' : '${formatBytes(free)} free',
-                  style: monoStyle(size: 11, color: fg),
-                ),
-              ],
+    // Unknown capacity shows the glyph alone. Inventing a percentage from a
+    // half-known device is the one thing this must not do.
+    final label = percent == null
+        ? 'Device storage — usage unavailable'
+        : 'Device storage $percent% used';
+
+    return Semantics(
+      button: true,
+      label: label,
+      // The glyph and the bare "72%" say less than the label does, and a
+      // screen reader announcing both says it twice.
+      excludeSemantics: true,
+      child: Tooltip(
+        message: label,
+        child: SizedBox(
+          width: width,
+          height: 40,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => LeaveBrowserGuard.push(context, '/storage'),
+              customBorder: const CircleBorder(),
+              // Scale-down rather than clip: the box is fixed, so a wider
+              // font (or a text-scale setting) must shrink the number rather
+              // than overflow the header.
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.storage, size: 15, color: fg),
+                  if (percent != null) ...[
+                    const SizedBox(width: 3),
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          '$percent%',
+                          maxLines: 1,
+                          style: monoStyle(
+                            size: 11,
+                            color: fg,
+                            weight: critical || low
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),

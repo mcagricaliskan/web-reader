@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../reading/reading_position.dart';
@@ -75,6 +77,126 @@ class CaptureGlyph extends StatelessWidget {
 
 /// Read-state indicator. Unread is a small filled dot, in-progress a partial
 /// ring with its percentage beside it, finished a hollow check.
+/// The episode list's progress pie, driven by the real reading fraction.
+///
+/// A painter rather than a set of range icons: the design's pie is a
+/// continuous quantity, and bucketing it into "quarter / half / three
+/// quarters" would show 51% and 74% as the same picture. One filled wedge from
+/// twelve o'clock clockwise, on a quiet ring.
+///
+/// Cheap by construction — two `drawArc` calls, no animation, no layout — so
+/// it costs nothing to have one per row in a long list.
+class ChapterProgressRing extends StatelessWidget {
+  const ChapterProgressRing({
+    super.key,
+    required this.fraction,
+    required this.completed,
+    this.size = 18,
+  });
+
+  /// 0..1. Callers pass [readProgressFor]'s output, so a completed chapter is
+  /// already pinned at 1 (D39).
+  final double fraction;
+
+  /// Drawn as a full disc with a check, whatever [fraction] says. The two
+  /// always agree in practice; if they ever disagree, "finished" is the fact
+  /// the user asserted and the fraction is the one that drifted.
+  final bool completed;
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = completed ? 1.0 : fraction.clamp(0.0, 1.0);
+    final percent = (value * 100).round();
+    return Semantics(
+      label: completed
+          ? 'Read · 100%'
+          : percent == 0
+          ? 'Unread · 0%'
+          : 'Reading progress $percent%',
+      excludeSemantics: true,
+      child: SizedBox.square(
+        dimension: size,
+        child: CustomPaint(
+          painter: _ProgressRingPainter(
+            fraction: value,
+            completed: completed,
+            track: _ringTrack,
+            fill: _ringFill,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The unfilled part of the ring: present at 0% so an unread chapter reads as
+/// "nothing yet", not as "no indicator".
+const Color _ringTrack = Color(0xFFD7D2C9);
+
+/// The filled wedge. Near-black, per the design.
+const Color _ringFill = Color(0xFF1B1A18);
+
+class _ProgressRingPainter extends CustomPainter {
+  const _ProgressRingPainter({
+    required this.fraction,
+    required this.completed,
+    required this.track,
+    required this.fill,
+  });
+
+  final double fraction;
+  final bool completed;
+  final Color track;
+  final Color fill;
+
+  static const double _twelveOClock = -math.pi / 2;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final side = math.min(size.width, size.height);
+    final stroke = math.max(1.2, side * 0.1);
+    final centre = Offset(size.width / 2, size.height / 2);
+    final radius = (side - stroke) / 2;
+
+    canvas.drawCircle(
+      centre,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..color = track,
+    );
+
+    if (completed || fraction >= 1) {
+      // Finished: a solid disc. Unmistakably different from 99%.
+      canvas.drawCircle(centre, radius, Paint()..color = fill);
+      return;
+    }
+    if (fraction <= 0) return;
+
+    // The wedge is inset by half a stroke so it sits inside the ring rather
+    // than straddling it.
+    final inner = radius - stroke / 2;
+    if (inner <= 0) return;
+    canvas.drawArc(
+      Rect.fromCircle(center: centre, radius: inner),
+      _twelveOClock,
+      fraction * 2 * math.pi,
+      true,
+      Paint()..color = fill,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ProgressRingPainter old) =>
+      old.fraction != fraction ||
+      old.completed != completed ||
+      old.track != track ||
+      old.fill != fill;
+}
+
 class ReadGlyph extends StatelessWidget {
   const ReadGlyph({super.key, required this.chapter});
 
@@ -106,24 +228,16 @@ class ReadGlyph extends StatelessWidget {
               ),
             ),
           ),
-        switch (status) {
-          ReadStatus.unread => Icon(
-            Icons.circle,
-            key: ValueKey('unreadDot-${chapter.id}'),
-            size: 9,
-            color: _primary,
+        // One component for all three states: the ring IS the state, so an
+        // unread chapter cannot render as finished by picking a wrong icon.
+        ChapterProgressRing(
+          key: ValueKey('progressRing-${chapter.id}'),
+          fraction: readProgressFor(
+            readStatus: chapter.readStatus,
+            stored: chapter.progressFraction,
           ),
-          ReadStatus.inProgress => const Icon(
-            Icons.incomplete_circle,
-            size: 19,
-            color: Color(0xFF5F5B54),
-          ),
-          ReadStatus.completed => const Icon(
-            Icons.check_circle_outline,
-            size: 19,
-            color: Color(0xFFA39D93),
-          ),
-        },
+          completed: status == ReadStatus.completed,
+        ),
       ],
     );
   }

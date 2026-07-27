@@ -108,6 +108,29 @@ class SeriesRepository {
   /// and fills in chapter ordering. No file is moved and no capture state is
   /// touched — `content_path` is stored per chapter and keyed by stable ids, so
   /// regrouping cannot break a stored chapter.
+  /// Restore a chapter's source URL where it went missing.
+  ///
+  /// `chapters.source_url` is NOT NULL and every writer that touches a
+  /// chapter names its columns explicitly, so it survives removal, archive,
+  /// re-download and reading updates by construction. What it does *not*
+  /// survive is a row written blank in the first place — a manifest recovered
+  /// without one, an early build. `url_key` is the normalised form of the
+  /// same address and is written beside it, so it is the honest repair.
+  ///
+  /// Returns how many rows were fixed. Idempotent, and never invents a URL:
+  /// a row with neither stays blank and the UI disables "Open on website".
+  Future<int> repairChapterSourceUrls() async {
+    var fixed = 0;
+    for (final chapter in await db.allChapters()) {
+      if (chapter.sourceUrl.trim().isNotEmpty) continue;
+      final fallback = chapter.urlKey.trim();
+      if (fallback.isEmpty) continue;
+      await db.writeChapterSource(chapter.id, fallback);
+      fixed++;
+    }
+    return fixed;
+  }
+
   Future<BackfillReport> backfillExistingCaptures({
     void Function(String)? log,
   }) async {

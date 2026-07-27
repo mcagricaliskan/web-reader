@@ -198,7 +198,8 @@ void main() {
       expect(
         chapter.progressFraction,
         0,
-        reason: 'completion had forced the bar to 100%; unread empties it '
+        reason:
+            'completion had forced the bar to 100%; unread empties it '
             'again rather than leaving a full bar on an unread chapter',
       );
     });
