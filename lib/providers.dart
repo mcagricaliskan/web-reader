@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +15,7 @@ import 'library/update_checker.dart';
 import 'queue/task_queue.dart';
 import 'reading/reading_repository.dart';
 import 'capture/site_rule.dart';
+import 'storage/cleanup.dart';
 import 'storage/database.dart';
 import 'storage/file_store.dart';
 
@@ -25,8 +28,15 @@ class AppServices {
     required this.captureJob,
     UpdateChecker? updateChecker,
     TaskQueueController? taskQueue,
-  }) : updateChecker =
-           updateChecker ?? UpdateChecker(browser: browser, db: db) {
+    CleanupService? cleanup,
+  }) : updateChecker = updateChecker ?? UpdateChecker(browser: browser, db: db),
+       cleanup =
+           cleanup ??
+           CleanupService(
+             db: db,
+             fileStore: fileStore,
+             captureJob: captureJob,
+           ) {
     this.taskQueue =
         taskQueue ??
         TaskQueueController(
@@ -34,6 +44,7 @@ class AppServices {
           browser: browser,
           captureJob: captureJob,
           checker: this.updateChecker,
+          cleanup: this.cleanup,
         );
   }
 
@@ -42,6 +53,7 @@ class AppServices {
   final BrowserController browser;
   final CaptureJobController captureJob;
   final UpdateChecker updateChecker;
+  final CleanupService cleanup;
   late final TaskQueueController taskQueue;
 }
 
@@ -68,6 +80,34 @@ final captureJobProvider = Provider<CaptureJobController>(
 final updateCheckerProvider = Provider<UpdateChecker>(
   (ref) => ref.watch(appServicesProvider).updateChecker,
 );
+
+/// Falls back to a locally-built service when [appServicesProvider] is not
+/// overridden — widget tests override the database and file store only, and
+/// nothing here needs the whole service graph.
+final cleanupProvider = Provider<CleanupService>((ref) {
+  try {
+    return ref.watch(appServicesProvider).cleanup;
+  } catch (_) {
+    // Widget tests override the database and file store only; the capture
+    // job is genuinely absent there, and cleanup degrades to "no running
+    // capture" rather than demanding the whole service graph.
+    return CleanupService(
+      db: ref.watch(databaseProvider),
+      fileStore: ref.watch(fileStoreProvider),
+    );
+  }
+});
+
+/// The persisted "after finishing a chapter" preference (default: ask).
+final afterFinishedPrefProvider = StreamProvider<AfterFinishedPref>(
+  (ref) => ref
+      .watch(databaseProvider)
+      .watchSetting(kAfterFinishedPrefKey)
+      .map(afterFinishedFromName),
+);
+
+Future<void> setAfterFinishedPref(WidgetRef ref, AfterFinishedPref pref) =>
+    ref.read(databaseProvider).setSetting(kAfterFinishedPrefKey, pref.name);
 
 final taskQueueProvider = Provider<TaskQueueController>(
   (ref) => ref.watch(appServicesProvider).taskQueue,
@@ -118,7 +158,14 @@ Future<void> setLibrarySort(WidgetRef ref, LibrarySort sort) =>
 final allSeriesGroupsProvider = StreamProvider<List<SeriesGroup>>((ref) {
   final db = ref.watch(databaseProvider);
   final sort = ref.watch(librarySortProvider).value ?? LibrarySort.lastRead;
-  return db.watchLibraryItems().asyncMap((items) async {
+  // BOTH tables, genuinely. Drift invalidates per table, so watching only
+  // library_items missed chapter-only writes — removing a chapter's offline
+  // files left the shelf and the Storage screen showing stale sizes until
+  // something happened to touch a series row.
+  return _mergeTicks([db.watchLibraryItems(), db.watchAllChapters()]).asyncMap((
+    _,
+  ) async {
+    final items = await db.allLibraryItems();
     final chapters = await db.allChapters();
     final byItem = <String, List<Chapter>>{};
     for (final c in chapters) {
@@ -131,6 +178,40 @@ final allSeriesGroupsProvider = StreamProvider<List<SeriesGroup>>((ref) {
     return sortSeriesGroups(groups, sort);
   });
 });
+
+/// Emit a tick whenever ANY of [sources] emits.
+///
+/// A hand-rolled merge rather than `package:async`'s StreamGroup: that
+/// package is only a transitive dependency here, and this is a few lines.
+///
+/// `sync: true` matters. Drift delivers each query stream's first value in a
+/// microtask; forwarding it through an async controller adds another event-
+/// loop hop, which a widget test's fake clock never turns — the library
+/// screen simply never left its loading state.
+Stream<void> _mergeTicks(List<Stream<Object?>> sources) {
+  final subscriptions = <StreamSubscription<Object?>>[];
+  late final StreamController<void> controller;
+  controller = StreamController<void>.broadcast(
+    sync: true,
+    onListen: () {
+      for (final source in sources) {
+        subscriptions.add(
+          source.listen(
+            (_) => controller.add(null),
+            onError: controller.addError,
+          ),
+        );
+      }
+    },
+    onCancel: () {
+      for (final s in subscriptions) {
+        unawaited(s.cancel());
+      }
+      subscriptions.clear();
+    },
+  );
+  return controller.stream;
+}
 
 /// The library: active series only (M16 — archived ones live on their own
 /// screen and are excluded from checks).

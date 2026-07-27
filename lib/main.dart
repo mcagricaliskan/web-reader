@@ -6,6 +6,7 @@ import 'browser/browser_controller.dart';
 import 'capture/capture_job.dart';
 import 'core/device_storage.dart';
 import 'providers.dart';
+import 'reading/reading_repository.dart';
 import 'storage/database.dart';
 import 'library/series_repository.dart';
 import 'storage/file_store.dart';
@@ -42,6 +43,15 @@ Future<void> main() async {
     if (report.didAnything) debugPrint('[library] backfill: $report');
   } catch (e) {
     debugPrint('[library] backfill failed: $e');
+  }
+
+  // Completed chapters written before the completed-is-100% rule can sit at
+  // any fraction. Rows only, and idempotent.
+  try {
+    final fixed = await ReadingRepository(db).repairCompletedProgress();
+    if (fixed > 0) debugPrint('[reading] completed progress repaired: $fixed');
+  } catch (e) {
+    debugPrint('[reading] completed-progress repair failed: $e');
   }
 
   final browser = BrowserController();

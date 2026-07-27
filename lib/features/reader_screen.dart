@@ -6,13 +6,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../capture/capture_preflight.dart';
+import '../core/config.dart';
 import '../providers.dart';
 import '../reading/reading_position.dart';
 import '../reading/reading_repository.dart';
+import '../storage/cleanup.dart';
 import '../storage/database.dart';
 import '../storage/file_store.dart';
 import '../storage/manifest.dart';
 import '../storage/manifest_repair.dart';
+import 'cleanup_dialogs.dart';
+import 'library_screen.dart' show formatBytes, formatRelative;
 import 'series_detail_screen.dart' show sortChaptersForReading;
 
 /// How long the reader waits before writing a scroll position.
@@ -21,6 +26,17 @@ import 'series_detail_screen.dart' show sortChaptersForReading;
 /// loses a whole session to a crash. A short debounce plus an unconditional
 /// flush on close and on lifecycle change bounds the loss to this window.
 const Duration kProgressSaveInterval = Duration(seconds: 2);
+
+/// Blank space above the first panel, so content starts below the top chrome
+/// instead of under it (design: a 104px lead-in).
+const double kReaderTopSpacer = 104;
+
+/// The partial-capture banner scrolls with the content, so its height is part
+/// of the leading extent. Fixed rather than measured: the copy is short and
+/// known, and a variable leading extent would make the restore offset
+/// unknowable before layout — which is exactly what lets the reader open AT
+/// the saved position instead of jumping there afterwards.
+const double kPartialBannerExtent = 88;
 
 /// Vertical image reader over **local files only**.
 ///
@@ -53,16 +69,31 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   ReadingPosition get _position => _livePosition.value;
   set _position(ReadingPosition value) => _livePosition.value = value;
 
+  /// Height of everything above panel 1 inside the scroll view. Every
+  /// offset conversion goes through this, in both directions.
+  double _leadingExtent = kReaderTopSpacer;
+
+  /// Where the chapter was restored to, so the jump chip can offer a way
+  /// back once the reader has wandered off. The position is what the chip
+  /// scrolls to (the anchor is what restore actually used); the fraction is
+  /// what it shows.
+  ReadingPosition _restoredPosition = ReadingPosition.start;
+  double get _restoredFraction => _restoredPosition.fraction;
+
   Timer? _saveTimer;
   DateTime? _pastThresholdSince;
   bool _completed = false;
   bool _restored = false;
   String? _chapterId;
 
+  /// The series this chapter belongs to — the destination of the swipe-back.
+  String? _seriesId;
+
   /// Held in a field, not read through `ref`, because the last flush runs
   /// from [dispose] — where Riverpod forbids `ref`. Reading it there threw,
   /// which silently lost the final position on every ordinary reader close.
   late final ReadingRepository _reading;
+  late final CleanupService _cleanup;
 
   static const _policy = kDefaultCompletionPolicy;
 
@@ -71,7 +102,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _reading = ref.read(readingRepositoryProvider);
+    _cleanup = ref.read(cleanupProvider);
     _chapterId = widget.chapterId;
+    // The open chapter is locked against offline-file removal for as long
+    // as this screen exists.
+    _cleanup.openReaderChapterId.value = widget.chapterId;
     _future = _load(widget.chapterId);
   }
 
@@ -83,6 +118,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     unawaited(_flush());
     _scrollController?.dispose();
     _livePosition.dispose();
+    if (_cleanup.openReaderChapterId.value == _chapterId) {
+      _cleanup.openReaderChapterId.value = null;
+    }
     super.dispose();
   }
 
@@ -105,12 +143,30 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return const _ReaderData.unavailable('This chapter is no longer listed.');
     }
     final relative = chapter.contentPath;
+    if (relative == null && chapter.offlineRemovedAt != null) {
+      // The USER removed these files. That is a state, not a failure —
+      // nothing gets demoted, and the copy says "capture again", not
+      // "something went wrong".
+      return _ReaderData.unavailable(
+        'You removed this chapter\'s offline files. It\'s still in your '
+        'library with your reading history — capture it again to read it '
+        'here.',
+        filesGone: true,
+        removedByUser: true,
+        unavailableMeta:
+            'removed ${formatRelative(chapter.offlineRemovedAt)}'
+            '${chapter.detectedImageCount > 0 ? ' · ${chapter.detectedImageCount} panels' : ''}',
+        unavailableChapter: chapter,
+      );
+    }
     if (relative == null || !store.chapterExists(relative)) {
       await db.markChapterContentMissing(chapter.id);
       return _ReaderData.unavailable(
         'The local files for "${chapter.title}" are gone. The chapter is '
         'still listed, but it is not available offline.',
         filesGone: true,
+        unavailableMeta: '0 of ${chapter.detectedImageCount} files present',
+        unavailableChapter: chapter,
       );
     }
 
@@ -163,6 +219,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     _position = reading.positionOf(chapter);
     _completed = chapter.readStatus == ReadStatus.completed.name;
+    _seriesId = chapter.libraryItemId;
 
     return _ReaderData(
       chapter: chapter,
@@ -170,6 +227,90 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       pages: pages,
       siblings: siblings,
     );
+  }
+
+  // --- finished-chapter cleanup ---------------------------------------------
+
+  /// The chapter being left, when this transition qualifies for the
+  /// finished-chapter cleanup flow — otherwise null.
+  ///
+  /// Every condition here is a guard the spec names: only a *completed*
+  /// chapter, only *forward* movement to a different chapter, only when the
+  /// files actually exist locally, only when nothing else is using them, and
+  /// only when the target is genuinely openable. Closing the reader, moving
+  /// backwards, re-opening the same chapter, a partially-read chapter, or one
+  /// with no local files all fall through to null.
+  Future<Chapter?> _finishedChapterLeavingFor(Chapter target) async {
+    final leavingId = _chapterId;
+    if (leavingId == null || leavingId == target.id) return null;
+    if (!_completed) return null;
+
+    final db = ref.read(databaseProvider);
+    final leaving = await db.chapterById(leavingId);
+    if (leaving == null) return null;
+    if (leaving.readStatus != ReadStatus.completed.name) return null;
+    if (!_cleanup.isRemovable(leaving)) return null;
+
+    // Forward only: reading order, not tap order.
+    final ordered = sortChaptersForReading(
+      await db.chaptersForItem(leaving.libraryItemId),
+    );
+    final from = ordered.indexWhere((c) => c.id == leaving.id);
+    final to = ordered.indexWhere((c) => c.id == target.id);
+    if (from < 0 || to < 0 || to <= from) return null;
+
+    // The target must be openable, or removing the old one strands the user.
+    if (target.contentPath == null) return null;
+    return leaving;
+  }
+
+  /// Apply the stored preference to the chapter just left behind.
+  Future<void> _afterFinished(Chapter leaving) async {
+    final pref = await ref
+        .read(databaseProvider)
+        .getSetting(kAfterFinishedPrefKey);
+    switch (afterFinishedFromName(pref)) {
+      case AfterFinishedPref.keep:
+        return;
+      case AfterFinishedPref.remove:
+        await _removeFinished(leaving);
+      case AfterFinishedPref.ask:
+        if (!mounted) return;
+        final choice = await showFinishedChapterDialog(
+          context: context,
+          chapter: leaving,
+        );
+        if (choice == null) return; // dismissed: safest is to keep
+        if (choice.rememberChoice) {
+          await ref
+              .read(databaseProvider)
+              .setSetting(
+                kAfterFinishedPrefKey,
+                choice.remove
+                    ? AfterFinishedPref.remove.name
+                    : AfterFinishedPref.keep.name,
+              );
+        }
+        if (choice.remove) await _removeFinished(leaving);
+    }
+  }
+
+  /// Remove and offer an undo. A failure here never blocks reading — the new
+  /// chapter is already open; the worst case is that files stay.
+  Future<void> _removeFinished(Chapter leaving) async {
+    try {
+      final result = await _cleanup.removeOffline([leaving.id]);
+      if (!mounted || result.removed == 0) return;
+      showCleanupToast(
+        context,
+        text:
+            '${leaving.chapterLabel ?? leaving.title} removed offline · '
+            '${formatBytes(result.freedBytes)} freed',
+        undo: result.canUndo ? result.undo.undo : null,
+      );
+    } catch (e) {
+      debugPrint('[cleanup] finished-chapter removal failed: $e');
+    }
   }
 
   // --- position ------------------------------------------------------------
@@ -191,7 +332,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
     _layout = layout;
 
-    final initial = _restored ? 0.0 : layout.offsetForPosition(_position);
+    final initial = _restored
+        ? 0.0
+        : _leadingExtent + layout.offsetForPosition(_position);
+    if (!_restored) _restoredPosition = _position;
     _restored = true;
 
     _scrollController?.dispose();
@@ -207,10 +351,25 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (controller == null || layout == null || !controller.hasClients) return;
 
     final viewportHeight = controller.position.viewportDimension;
+    // Panel geometry starts after the lead-in; convert before asking the
+    // layout where we are.
+    final panelOffset = (controller.offset - _leadingExtent).clamp(
+      0.0,
+      double.infinity,
+    );
     _position = layout.positionForOffset(
-      controller.offset,
+      panelOffset,
       viewportHeight: viewportHeight,
     );
+
+    // The jump chip earns its place only when the reader is genuinely
+    // somewhere else — a chip pointing at where you already are is noise.
+    final drifted =
+        _restoredFraction > 0.02 &&
+        (_position.fraction - _restoredFraction).abs() > 0.12;
+    if (drifted != _showJump && mounted) {
+      setState(() => _showJump = drifted);
+    }
 
     // Completion needs dwell: a fling to the bottom is not reading.
     if (_policy.reachedEnd(_position.fraction)) {
@@ -251,6 +410,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final id = _chapterId;
     if (id == null) return;
     final reading = _reading;
+    // A debounced save queued before the tap would land after it and write
+    // the status straight back. The user's explicit choice is the newer
+    // fact, so the pending write is dropped rather than allowed to race.
+    _saveTimer?.cancel();
+    _saveTimer = null;
     if (_completed) {
       await reading.markUnread(id);
       _completed = false;
@@ -266,8 +430,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// is the obvious way to get this wrong.
   Future<void> _goTo(Chapter target) async {
     await _flush();
+    final leaving = await _finishedChapterLeavingFor(target);
     _saveTimer?.cancel();
     _scrollController?.removeListener(_onScroll);
+    // The lock follows the reader: the chapter being LEFT is no longer open,
+    // and the one arriving is. Without this the chapter just finished stays
+    // locked against its own cleanup.
+    _cleanup.openReaderChapterId.value = target.id;
     setState(() {
       _chapterId = target.id;
       _restored = false;
@@ -277,11 +446,129 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _position = ReadingPosition.start;
       _future = _load(target.id);
     });
+    // Navigation is secured (the new chapter is already loading and the lock
+    // has moved) before anything is removed — the chapter the user is now
+    // looking at can never be the one cleaned up.
+    if (leaving != null) unawaited(_afterFinished(leaving));
+  }
+
+  // --- leaving for the episode list ----------------------------------------
+
+  /// Accumulated travel of the drag currently in flight, used to decide
+  /// whether it was meant horizontally.
+  Offset _dragTravel = Offset.zero;
+
+  /// A right-swipe must clear this much horizontal distance…
+  static const double _kSwipeDistance = 72;
+
+  /// …or be flicked at least this fast (logical px/s)…
+  static const double _kSwipeVelocity = 420;
+
+  /// …and in either case be at least this much more horizontal than vertical.
+  /// Reading is a vertical gesture; anything ambiguous belongs to the scroll
+  /// view, not to navigation.
+  static const double _kSwipeRatio = 2;
+
+  void _onDragStart(DragStartDetails _) => _dragTravel = Offset.zero;
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    _dragTravel += details.delta;
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    final dx = _dragTravel.dx;
+    final dy = _dragTravel.dy;
+    _dragTravel = Offset.zero;
+    // Rightwards only: a left-swipe means nothing here, and treating it as
+    // "back" would fire on any sloppy drag.
+    if (dx <= 0) return;
+    if (dx.abs() <= dy.abs() * _kSwipeRatio) return;
+    final velocity = details.velocity.pixelsPerSecond;
+    final decisive =
+        dx >= _kSwipeDistance ||
+        (velocity.dx >= _kSwipeVelocity &&
+            velocity.dx.abs() > velocity.dy.abs() * _kSwipeRatio);
+    if (!decisive) return;
+    unawaited(_leaveToSeries());
+  }
+
+  /// Swipe right: back to this series' episode list.
+  ///
+  /// The position is flushed **before** navigating — this is a way out of the
+  /// reader like any other, and losing the last few seconds of scroll because
+  /// the user left by gesture rather than by button would be indefensible.
+  ///
+  /// Where it lands is the same either way. If the episode list is already the
+  /// route underneath, pop onto it; otherwise (opened from Continue Reading,
+  /// Activity, a deep link) replace the reader with it. Both leave exactly one
+  /// episode-list route on the stack, so repeated in-and-out never piles up.
+  Future<void> _leaveToSeries() async {
+    final seriesId = _seriesId;
+    if (seriesId == null) return;
+    await _flush();
+    if (!mounted) return;
+
+    final target = '/series/$seriesId';
+    final matches = GoRouter.of(
+      context,
+    ).routerDelegate.currentConfiguration.matches;
+    final below = matches.length >= 2 ? matches[matches.length - 2] : null;
+    if (below != null && below.matchedLocation == target) {
+      context.pop();
+    } else {
+      context.pushReplacement(target);
+    }
   }
 
   /// Chrome starts visible so the way out is never hidden, then gets out of
   /// the way on the first tap. Tapping the page toggles it.
   bool _chromeVisible = true;
+
+  /// True once the reader has scrolled far enough from the restored position
+  /// that offering a way back is useful rather than confusing.
+  bool _showJump = false;
+
+  /// Bring a chapter back that has no local files — the same queued capture
+  /// as anywhere else, so it shows up in Activity like any other run.
+  Future<void> _captureAgain(Chapter chapter) async {
+    await ref
+        .read(taskQueueProvider)
+        .enqueueCapture(
+          startUrl: chapter.sourceUrl,
+          chapterLimit: 1,
+          libraryItemId: chapter.libraryItemId,
+          policy: DuplicatePolicy.replaceAll,
+          range: CaptureRangeMode.currentChapter,
+        );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Capturing this chapter — progress in Activity'),
+      ),
+    );
+  }
+
+  /// Re-capture this chapter to fill in the panels a partial capture missed.
+  /// The queue owns the work; the Browser is where it becomes visible.
+  Future<void> _retryMissing(_ReaderData data) async {
+    final chapter = data.chapter;
+    if (chapter == null) return;
+    await ref
+        .read(taskQueueProvider)
+        .enqueueCapture(
+          startUrl: chapter.sourceUrl,
+          chapterLimit: 1,
+          libraryItemId: chapter.libraryItemId,
+          policy: DuplicatePolicy.retryPartial,
+          range: CaptureRangeMode.currentChapter,
+        );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Re-capturing the missing panels — progress in Activity'),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -295,9 +582,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           }
           final data = snapshot.data;
           if (data == null || data.unavailableReason != null) {
+            final missing = data?.unavailableChapter;
             return _Unavailable(
               message: data?.unavailableReason ?? 'Could not open the chapter.',
               filesGone: data?.filesGone ?? false,
+              removedByUser: data?.removedByUser ?? false,
+              meta: data?.unavailableMeta,
+              onCaptureAgain: missing == null
+                  ? null
+                  : () => _captureAgain(missing),
             );
           }
           if (data.pages.isEmpty) {
@@ -310,46 +603,77 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           final width = MediaQuery.of(context).size.width;
           final controller = _controllerFor(data, width);
 
+          final partial = manifest.status == CaptureStatus.partial;
+          _leadingExtent =
+              kReaderTopSpacer + (partial ? kPartialBannerExtent : 0);
+
           return Stack(
             children: [
-              // The panel list runs edge to edge under the chrome. No leading
-              // padding: the saved offset is measured against panel geometry
-              // alone, so anything inserted above panel 1 would shift every
-              // restored position.
-              Column(
-                children: [
-                  if (manifest.status == CaptureStatus.partial)
-                    _PartialBanner(
-                      stored: manifest.storedImageCount,
-                      detected: manifest.detectedImageCount,
-                      reason: manifest.statusReason,
-                    ),
-                  Expanded(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () =>
-                          setState(() => _chromeVisible = !_chromeVisible),
-                      child: ListView.builder(
-                        controller: controller,
-                        // One extra row: the end-of-chapter block. Trailing
-                        // content cannot move any panel's offset.
-                        itemCount: data.pages.length + 1,
-                        itemBuilder: (context, index) =>
-                            index == data.pages.length
-                            ? _EndOfChapter(
-                                data: data,
-                                chapterId: _chapterId!,
-                                onGoTo: _goTo,
-                              )
-                            : _PanelView(
-                                page: data.pages[index],
-                                index: index + 1,
-                                height: _layout?.heightOf(index),
-                              ),
-                      ),
-                    ),
-                  ),
-                ],
+              // Everything above panel 1 lives INSIDE the scroll view, so the
+              // banner scrolls away with the content instead of permanently
+              // eating a band of the page. Its extent is a known constant,
+              // and every offset conversion goes through [_leadingExtent].
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() => _chromeVisible = !_chromeVisible),
+                // Horizontal-only recogniser: it and the list's vertical drag
+                // enter the same arena, so a reading scroll never reaches it
+                // and a deliberate sideways drag never scrolls the page.
+                onHorizontalDragStart: _onDragStart,
+                onHorizontalDragUpdate: _onDragUpdate,
+                onHorizontalDragEnd: _onDragEnd,
+                child: ListView.builder(
+                  controller: controller,
+                  // The lead-in is list PADDING, not a child: padding adds its
+                  // extent exactly, while a short first child would skew
+                  // ListView's running estimate of total extent and leave the
+                  // scrollable's own maxScrollExtent short of the real bottom.
+                  padding: const EdgeInsets.only(top: kReaderTopSpacer),
+                  // One trailing row for the end-of-chapter block, plus the
+                  // partial banner when there is one.
+                  itemCount: data.pages.length + 1 + (partial ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (partial && index == 0) {
+                      return _PartialBanner(
+                        stored: manifest.storedImageCount,
+                        detected: manifest.detectedImageCount,
+                        reason: manifest.statusReason,
+                        onRetry: () => _retryMissing(data),
+                      );
+                    }
+                    final panel = index - (partial ? 1 : 0);
+                    if (panel == data.pages.length) {
+                      return _EndOfChapter(
+                        data: data,
+                        chapterId: _chapterId!,
+                        onGoTo: _goTo,
+                      );
+                    }
+                    return _PanelView(
+                      page: data.pages[panel],
+                      index: panel + 1,
+                      height: _layout?.heightOf(panel),
+                    );
+                  },
+                ),
+              ),
+              // A jump back to where reading left off, offered only once the
+              // reader has actually wandered away from it — the app restores
+              // the position on open, so an always-on chip would point at
+              // where you already are.
+              _JumpToSavedChip(
+                visible: _chromeVisible && _showJump,
+                fraction: _restoredFraction,
+                onTap: () {
+                  final layout = _layout;
+                  if (layout == null) return;
+                  controller.animateTo(
+                    _leadingExtent + layout.offsetForPosition(_restoredPosition),
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOut,
+                  );
+                  setState(() => _showJump = false);
+                },
               ),
               _ReaderChrome(
                 visible: _chromeVisible,
@@ -741,77 +1065,172 @@ class _PanelView extends StatelessWidget {
   }
 }
 
+/// The partial-capture banner. It scrolls away with the content rather than
+/// occupying a permanent band, and its height is a fixed constant because the
+/// restore offset is computed from it before any layout happens.
 class _PartialBanner extends StatelessWidget {
   const _PartialBanner({
     required this.stored,
     required this.detected,
-    this.reason,
+    required this.reason,
+    required this.onRetry,
   });
 
   final int stored;
   final int detected;
   final String? reason;
+  final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    margin: EdgeInsets.fromLTRB(
-      12,
-      MediaQuery.paddingOf(context).top + 96,
-      12,
-      10,
-    ),
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-    decoration: BoxDecoration(
-      color: const Color(0xFF24190A),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0xFF4A3411)),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Icon(Icons.arrow_circle_down, size: 19, color: Color(0xFFE0B463)),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Partial capture — $stored of $detected images',
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFFF0D9A9),
-                ),
+  Widget build(BuildContext context) {
+    final missing = detected - stored;
+    return SizedBox(
+      height: kPartialBannerExtent,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: BoxDecoration(
+          color: const Color(0xFF24190A),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFF4A3411)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(
+              Icons.arrow_circle_down,
+              size: 19,
+              color: Color(0xFFE0B463),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Partial capture — $stored of $detected images',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFF0D9A9),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$missing panel${missing == 1 ? ' is' : 's are'} '
+                    'missing${reason == null ? '' : ' ($reason)'}. '
+                    'You can read the rest now.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      height: 1.45,
+                      color: Color(0xFFBFA478),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                '${detected - stored} panel'
-                '${detected - stored == 1 ? ' is' : 's are'} missing'
-                '${reason == null ? '' : ' ($reason)'}. '
-                'You can read the rest now.',
-                style: const TextStyle(
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: onRetry,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE0B463),
+                foregroundColor: const Color(0xFF2A1D06),
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 6,
+                ),
+                textStyle: const TextStyle(
                   fontSize: 11.5,
-                  height: 1.45,
-                  color: Color(0xFFBFA478),
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ],
+              child: Text('Retry $missing'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "Continue · N%" — the way back to where reading left off.
+class _JumpToSavedChip extends StatelessWidget {
+  const _JumpToSavedChip({
+    required this.visible,
+    required this.fraction,
+    required this.onTap,
+  });
+
+  final bool visible;
+  final double fraction;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return const SizedBox.shrink();
+    return Positioned(
+      right: 14,
+      bottom: 104,
+      child: Material(
+        color: const Color(0xFFE8F1F4),
+        borderRadius: BorderRadius.circular(999),
+        elevation: 6,
+        shadowColor: Colors.black,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.south, size: 18, color: Color(0xFF133845)),
+                const SizedBox(width: 7),
+                Text(
+                  'Continue · ${(fraction * 100).round()}%',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF133845),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 /// The chapter cannot be shown. When its files are gone this is the state the
 /// user actually hits — the row is still in the library, the position is still
 /// saved, and the only thing missing is the bytes.
 class _Unavailable extends StatelessWidget {
-  const _Unavailable({required this.message, this.filesGone = false});
+  const _Unavailable({
+    required this.message,
+    this.filesGone = false,
+    this.removedByUser = false,
+    this.meta,
+    this.onCaptureAgain,
+  });
 
   final String message;
   final bool filesGone;
+
+  /// The user removed the files deliberately: cloud glyph and "Not available
+  /// offline", never the alarming folder_off/"files are gone" wording.
+  final bool removedByUser;
+
+  /// One mono line of fact under the explanation ("removed 3 days ago",
+  /// "0 of 41 files present").
+  final String? meta;
+
+  /// Offered when the chapter can be brought back.
+  final VoidCallback? onCaptureAgain;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -821,16 +1240,20 @@ class _Unavailable extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            filesGone ? Icons.folder_off : Icons.cloud_off,
+            removedByUser
+                ? Icons.cloud
+                : (filesGone ? Icons.folder_off : Icons.cloud_off),
             size: 34,
             color: const Color(0xFF7E7A73),
           ),
           const SizedBox(height: 10),
           if (filesGone)
-            const Text(
-              'The files for this chapter are gone',
+            Text(
+              removedByUser
+                  ? 'Not available offline'
+                  : 'The files for this chapter are gone',
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
                 color: Colors.white,
@@ -840,7 +1263,9 @@ class _Unavailable extends StatelessWidget {
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 280),
             child: Text(
-              filesGone
+              removedByUser
+                  ? message
+                  : filesGone
                   ? 'The chapter is still listed, but its images are not on '
                         'the device any more. Your reading position is kept — '
                         'capture it again to read it.'
@@ -853,15 +1278,51 @@ class _Unavailable extends StatelessWidget {
               ),
             ),
           ),
+          if (meta != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              meta!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'IBM Plex Mono',
+                fontSize: 11,
+                color: Color(0xFF6A665F),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           Builder(
-            builder: (context) => OutlinedButton(
-              onPressed: () => context.pop(),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFFE4E1DA),
-                side: const BorderSide(color: Color(0xFF3A3833)),
-              ),
-              child: const Text('Back to series'),
+            builder: (context) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (onCaptureAgain != null) ...[
+                  FilledButton(
+                    onPressed: onCaptureAgain,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFE8F1F4),
+                      foregroundColor: const Color(0xFF133845),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
+                    ),
+                    child: const Text('Capture again'),
+                  ),
+                  const SizedBox(width: 9),
+                ],
+                OutlinedButton(
+                  onPressed: () => context.pop(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFE4E1DA),
+                    side: const BorderSide(color: Color(0xFF3A3833)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                  ),
+                  child: const Text('Back to series'),
+                ),
+              ],
             ),
           ),
         ],
@@ -891,11 +1352,17 @@ class _ReaderData {
     required this.pages,
     this.siblings = const [],
   }) : unavailableReason = null,
-       filesGone = false;
+       filesGone = false,
+       removedByUser = false,
+       unavailableMeta = null,
+       unavailableChapter = null;
 
   const _ReaderData.unavailable(
     this.unavailableReason, {
     this.filesGone = false,
+    this.removedByUser = false,
+    this.unavailableMeta,
+    this.unavailableChapter,
   }) : chapter = null,
        manifest = null,
        pages = const [],
@@ -907,6 +1374,15 @@ class _ReaderData {
 
   /// The row is intact but its images are not on the device any more.
   final bool filesGone;
+
+  /// …because the user removed them (not because the system lost them).
+  final bool removedByUser;
+
+  /// One line of fact for the unavailable state.
+  final String? unavailableMeta;
+
+  /// The row behind an unavailable chapter, so it can be captured again.
+  final Chapter? unavailableChapter;
 
   /// Locally readable chapters of the same series, in reading order.
   final List<Chapter> siblings;

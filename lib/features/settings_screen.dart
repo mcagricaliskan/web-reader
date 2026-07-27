@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
+import '../app.dart';
 import '../providers.dart';
+import '../storage/cleanup.dart';
 import '../ui/status_style.dart';
+import 'cleanup_dialogs.dart';
 import 'library_screen.dart' show formatBytes;
 
 /// Settings is a list of doors, not a control panel. Everything that changes
@@ -26,20 +28,38 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
-          const SectionLabel('WHAT THIS APP KEEPS'),
+          const SectionLabel('STORAGE'),
           ListTile(
-            leading: const Icon(Icons.folder),
-            title: const Text('Offline storage'),
+            leading: const Icon(Icons.storage),
+            title: const Text('Storage'),
             subtitle: Text(
               chapters == null
                   ? 'Loading…'
-                  : '$offlineChapters chapter${offlineChapters == 1 ? '' : 's'}'
-                        ' · ${formatBytes(storedBytes)} on this device. '
-                        'Excluded from device backup — chapters are '
-                        're-downloadable.',
+                  : '${formatBytes(storedBytes)} used · $offlineChapters '
+                        'chapter${offlineChapters == 1 ? '' : 's'} offline',
             ),
-            isThreeLine: true,
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => LeaveBrowserGuard.push(context, '/storage'),
           ),
+          Consumer(
+            builder: (context, ref, _) {
+              final pref =
+                  ref.watch(afterFinishedPrefProvider).value ??
+                  AfterFinishedPref.ask;
+              return ListTile(
+                leading: const Icon(Icons.auto_delete),
+                title: const Text('After finishing a chapter'),
+                subtitle: Text(switch (pref) {
+                  AfterFinishedPref.ask => 'Ask each time',
+                  AfterFinishedPref.keep => 'Keep offline',
+                  AfterFinishedPref.remove => 'Remove automatically',
+                }),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => showAfterFinishedSheet(context, ref),
+              );
+            },
+          ),
+          const SectionLabel('CAPTURE & SOURCES'),
           ListTile(
             leading: const Icon(Icons.ads_click),
             title: const Text('Saved rules'),
@@ -49,7 +69,7 @@ class SettingsScreen extends ConsumerWidget {
                   : '${rules.length} site${rules.length == 1 ? '' : 's'} taught',
             ),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/rules'),
+            onTap: () => LeaveBrowserGuard.push(context, '/rules'),
           ),
           ListTile(
             leading: const Icon(Icons.list_alt),
@@ -61,7 +81,7 @@ class SettingsScreen extends ConsumerWidget {
                         'bounded to ${ref.read(taskQueueProvider).historyLimit}',
             ),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/activity'),
+            onTap: () => LeaveBrowserGuard.push(context, '/activity'),
           ),
           const Padding(
             padding: EdgeInsets.fromLTRB(20, 18, 20, 8),

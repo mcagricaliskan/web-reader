@@ -589,11 +589,18 @@ Library strip shows the banner with an Open Browser action, wait time does
 not consume the chapter deadline, and a defensive extraction guard refuses
 to store when the final candidate set collapses far below what scrolling saw.
 
-*Why (live-verified).* An offstage WKWebView answers probes with real DOM
-data but zero viewport and a frozen scroll position — reproduced on Asura
-ch137, where it produced an extraction of 8 comment avatars that would have
-been stored as a *complete* chapter. Pausing beats failing: the page and the
-partial run are both still valid.
+*Why (live-verified).* A **never-rendered** WKWebView answers probes with
+real DOM data but zero viewport and a frozen scroll position — reproduced on
+Asura ch137, where it produced an extraction of 8 comment avatars that would
+have been stored as a *complete* chapter. Pausing beats failing: the page
+and the partial run are both still valid.
+
+*Scope (also live-verified).* A once-painted WebView that is merely hidden
+mid-run keeps live metrics on the Simulator and the capture correctly
+continues — the guard is evidence-based (it fires on broken measurements,
+not on tab state), so hiding the browser does not needlessly pause a healthy
+run. Whether a physical device throttles a hidden-but-painted WKWebView is a
+device-checklist item; if it does, the same signals catch it.
 
 ---
 
@@ -631,3 +638,168 @@ no-op (auto-backup's 25 MB cap makes it moot; revisit at release).
 
 *Why.* The audit found no safeguard at any layer, and the maintained-plugin
 options for "one statfs call" are heavier than the channel itself.
+
+---
+
+### D35 — Removing offline files is not deleting a chapter
+
+**Decision.** "Remove offline files" deletes bytes under `library/…` and
+nothing else. The chapter row keeps its series, source URL, ordering,
+reading progress, read/completed marks, timestamps, discovery metadata and
+any user-edited series title; a new `chapters.offlineRemovedAt` records that
+the *user* chose this. The chapter then reads as **"Not available offline —
+capture again"**, never as an error. Permanent metadata deletion is a
+separate concept and is not part of this feature.
+
+*Why.* Space pressure and losing your library are different problems. A
+reader who frees 8 GB should keep every read mark and every place they were.
+
+*Implementation guard.* `CleanupService._writeRemoved` names only the three
+columns that change, so no future edit can widen it by accident.
+
+*Trap found while building.* drift's `insertOnConflictUpdate` treats a null
+field on a data class as *absent*, so nullable columns survive an upsert.
+Both `offlineRemovedAt` and `captureJobs.pauseReason` therefore need explicit
+clearing writers (`clearOfflineRemovedMark`, `clearJobPauseReason`) —
+otherwise a re-captured chapter would still look user-removed, and a resumed
+job would look forever "paused — Browser required".
+
+---
+
+### D36 — Leaving the Browser mid-capture pauses; it never cancels
+
+**Decision.** When a capture is in a phase that genuinely needs a rendered
+WebView (inspecting · scrolling · waiting for page assets · verifying ·
+extracting · detecting next · navigating), leaving the Browser — bottom nav,
+system back, or any route push — asks first: **Stay in Browser** /
+**Leave and pause**. Pausing holds the phase, persists
+`pauseReason = browserHidden` on the job row, and leaves the queue task
+active. Returning resumes automatically once the engine's existing render
+guard (D32) confirms the surface and the page.
+
+**No modal** when: nothing WebView-dependent is running · only downloading or
+committing remains (bytes over HTTP touch no layout) · the run is already
+paused · the capture engine is navigating on its own.
+
+*Why.* The audit proved an unrendered WebView produces garbage measurements
+(avatars stored as chapter panels). Blocking the user from their own library
+is the wrong fix; pausing costs nothing and loses nothing.
+
+---
+
+### D37 — The after-finished cleanup preference, and "Don't ask again"
+
+**Decision.** One persisted setting (`storage.afterFinished`, default **ask**)
+with exactly three values: *Ask each time* · *Keep offline* · *Remove
+automatically*. It applies **only** when the user finishes a chapter and
+moves forward to a different, openable chapter whose files exist and are not
+in use. Closing the reader, moving backward, re-opening, partial reads and
+file-less chapters never trigger it.
+
+`Don't ask again` semantics are exact: without it, the answer applies to that
+chapter only and the next finished chapter asks again; with it, the answer
+*becomes* the preference (Keep → keep offline, Remove → remove
+automatically). Dismissing the dialog keeps the files — the safe default is
+always the preserving one, and Keep is the highlighted action.
+
+*Safeguards on automatic removal.* Cleanup runs only after the next chapter
+is loading and the reader's lock has moved, so the chapter now on screen can
+never be the one removed; the open chapter and anything mid-capture are
+locked; a failure is logged and never blocks reading; a soft delete (rename
+into `tmp/undo-*`) backs the Undo in the toast, and the existing startup
+staging sweep collects anything a crash leaves behind.
+
+*Changing the preference never removes anything retroactively* — bulk removal
+of already-downloaded chapters is a separate, explicit action in Storage.
+
+---
+
+### D38 — The library stream watches every table it reads
+
+**Decision.** `allSeriesGroupsProvider` merges the `library_items` **and**
+`chapters` change streams, rather than watching one and reading the other.
+
+*Why (found by a test, 2026-07-27).* Drift invalidates query streams per
+table. The provider read both tables but subscribed only to `library_items`,
+so a chapters-only write produced no emission — the shelf counts and the
+Storage screen stayed stale until something unrelated happened to touch a
+series row. It went unnoticed because the operations exercised until now
+(capture, mark-read) happen to write a series row as a side effect;
+offline-file removal does not.
+
+*Rule this generalises to.* If a derived stream reads from table A and table
+B, it must subscribe to A and B. A comment claiming "recomputed whenever
+either changes" is not a subscription — this provider had exactly that
+comment while watching one table.
+
+### D39 — A completed chapter is 100% read
+
+**Decision.** `progress_fraction` is pinned to 1 whenever `read_status` is
+`completed`. The rule is applied on write (dwell completion, *Mark as read*,
+and every subsequent progress save), and again on display via
+`readProgressFor()`. The *anchor* (`progress_image_index` +
+`progress_offset_in_image`) keeps following the scroll, so resuming a
+finished chapter still lands where the reader actually is.
+
+*Why.* Progress and completion were two independent facts written by the same
+call. Re-opening a finished chapter and scrolling back — which is what
+re-reading looks like — wrote a lower fraction while leaving the status
+`completed`. The chapter then reported itself 40% read on the Continue card
+and in the series list, which is the sort of number a user cannot argue with
+and cannot fix.
+
+*Corollaries.*
+
+- *Mark as unread* resets the fraction to 0 (and only then), because
+  completion had forced it to 1 and an unread chapter must not show a full
+  bar. The anchor is kept — "unfinished", not "never visited".
+- An explicit mark cancels the reader's pending throttled write first, so a
+  save queued a moment earlier cannot land afterwards and undo the choice.
+- `ReadingRepository.repairCompletedProgress()` runs at boot and brings rows
+  written before this rule into line. Idempotent.
+
+*Rule this generalises to.* When two stored fields encode one user-visible
+fact, one of them is the truth and the other must be derived from it at every
+write *and* every read. Storing both independently means eventually
+displaying the disagreement.
+
+### D40 — Chapter-list ordering is measured, never assumed
+
+**Decision.** Every chapter link on a series page gets a **position** on the
+number line: its own parsed number, or — for an unnumbered one — a value
+interpolated from its numbered neighbours in list order. One comparison then
+decides both novelty (`position > checkpoint`) and emission order (**oldest
+first**), whichever way the page runs. Direction is measured separately from
+DOM order and used only to gate early stopping: an empty result ends the check
+only when the ordering was unambiguous, otherwise the chain walk still gets
+its turn.
+
+*Why.* Most sites list newest first. The previous implementation sorted by
+parsed number and filtered on "above the highest number held", which happened
+to work for plain numbered lists and quietly failed everywhere else: a chapter
+whose label carries no number was discarded outright, and a list we could not
+order still produced a confident "up to date".
+
+*Corollaries.*
+
+- Comparison is on parsed numbers, never text: `385 < 385.5 < 386`.
+- Unnumbered chapters (`Extra`, `Side Story`) are interpolated between their
+  numbered neighbours, so a side story between 386 and 385 lands at 385.5.
+  A link with no numbered neighbour has no position and is never claimed as
+  new. Two guards keep page furniture out: the link must sit inside the
+  numbered run and at the same URL depth as the numbered chapters.
+- **Direction detection is tolerant, and the live probe is why.** The first
+  version required strict monotonicity. Both sites this project verifies
+  against put *First Chapter* / *Latest Chapter* jump links above their list,
+  so every real page came back `unknown` — correct results, but a chain walk
+  on every up-to-date check. It now takes a majority of ≥ 80 % of ordered
+  pairs over ≥ 3 numbered links. Interpolating positions rather than sorting
+  by list index is what makes those same jump links harmless to ordering.
+- `seriesFingerprint` cannot recognise a chapter whose slug is just a word
+  (`/manga/foo/extra` fingerprints as its own series), so discovery also
+  admits a link sitting exactly one path segment below the series. That
+  relaxation is local to discovery; the shared fingerprint is unchanged.
+- The checkpoint is the highest number held **plus** the set of known URL
+  keys, which is what makes "my library starts at chapter 100 of 400" an
+  ordinary check rather than a special case.
+- Chapters cut by `maxNewChapters` are logged, never silently dropped.

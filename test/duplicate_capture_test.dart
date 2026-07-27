@@ -420,8 +420,9 @@ void main() {
       final after = (await db.chapterById('c1'))!;
       expect(after.storedImageCount, 4, reason: 'capture metadata refreshed');
       expect(after.readStatus, 'completed');
-      expect(after.progressFraction, closeTo(0.6, 0.001));
+      expect(after.progressFraction, 1, reason: 'completed reads 100%');
       expect(after.progressImageIndex, 1);
+      expect(after.progressOffsetInImage, closeTo(0.25, 0.001));
       expect(after.completedAt, before.completedAt);
     });
 

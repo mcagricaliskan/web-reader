@@ -144,6 +144,12 @@ class Chapters extends Table {
   /// Confidence of that discovery (high / medium / low).
   TextColumn get discoveryConfidence => text().nullable()();
 
+  /// When the USER removed this chapter's offline files ("free up space").
+  /// Distinct from files the system lost: a removed chapter renders as
+  /// "not available offline — capture again", never as an error. Cleared on
+  /// re-capture.
+  DateTimeColumn get offlineRemovedAt => dateTime().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 
@@ -182,6 +188,11 @@ class CaptureJobs extends Table {
   /// come back as "capture 1 chapter").
   TextColumn get rangeMode =>
       text().withDefault(const Constant('fixedCount'))();
+
+  /// Why a running job is paused (`browserHidden` today; null otherwise).
+  /// Lets Activity say "paused — Browser required" instead of a bare
+  /// "paused", and survives a restart.
+  TextColumn get pauseReason => text().nullable()();
 
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
@@ -285,7 +296,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -351,6 +362,11 @@ class AppDatabase extends _$AppDatabase {
         // old rows read as fixedCount, which is what they were.
         await m.addColumn(captureJobs, captureJobs.rangeMode);
         await m.addColumn(queueTasks, queueTasks.rangeMode);
+      }
+      if (from < 9) {
+        // Storage cleanup + browser-leave (post-design-v2). Additive.
+        await m.addColumn(chapters, chapters.offlineRemovedAt);
+        await m.addColumn(captureJobs, captureJobs.pauseReason);
       }
     },
     beforeOpen: (details) async {
@@ -514,8 +530,22 @@ class AppDatabase extends _$AppDatabase {
           ))
           .getSingleOrNull();
 
+  /// Upsert a chapter row.
+  ///
+  /// Note the drift semantic this rests on: `insertOnConflictUpdate` treats a
+  /// null field on the data class as *absent*, so nullable columns keep their
+  /// previous value. Anything that must be actively cleared needs its own
+  /// narrow writer — see [clearOfflineRemovedMark].
   Future<void> upsertChapter(Chapter chapter) =>
       into(chapters).insertOnConflictUpdate(chapter);
+
+  /// A capture just put files back: the chapter is no longer "removed by the
+  /// user". Without this the marker would outlive the removal and a later
+  /// system-side file loss would be reported as a deliberate removal.
+  Future<void> clearOfflineRemovedMark(String id) =>
+      (update(chapters)..where((t) => t.id.equals(id))).write(
+        const ChaptersCompanion(offlineRemovedAt: Value(null)),
+      );
 
   Future<List<Chapter>> chaptersForItem(String libraryItemId) =>
       (select(chapters)
@@ -559,6 +589,15 @@ class AppDatabase extends _$AppDatabase {
       );
 
   // --- capture jobs -------------------------------------------------------
+
+  /// Clear a job's pause reason. Needed for the same reason as
+  /// [clearOfflineRemovedMark]: `upsertJob` leaves nullable columns alone
+  /// when the data class carries null, so a resumed job would keep looking
+  /// "paused — Browser required" forever.
+  Future<void> clearJobPauseReason(String id) =>
+      (update(captureJobs)..where((t) => t.id.equals(id))).write(
+        const CaptureJobsCompanion(pauseReason: Value(null)),
+      );
 
   Future<void> upsertJob(CaptureJob job) =>
       into(captureJobs).insertOnConflictUpdate(job);

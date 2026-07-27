@@ -163,8 +163,9 @@ void main() {
     await openReader(tester);
 
     // Viewport width 800, panels 800x1200 → each lays out 1200 tall.
-    // Anchor: panel 1 + 25% of it = 1200 + 300.
-    expect(scrollPosition(tester).pixels, closeTo(1500, 1));
+    // Anchor: panel 1 + 25% of it = 1200 + 300, plus the lead-in that keeps
+    // content out from under the top chrome.
+    expect(scrollPosition(tester).pixels, closeTo(kReaderTopSpacer + 1500, 1));
   });
 
   testWidgets('a lifecycle change flushes without waiting for the debounce', (
@@ -241,6 +242,44 @@ void main() {
     expect(chapter.completedAt, isNotNull);
 
     await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('a finished chapter re-read from the top stays at 100%', (
+    tester,
+  ) async {
+    await tester.runAsync(seedChapter);
+    await db.writeChapterReading(
+      'c1',
+      ChaptersCompanion(
+        readStatus: const Value('completed'),
+        completedAt: Value(DateTime(2026, 7, 25)),
+        progressFraction: const Value(1),
+        progressImageIndex: const Value(2),
+        progressOffsetInImage: const Value(0.9),
+      ),
+    );
+
+    await openReader(tester);
+
+    // Back to the beginning to read it again. The scroll is real; the
+    // *completion* is not undone by it.
+    final position = scrollPosition(tester);
+    position.jumpTo(0);
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(seconds: 3)); // let the debounce fire
+
+    final chapter = (await db.chapterById('c1'))!;
+    expect(chapter.readStatus, 'completed');
+    expect(
+      chapter.progressFraction,
+      1,
+      reason: 'finished means 100%, whatever the scroll says',
+    );
+    expect(
+      chapter.progressImageIndex,
+      0,
+      reason: 'the anchor still follows, so resuming lands where they are',
+    );
   });
 
   testWidgets('progress readout is live; persistence stays debounced (M12)', (

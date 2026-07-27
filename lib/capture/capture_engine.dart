@@ -473,6 +473,9 @@ class CaptureEngine {
           discoveryConfidence: existing?.discoveryConfidence,
         ),
       );
+      // Files are back, so the user-removed marker must go (a null on the
+      // data class would be treated as "leave it alone").
+      await db.clearOfflineRemovedMark(chapterId);
       await db.markSeriesCaptured(libraryItemId, manifest.capturedAt);
 
       _time('commit', tPhase);

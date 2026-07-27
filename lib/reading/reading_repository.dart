@@ -84,7 +84,12 @@ class ReadingRepository {
     await db.writeChapterReading(
       chapterId,
       ChaptersCompanion(
-        progressFraction: Value(position.fraction.clamp(0.0, 1.0)),
+        // The anchor keeps following the scroll — resuming a finished chapter
+        // still lands where the reader actually is — but the *fraction* obeys
+        // the completed-is-100% rule.
+        progressFraction: Value(
+          becomesCompleted ? 1.0 : position.fraction.clamp(0.0, 1.0),
+        ),
         progressImageIndex: Value(position.imageIndex),
         progressOffsetInImage: Value(position.offsetInImage.clamp(0.0, 1.0)),
         lastReadAt: Value(now),
@@ -123,20 +128,48 @@ class ReadingRepository {
 
   /// Explicit "I have not read this".
   ///
-  /// Keeps the anchor and fraction: the user is saying it is unfinished, not
-  /// that they were never there, so resuming should still land where they got
-  /// to.
+  /// Keeps the *anchor*: the user is saying it is unfinished, not that they
+  /// were never there, so resuming still lands where they got to. The
+  /// fraction, though, is dropped back to zero when the chapter was
+  /// completed — completion had forced it to 100% (see [readProgressFor]), so
+  /// leaving it there would show a full bar on a chapter marked unread.
   Future<void> markUnread(String chapterId) => _serialized(() async {
     final chapter = await db.chapterById(chapterId);
     if (chapter == null) return;
+    final wasCompleted = chapter.readStatus == ReadStatus.completed.name;
     await db.writeChapterReading(
       chapterId,
-      const ChaptersCompanion(
-        readStatus: Value('unread'),
-        completedAt: Value(null),
+      ChaptersCompanion(
+        readStatus: const Value('unread'),
+        completedAt: const Value(null),
+        progressFraction: wasCompleted
+            ? const Value(0)
+            : const Value.absent(),
+        // Stamped so a progress write that was already in flight when the
+        // user tapped is recognisable as the older one.
+        progressUpdatedAt: Value(DateTime.now()),
       ),
     );
     await _refreshSeries(chapter.libraryItemId);
+  });
+
+  /// Bring existing rows in line with the completed-is-100% rule.
+  ///
+  /// Rows written before the rule existed can hold a completed chapter at any
+  /// fraction. Runs at boot beside [repairSeriesReadingState]; a no-op once
+  /// there is nothing left to fix.
+  Future<int> repairCompletedProgress() => _serialized(() async {
+    var fixed = 0;
+    for (final chapter in await db.allChapters()) {
+      if (chapter.readStatus != ReadStatus.completed.name) continue;
+      if (chapter.progressFraction >= 1) continue;
+      await db.writeChapterReading(
+        chapter.id,
+        const ChaptersCompanion(progressFraction: Value(1)),
+      );
+      fixed++;
+    }
+    return fixed;
   });
 
   ReadingPosition positionOf(Chapter chapter) => ReadingPosition(
@@ -248,7 +281,12 @@ class SeriesReadingState {
 
   bool get allCompleted => chapters.isNotEmpty && unreadCount == 0;
 
-  double get currentProgress => currentChapter?.progressFraction ?? 0;
+  double get currentProgress {
+    final c = currentChapter;
+    return c == null
+        ? 0
+        : readProgressFor(readStatus: c.readStatus, stored: c.progressFraction);
+  }
 }
 
 /// Work out a series' reading state from its chapters.

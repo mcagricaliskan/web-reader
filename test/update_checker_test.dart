@@ -273,6 +273,67 @@ void main() {
     });
   });
 
+  group('series-page checkpoint', () {
+    PageProbe seriesListPage(List<int> chaptersNewestFirst) => PageProbe(
+      url: seriesUrl,
+      title: 'Foo — all chapters',
+      readyState: 'complete',
+      documentHeight: 2000,
+      viewportHeight: 800,
+      links: [
+        for (final n in chaptersNewestFirst)
+          PageLink(href: '/manga/foo/$n', text: 'Chapter $n'),
+      ],
+    );
+
+    test('a newest-first list is recorded oldest first', () async {
+      await seedSeries(withSeriesUrl: seriesUrl);
+      await seedCaptured(1);
+      await seedCaptured(2);
+      browser.addPage(seriesUrl, seriesListPage([6, 5, 4, 3, 2, 1]));
+
+      final outcome = await checker.check('series-1');
+
+      expect(outcome.state, UpdateCheckState.updatesAvailable);
+      expect(outcome.newChapters, 4);
+
+      final discovered =
+          (await db.allChapters())
+              .where((c) => c.captureStatus == 'knownRemote')
+              .toList()
+            ..sort((a, b) => a.sequence.compareTo(b.sequence));
+      expect(
+        discovered.map((c) => c.chapterNumber),
+        [3.0, 4.0, 5.0, 6.0],
+        reason: 'sequence runs forward even though the page runs backward',
+      );
+      expect(discovered.every((c) => c.discoveryBasis == 'chapterList'), isTrue);
+    });
+
+    test('an unorderable list does not stop the check early', () async {
+      await seedSeries(withSeriesUrl: seriesUrl);
+      await seedCaptured(1, nextUrl: chapterUrl(2));
+      await seedCaptured(2);
+      // Recognisable (it shows chapters we hold) but too short to establish an
+      // ordering — so "nothing new here" is not evidence of being up to date.
+      browser.addPage(seriesUrl, seriesListPage([2, 1]));
+      serveChain(2, 3);
+
+      final outcome = await checker.check('series-1');
+
+      expect(
+        outcome.state,
+        UpdateCheckState.updatesAvailable,
+        reason: 'the chain walk got its turn instead of an early up-to-date',
+      );
+      final discovered = (await db.allChapters())
+          .where((c) => c.captureStatus == 'knownRemote')
+          .toList();
+      expect(discovered.single.chapterNumber, 3.0);
+      expect(discovered.single.discoveryBasis, 'nextChain');
+    });
+  });
+
   group('chapter-list discovery (pure)', () {
     PageProbe listProbe(List<PageLink> links) => PageProbe(
       url: seriesUrl,
@@ -324,6 +385,206 @@ void main() {
         reason: 'a 404 or an error page must fall back to the chain walk',
       );
       expect(result.newChapters, isEmpty);
+    });
+
+    test('a newest-first list is read in its own order', () {
+      // What most sites actually serve: chapter 6 at the top, 1 at the bottom.
+      final probe = listProbe([
+        for (var n = 6; n >= 1; n--)
+          PageLink(href: '/manga/foo/$n', text: 'Chapter $n'),
+      ]);
+
+      final result = discoverFromChapterList(
+        probe,
+        seriesKey: '/manga/foo',
+        latestKnownNumber: 3,
+        knownUrlKeys: {chapterUrl(1), chapterUrl(2), chapterUrl(3)},
+      );
+
+      expect(result.direction, ChapterListDirection.newestFirst);
+      expect(result.orderingConfident, isTrue);
+      expect(
+        result.newChapters.map((c) => c.number),
+        [4.0, 5.0, 6.0],
+        reason: 'emitted oldest first so capture runs forward',
+      );
+    });
+
+    test('decimal chapters sort between their neighbours', () {
+      final probe = listProbe([
+        const PageLink(href: '/manga/foo/386', text: 'Chapter 386'),
+        const PageLink(href: '/manga/foo/385-5', text: 'Chapter 385.5'),
+        const PageLink(href: '/manga/foo/385', text: 'Chapter 385'),
+        const PageLink(href: '/manga/foo/384', text: 'Chapter 384'),
+      ]);
+
+      final result = discoverFromChapterList(
+        probe,
+        seriesKey: '/manga/foo',
+        latestKnownNumber: 385,
+        knownUrlKeys: {'$host/manga/foo/385', '$host/manga/foo/384'},
+      );
+
+      expect(
+        result.newChapters.map((c) => c.number),
+        [385.5, 386.0],
+        reason: '385 < 385.5 < 386 — never a string comparison',
+      );
+    });
+
+    test('an unnumbered chapter above the known block is not discarded', () {
+      final probe = listProbe([
+        const PageLink(href: '/manga/foo/5', text: 'Chapter 5'),
+        const PageLink(href: '/manga/foo/extra', text: 'Side Story'),
+        const PageLink(href: '/manga/foo/4', text: 'Chapter 4'),
+        const PageLink(href: '/manga/foo/3', text: 'Chapter 3'),
+        const PageLink(href: '/manga/foo/2', text: 'Chapter 2'),
+        // Page furniture at a different depth: still excluded.
+        const PageLink(href: '/manga/foo', text: 'All chapters'),
+      ]);
+
+      final result = discoverFromChapterList(
+        probe,
+        seriesKey: '/manga/foo',
+        latestKnownNumber: 3,
+        knownUrlKeys: {chapterUrl(2), chapterUrl(3)},
+      );
+
+      expect(
+        result.newChapters.map((c) => c.title),
+        ['Chapter 4', 'Side Story', 'Chapter 5'],
+        reason: 'placed by list position, since it has no number to compare',
+      );
+    });
+
+    test('the same chapter linked twice is recorded once', () {
+      final probe = listProbe([
+        const PageLink(href: '/manga/foo/4', text: 'Chapter 4'),
+        const PageLink(href: '/manga/foo/4', text: 'Chapter 4 (new!)'),
+        const PageLink(href: '/manga/foo/3', text: 'Chapter 3'),
+        const PageLink(href: '/manga/foo/2', text: 'Chapter 2'),
+      ]);
+
+      final result = discoverFromChapterList(
+        probe,
+        seriesKey: '/manga/foo',
+        latestKnownNumber: 3,
+        knownUrlKeys: {chapterUrl(2), chapterUrl(3)},
+      );
+
+      expect(result.newChapters, hasLength(1));
+      expect(result.newChapters.single.number, 4.0);
+    });
+
+    test('a library that starts in the middle continues from there', () {
+      // 400 chapters listed newest first; the user holds 100–105.
+      final probe = listProbe([
+        for (var n = 400; n >= 1; n--)
+          PageLink(href: '/manga/foo/$n', text: 'Chapter $n'),
+      ]);
+
+      final result = discoverFromChapterList(
+        probe,
+        seriesKey: '/manga/foo',
+        latestKnownNumber: 105,
+        knownUrlKeys: {for (var n = 100; n <= 105; n++) chapterUrl(n)},
+        maxNew: 5,
+      );
+
+      expect(
+        result.newChapters.map((c) => c.number),
+        [106.0, 107.0, 108.0, 109.0, 110.0],
+        reason: 'upward from the checkpoint, not from chapter 1',
+      );
+      expect(
+        result.dropped,
+        greaterThan(0),
+        reason: 'the rest are reported, not silently forgotten',
+      );
+    });
+
+    test('shortcut links above the list do not defeat the ordering', () {
+      // What both live sites actually serve: "First Chapter" and "Latest
+      // Chapter" jump links sit above a newest-first list. They break strict
+      // monotonicity, and an earlier version of this went `unknown` on every
+      // real page because of them.
+      final probe = listProbe([
+        const PageLink(href: '/manga/foo/1', text: 'İlk Bölüm'),
+        const PageLink(href: '/manga/foo/8', text: 'En Son Bölüm'),
+        for (var n = 8; n >= 1; n--)
+          PageLink(href: '/manga/foo/$n', text: 'Chapter $n'),
+      ]);
+
+      final result = discoverFromChapterList(
+        probe,
+        seriesKey: '/manga/foo',
+        latestKnownNumber: 6,
+        knownUrlKeys: {for (var n = 1; n <= 6; n++) chapterUrl(n)},
+      );
+
+      expect(result.direction, ChapterListDirection.newestFirst);
+      expect(
+        result.orderingConfident,
+        isTrue,
+        reason: 'a couple of jump links is not an unorderable list',
+      );
+      expect(result.newChapters.map((c) => c.number), [7.0, 8.0]);
+    });
+
+    test('an unnumbered chapter is placed between its neighbours', () {
+      // Ordering by interpolated position, not by list index — so a shortcut
+      // link at the top cannot displace it either.
+      final probe = listProbe([
+        const PageLink(href: '/manga/foo/1', text: 'First Chapter'),
+        const PageLink(href: '/manga/foo/386', text: 'Chapter 386'),
+        const PageLink(href: '/manga/foo/extra', text: 'Side Story'),
+        const PageLink(href: '/manga/foo/385', text: 'Chapter 385'),
+        const PageLink(href: '/manga/foo/384', text: 'Chapter 384'),
+      ]);
+
+      final result = discoverFromChapterList(
+        probe,
+        seriesKey: '/manga/foo',
+        latestKnownNumber: 385,
+        knownUrlKeys: {
+          '$host/manga/foo/1',
+          '$host/manga/foo/384',
+          '$host/manga/foo/385',
+        },
+      );
+
+      expect(
+        result.newChapters.map((c) => c.title),
+        ['Side Story', 'Chapter 386'],
+        reason: 'interpolated to 385.5 — after 385, before 386',
+      );
+    });
+
+    test('an unorderable list is not confident, even when it is a list', () {
+      final probe = listProbe([
+        const PageLink(href: '/manga/foo/2', text: 'Chapter 2'),
+        const PageLink(href: '/manga/foo/5', text: 'Chapter 5'),
+        const PageLink(href: '/manga/foo/3', text: 'Chapter 3'),
+      ]);
+
+      final result = discoverFromChapterList(
+        probe,
+        seriesKey: '/manga/foo',
+        latestKnownNumber: 5,
+        knownUrlKeys: {
+          chapterUrl(2),
+          chapterUrl(3),
+          chapterUrl(5),
+        },
+      );
+
+      expect(result.listRecognised, isTrue);
+      expect(result.newChapters, isEmpty);
+      expect(
+        result.orderingConfident,
+        isFalse,
+        reason: 'nothing new here is a guess, so the caller keeps looking',
+      );
     });
 
     test('respects the maxNew bound', () {

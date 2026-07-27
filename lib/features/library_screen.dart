@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../capture/capture_state.dart';
 import '../library/library_sort.dart';
 import '../library/series_repository.dart';
+import '../app.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../reading/reading_position.dart';
@@ -12,6 +13,7 @@ import '../ui/status_style.dart';
 import '../ui/theme.dart';
 import 'continue_entry.dart';
 import 'series_detail_screen.dart' show sortChaptersForReading;
+import 'storage_screen.dart' show StoragePill;
 import '../storage/database.dart';
 
 /// The library, grouped by series.
@@ -92,17 +94,18 @@ class _LibraryHeader extends ConsumerWidget {
           color: const Color(0xFF5F5B54),
           onPressed: () => _checkAll(context, ref),
         ),
+        const StoragePill(),
         IconButton(
           tooltip: 'Archived',
           icon: const Icon(Icons.inventory_2, size: 22),
           color: const Color(0xFF5F5B54),
-          onPressed: () => context.push('/archived'),
+          onPressed: () => LeaveBrowserGuard.push(context, '/archived'),
         ),
         IconButton(
           tooltip: 'Settings',
           icon: const Icon(Icons.settings, size: 22),
           color: const Color(0xFF5F5B54),
-          onPressed: () => context.push('/settings'),
+          onPressed: () => LeaveBrowserGuard.push(context, '/settings'),
         ),
       ],
     ),
@@ -220,7 +223,7 @@ class _ActivityStrip extends ConsumerWidget {
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => context.push('/activity'),
+          onTap: () => LeaveBrowserGuard.push(context, '/activity'),
           child: Column(
             children: [
               Padding(

@@ -282,8 +282,26 @@ separates finishing a chapter from flinging past the end.
 **Write path.** `lib/reading/reading_repository.dart` is the only writer of
 reading state: `markOpened`, `saveProgress`, `markRead`, `markUnread`, and the
 series-pointer refresh that follows each of them. Scroll writes are debounced
-2 s; `didChangeAppLifecycleState`, chapter change and `dispose` flush
-immediately.
+2 s; `didChangeAppLifecycleState`, chapter change, the right-swipe out, and
+`dispose` flush immediately.
+
+**Completed means 100%, revised 2026-07-27 (D39).** `progress_fraction` is
+pinned to 1 whenever `read_status` is `completed` — on write and again on
+display through `readProgressFor()`, so rows written before the rule read
+correctly too. The anchor keeps following the scroll, so re-reading a finished
+chapter still resumes where the reader is; only the *fraction* is fixed.
+*Mark as unread* resets the fraction to 0 (it had been forced to 1) while
+keeping the anchor, and cancels any pending throttled write so a save queued a
+moment earlier cannot undo the choice. `repairCompletedProgress()` runs at boot
+and is idempotent.
+
+**Leaving by gesture.** A right-swipe in the reader flushes the position and
+goes to the series' episode list. The recogniser is horizontal-only and
+competes with the list's vertical drag in the same arena, plus a distance /
+velocity / 2:1-ratio gate, so ordinary reading never triggers it. If the
+episode list is the route underneath, it pops; otherwise it replaces the
+reader — either way exactly one episode-list route is left on the stack, so
+in-and-out never piles up.
 
 **Schema v4** (additive; no column is dropped or retyped, so an existing
 database migrates in place):
@@ -390,13 +408,35 @@ no `contentPath`, plus `discoveredAt` / `discoveryBasis` /
 discovered → captured → read are three independent facts about one chapter.
 
 **Discovery order.** The series page's chapter list first
-(`discoverFromChapterList`, pure: same-host + same-series-fingerprint +
-numbered links above the latest known; a page that shows neither known
-chapters nor several numbered links is *unrecognised* and falls through — a
-404 must never produce "up to date"). Then a bounded next-chain walk from the
+(`discoverFromChapterList`, pure: same-host + same-series + links beyond the
+checkpoint; a page that shows neither known chapters nor several numbered
+links is *unrecognised* and falls through — a 404 must never produce "up to
+date"). Then a bounded next-chain walk from the
 latest known chapter, through the exact trust chain captures use: saved rule →
 `resolveNextPage` → **ask the user** via the same selection overlay, saving
 the same reusable rule at the same scopes.
+
+**Ordering, revised 2026-07-27 (D40).** Every chapter link gets a *position*
+on the number line — its own parsed number, or one interpolated from its
+numbered neighbours in list order — and one comparison then decides both
+novelty and emission order. New chapters come out oldest-first whichever way
+the page runs, so a run cut by `maxNewChapters` leaves a contiguous block;
+comparison is on parsed numbers, so `385 < 385.5 < 386`; unnumbered chapters
+are interpolated rather than discarded; and an empty result ends the check only
+when the ordering was unambiguous — otherwise the chain walk still runs. The
+checkpoint is the highest number held plus the known URL keys, which makes "my
+library starts at chapter 100 of 400" an ordinary check.
+
+Direction detection is tolerant (≥ 80 % of ordered pairs, ≥ 3 numbered links)
+because the live probe showed both verified sites put *First Chapter* /
+*Latest Chapter* jump links above their list; a strict rule made every real
+page `unknown` and every up-to-date check pay for a chain walk.
+
+Live-verified read-only on 2026-07-27 (`live_site_probe_test.dart`, new
+chapter-list group — no downloads, no rows written): uzaymanga 500 links →
+483 chapters, `newestFirst`, confident; asurascans 141 links → 103 chapters,
+`newestFirst`, confident. Both emitted oldest-first, and resuming from a
+mid-list checkpoint re-reported nothing at or below it.
 
 **Bounds.** 12 pages, 20 new chapters, 3 minutes, per-page navigation timeout,
 cooldown between pages. Stops at end-of-chain, when the next link leaves the
@@ -605,7 +645,11 @@ Implements the verified audit recommendations (see D30–D34):
   update checker holds in its probe helper, and a collapse guard refuses
   extraction when the final candidate set falls far below what scrolling saw
   (the Asura avatar case). Frozen-scroll watchdog stops a pass after 6
-  no-movement steps on a rendered surface.
+  no-movement steps on a rendered surface. Live nuance (verified on Asura):
+  the guard is evidence-based — a once-painted WebView hidden mid-run keeps
+  live metrics on the Simulator and the capture correctly continues; the
+  pause fires only when measurements actually break (never-painted surface,
+  and potentially device-side throttling — a physical-device checklist item).
 - **Adaptive scrolling** — fast lane 3.5 vp / 70 ms after 2 fully-resolved
   probes with the lookahead covering jump+margin; careful lane unchanged;
   stopping contract unchanged; irrelevant pending images (avatars) excluded
@@ -633,6 +677,60 @@ Implements the verified audit recommendations (see D30–D34):
   adaptive-scroll test caught and fixed a real flaw (jump could outrun the
   lookahead) before it shipped. Simulator + live results recorded below and
   in the CLAUDE.md matrix.
+
+### Storage cleanup + Browser-leave flows *(2026-07-27, design v2)*
+
+- **Schema v9** — `chapters.offlineRemovedAt` (user removal, distinct from
+  files the system lost) and `capture_jobs.pauseReason`. Additive.
+- **`lib/storage/cleanup.dart`** — the removal engine. `removeOffline` is a
+  *soft* delete: the chapter directory is renamed into `tmp/undo-<id>` so the
+  toast's Undo is real, finalised after a short window (or swept at startup
+  by the existing staging sweep). `removeOfflineNow` is the hard path for
+  queued bulk work. The DB write names only `contentPath`/`byteSize`/
+  `offlineRemovedAt`, so all other metadata survives by construction (D35).
+  `lockReasonFor` keeps chapters that are open in the reader or mid-capture.
+- **Browser-leave** — `needsRenderedBrowser` on the job is true only for
+  genuinely WebView-dependent phases; `LeaveBrowserGuard` (an
+  InheritedWidget) fronts the bottom nav, system back (`PopScope`) and every
+  route push. Choosing *Leave and pause* calls `pauseForBrowserHidden`,
+  persists the reason, and leaves the queue task active; returning calls
+  `resumeAfterBrowserVisible`, with the engine's existing render guard (D32)
+  doing the surface/page validation. Activity shows a dedicated
+  "paused — Browser required" row with an *Open Browser to resume* action.
+- **Finished-chapter flow** — `_finishedChapterLeavingFor` applies every
+  guard (completed · forward · different chapter · files present · target
+  openable) *before* navigating; cleanup runs *after* the next chapter is
+  loading and the reader lock has moved (D37).
+- **Storage screen** — real totals derived from the same library stream the
+  shelf uses (chapter `byteSize`, no file-tree walk per rebuild); free space
+  and temp-file size as one `FutureProvider` per visit. Per-series rows with
+  size bars, temp-file cleaning, and the two cleanup entry points. Minimal
+  entry: a quiet `StoragePill` in the Library header that only colours when
+  space is low, plus Settings › Storage.
+- **Selection mode lives in Series detail only** — Storage's "Choose chapters
+  to remove" navigates into a series with `?select=1`; the Storage screen
+  never hosts a selection list. Locked chapters render dimmed with a lock and
+  cannot be selected.
+- **Four bugs found and fixed by the new tests**, three of them pre-existing
+  or latent:
+  1. drift's `insertOnConflictUpdate` treats a null field on a data class as
+     *absent*, so a re-captured chapter kept its `offlineRemovedAt` — a later
+     system-side file loss would then have been reported as a deliberate
+     removal. Fixed with an explicit `clearOfflineRemovedMark` writer.
+  2. The same trap left `captureJobs.pauseReason` set after a resume, so a
+     restored job would have looked "paused — Browser required" forever.
+     Fixed with `clearJobPauseReason`.
+  3. The reader's cleanup lock stayed on the chapter being *left*, so
+     automatic removal silently skipped the very chapter it was meant to
+     remove. The lock now moves with the reader.
+  4. **`allSeriesGroupsProvider` only watched `library_items`** despite its
+     own comment claiming both tables. Drift invalidates per table, so any
+     chapters-only write (exactly what cleanup does) left the shelf and the
+     Storage screen stale until something happened to touch a series row.
+     Now merges both table streams. This one predates this batch and
+     affected the whole library, not just cleanup.
+- **Evidence** — 419/419 unit/widget (38 new across `cleanup_test`,
+  `finished_transition_test`, `leave_browser_test`); `flutter analyze` clean.
 
 ---
 
@@ -695,7 +793,7 @@ Fixture paths for manual driving: `/chapter/N` (rel=next), `/tr/N`, `/de/N`,
 
 ### Unit and widget — 314 tests, all passing
 
-`flutter test` → `00:05 +314: All tests passed!`
+`flutter test` → `00:11 +438: All tests passed!`
 
 | File | Tests | Covers |
 |---|---|---|
@@ -716,14 +814,15 @@ Fixture paths for manual driving: `/chapter/N` (rel=next), `/tr/N`, `/de/N`,
 | `series_grouping_test.dart` | 15 | Group resolution, rename semantics, backfill without data loss, chapter ordering |
 | `library_ui_test.dart` | 19 | Grouped list, series detail, rename, **Continue Reading / Recently Read sections and their edge cases** |
 | `reading_position_test.dart` | 15 | Anchor↔fraction, `ChapterLayout` geometry, restore offset, completion threshold + dwell, changed panel count |
-| `reading_repository_test.dart` | 21 | `markOpened` never completes, throttled/flushed writes, mark read/unread, series pointers, **capture ↔ reading isolation**, **write serialization: a stale in-flight save cannot undo a completion** |
+| `reading_repository_test.dart` | 21 | `markOpened` never completes, throttled/flushed writes, mark read/unread, series pointers, **capture ↔ reading isolation**, **write serialization: a stale in-flight save cannot undo a completion**, **completed stays at 100% while the anchor keeps tracking (D39)** |
 | `duplicate_capture_test.dart` | 20 | All six local states, each policy, range skipping, atomic replace + restore, **a job must not collide with itself** |
 | `library_ui_test.dart` (M8 group) | +4 | New Chapters section (count, latest-known vs captured, failed-check surfacing), series detail known-remote separation |
-| `reader_lifecycle_test.dart` | 5 | Restore-at-open offset, lifecycle flush inside the debounce window, **no false completion on kill mid-fling**, dwell completion, manifest repair on open |
+| `reader_lifecycle_test.dart` | 6 | Restore-at-open offset, lifecycle flush inside the debounce window, **no false completion on kill mid-fling**, dwell completion, manifest repair on open, **a finished chapter re-read from the top stays at 100%** |
+| `reader_navigation_test.dart` | 4 | Right-swipe to the episode list, **position flushed before the route changes**, **a reading scroll (or a left-swipe) never triggers it**, pop-not-stack when the episode list is already underneath |
 | `image_dimensions_test.dart` | 12 | PNG/JPEG(+EXIF orientation)/GIF/BMP/WebP(3 variants)/AVIF(`ispe`, largest-wins) headers; truncation and garbage → null |
 | `manifest_repair_test.dart` | 5 | DOM-claim correction from stored files, verify-once, unparseable/missing files left alone, **progress approximately valid across repair** |
 | `session_duplicate_test.dart` | 10 | Mid-run prompt (real loop + real downloads over local HTTP), skip/re-download once vs for-session, stop-not-a-policy, partial actions, **resume keeps session decisions, new job resets**, requested-count semantics, skip bound |
-| `update_checker_test.dart` | 11 | Chain discovery without downloads, no duplicate rows on re-check, persisted failure state, bounds, cancel keeps findings, series-exit stop, mutual exclusion, pure chapter-list discovery |
+| `update_checker_test.dart` | 21 | Chain discovery without downloads, no duplicate rows on re-check, persisted failure state, bounds, cancel keeps findings, series-exit stop, mutual exclusion, pure chapter-list discovery; **newest-first lists recorded oldest-first, decimals (`385 < 385.5 < 386`), unnumbered chapters interpolated between their neighbours, jump links above the list not defeating the ordering, dedup, starting-from-the-middle, and an unorderable list falling through to the chain walk instead of claiming "up to date"** |
 
 ### Integration — real WebView on the iOS Simulator
 

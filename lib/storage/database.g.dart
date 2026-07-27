@@ -1586,6 +1586,18 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _offlineRemovedAtMeta = const VerificationMeta(
+    'offlineRemovedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> offlineRemovedAt =
+      GeneratedColumn<DateTime>(
+        'offline_removed_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1615,6 +1627,7 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
     discoveredAt,
     discoveryBasis,
     discoveryConfidence,
+    offlineRemovedAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1856,6 +1869,15 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
         ),
       );
     }
+    if (data.containsKey('offline_removed_at')) {
+      context.handle(
+        _offlineRemovedAtMeta,
+        offlineRemovedAt.isAcceptableOrUnknown(
+          data['offline_removed_at']!,
+          _offlineRemovedAtMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1977,6 +1999,10 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
         DriftSqlType.string,
         data['${effectivePrefix}discovery_confidence'],
       ),
+      offlineRemovedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}offline_removed_at'],
+      ),
     );
   }
 
@@ -2036,6 +2062,12 @@ class Chapter extends DataClass implements Insertable<Chapter> {
 
   /// Confidence of that discovery (high / medium / low).
   final String? discoveryConfidence;
+
+  /// When the USER removed this chapter's offline files ("free up space").
+  /// Distinct from files the system lost: a removed chapter renders as
+  /// "not available offline — capture again", never as an error. Cleared on
+  /// re-capture.
+  final DateTime? offlineRemovedAt;
   const Chapter({
     required this.id,
     required this.libraryItemId,
@@ -2064,6 +2096,7 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     this.discoveredAt,
     this.discoveryBasis,
     this.discoveryConfidence,
+    this.offlineRemovedAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2120,6 +2153,9 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     }
     if (!nullToAbsent || discoveryConfidence != null) {
       map['discovery_confidence'] = Variable<String>(discoveryConfidence);
+    }
+    if (!nullToAbsent || offlineRemovedAt != null) {
+      map['offline_removed_at'] = Variable<DateTime>(offlineRemovedAt);
     }
     return map;
   }
@@ -2179,6 +2215,9 @@ class Chapter extends DataClass implements Insertable<Chapter> {
       discoveryConfidence: discoveryConfidence == null && nullToAbsent
           ? const Value.absent()
           : Value(discoveryConfidence),
+      offlineRemovedAt: offlineRemovedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(offlineRemovedAt),
     );
   }
 
@@ -2221,6 +2260,9 @@ class Chapter extends DataClass implements Insertable<Chapter> {
       discoveryConfidence: serializer.fromJson<String?>(
         json['discoveryConfidence'],
       ),
+      offlineRemovedAt: serializer.fromJson<DateTime?>(
+        json['offlineRemovedAt'],
+      ),
     );
   }
   @override
@@ -2254,6 +2296,7 @@ class Chapter extends DataClass implements Insertable<Chapter> {
       'discoveredAt': serializer.toJson<DateTime?>(discoveredAt),
       'discoveryBasis': serializer.toJson<String?>(discoveryBasis),
       'discoveryConfidence': serializer.toJson<String?>(discoveryConfidence),
+      'offlineRemovedAt': serializer.toJson<DateTime?>(offlineRemovedAt),
     };
   }
 
@@ -2285,6 +2328,7 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     Value<DateTime?> discoveredAt = const Value.absent(),
     Value<String?> discoveryBasis = const Value.absent(),
     Value<String?> discoveryConfidence = const Value.absent(),
+    Value<DateTime?> offlineRemovedAt = const Value.absent(),
   }) => Chapter(
     id: id ?? this.id,
     libraryItemId: libraryItemId ?? this.libraryItemId,
@@ -2325,6 +2369,9 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     discoveryConfidence: discoveryConfidence.present
         ? discoveryConfidence.value
         : this.discoveryConfidence,
+    offlineRemovedAt: offlineRemovedAt.present
+        ? offlineRemovedAt.value
+        : this.offlineRemovedAt,
   );
   Chapter copyWithCompanion(ChaptersCompanion data) {
     return Chapter(
@@ -2397,6 +2444,9 @@ class Chapter extends DataClass implements Insertable<Chapter> {
       discoveryConfidence: data.discoveryConfidence.present
           ? data.discoveryConfidence.value
           : this.discoveryConfidence,
+      offlineRemovedAt: data.offlineRemovedAt.present
+          ? data.offlineRemovedAt.value
+          : this.offlineRemovedAt,
     );
   }
 
@@ -2429,7 +2479,8 @@ class Chapter extends DataClass implements Insertable<Chapter> {
           ..write('progressUpdatedAt: $progressUpdatedAt, ')
           ..write('discoveredAt: $discoveredAt, ')
           ..write('discoveryBasis: $discoveryBasis, ')
-          ..write('discoveryConfidence: $discoveryConfidence')
+          ..write('discoveryConfidence: $discoveryConfidence, ')
+          ..write('offlineRemovedAt: $offlineRemovedAt')
           ..write(')'))
         .toString();
   }
@@ -2463,6 +2514,7 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     discoveredAt,
     discoveryBasis,
     discoveryConfidence,
+    offlineRemovedAt,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -2494,7 +2546,8 @@ class Chapter extends DataClass implements Insertable<Chapter> {
           other.progressUpdatedAt == this.progressUpdatedAt &&
           other.discoveredAt == this.discoveredAt &&
           other.discoveryBasis == this.discoveryBasis &&
-          other.discoveryConfidence == this.discoveryConfidence);
+          other.discoveryConfidence == this.discoveryConfidence &&
+          other.offlineRemovedAt == this.offlineRemovedAt);
 }
 
 class ChaptersCompanion extends UpdateCompanion<Chapter> {
@@ -2525,6 +2578,7 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
   final Value<DateTime?> discoveredAt;
   final Value<String?> discoveryBasis;
   final Value<String?> discoveryConfidence;
+  final Value<DateTime?> offlineRemovedAt;
   final Value<int> rowid;
   const ChaptersCompanion({
     this.id = const Value.absent(),
@@ -2554,6 +2608,7 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     this.discoveredAt = const Value.absent(),
     this.discoveryBasis = const Value.absent(),
     this.discoveryConfidence = const Value.absent(),
+    this.offlineRemovedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ChaptersCompanion.insert({
@@ -2584,6 +2639,7 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     this.discoveredAt = const Value.absent(),
     this.discoveryBasis = const Value.absent(),
     this.discoveryConfidence = const Value.absent(),
+    this.offlineRemovedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        libraryItemId = Value(libraryItemId),
@@ -2619,6 +2675,7 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     Expression<DateTime>? discoveredAt,
     Expression<String>? discoveryBasis,
     Expression<String>? discoveryConfidence,
+    Expression<DateTime>? offlineRemovedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2653,6 +2710,7 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
       if (discoveryBasis != null) 'discovery_basis': discoveryBasis,
       if (discoveryConfidence != null)
         'discovery_confidence': discoveryConfidence,
+      if (offlineRemovedAt != null) 'offline_removed_at': offlineRemovedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2685,6 +2743,7 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     Value<DateTime?>? discoveredAt,
     Value<String?>? discoveryBasis,
     Value<String?>? discoveryConfidence,
+    Value<DateTime?>? offlineRemovedAt,
     Value<int>? rowid,
   }) {
     return ChaptersCompanion(
@@ -2716,6 +2775,7 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
       discoveredAt: discoveredAt ?? this.discoveredAt,
       discoveryBasis: discoveryBasis ?? this.discoveryBasis,
       discoveryConfidence: discoveryConfidence ?? this.discoveryConfidence,
+      offlineRemovedAt: offlineRemovedAt ?? this.offlineRemovedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2806,6 +2866,9 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     if (discoveryConfidence.present) {
       map['discovery_confidence'] = Variable<String>(discoveryConfidence.value);
     }
+    if (offlineRemovedAt.present) {
+      map['offline_removed_at'] = Variable<DateTime>(offlineRemovedAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2842,6 +2905,7 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
           ..write('discoveredAt: $discoveredAt, ')
           ..write('discoveryBasis: $discoveryBasis, ')
           ..write('discoveryConfidence: $discoveryConfidence, ')
+          ..write('offlineRemovedAt: $offlineRemovedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2996,6 +3060,17 @@ class $CaptureJobsTable extends CaptureJobs
     requiredDuringInsert: false,
     defaultValue: const Constant('fixedCount'),
   );
+  static const VerificationMeta _pauseReasonMeta = const VerificationMeta(
+    'pauseReason',
+  );
+  @override
+  late final GeneratedColumn<String> pauseReason = GeneratedColumn<String>(
+    'pause_reason',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -3033,6 +3108,7 @@ class $CaptureJobsTable extends CaptureJobs
     sessionDuplicateDecision,
     sessionPartialDecision,
     rangeMode,
+    pauseReason,
     createdAt,
     updatedAt,
   ];
@@ -3152,6 +3228,15 @@ class $CaptureJobsTable extends CaptureJobs
         rangeMode.isAcceptableOrUnknown(data['range_mode']!, _rangeModeMeta),
       );
     }
+    if (data.containsKey('pause_reason')) {
+      context.handle(
+        _pauseReasonMeta,
+        pauseReason.isAcceptableOrUnknown(
+          data['pause_reason']!,
+          _pauseReasonMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -3229,6 +3314,10 @@ class $CaptureJobsTable extends CaptureJobs
         DriftSqlType.string,
         data['${effectivePrefix}range_mode'],
       )!,
+      pauseReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pause_reason'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -3273,6 +3362,11 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
   /// resume continues the same mode (an interrupted until-end run must not
   /// come back as "capture 1 chapter").
   final String rangeMode;
+
+  /// Why a running job is paused (`browserHidden` today; null otherwise).
+  /// Lets Activity say "paused — Browser required" instead of a bare
+  /// "paused", and survives a restart.
+  final String? pauseReason;
   final DateTime createdAt;
   final DateTime updatedAt;
   const CaptureJob({
@@ -3289,6 +3383,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
     this.sessionDuplicateDecision,
     this.sessionPartialDecision,
     required this.rangeMode,
+    this.pauseReason,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -3324,6 +3419,9 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
       );
     }
     map['range_mode'] = Variable<String>(rangeMode);
+    if (!nullToAbsent || pauseReason != null) {
+      map['pause_reason'] = Variable<String>(pauseReason);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -3356,6 +3454,9 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
           ? const Value.absent()
           : Value(sessionPartialDecision),
       rangeMode: Value(rangeMode),
+      pauseReason: pauseReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pauseReason),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -3384,6 +3485,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
         json['sessionPartialDecision'],
       ),
       rangeMode: serializer.fromJson<String>(json['rangeMode']),
+      pauseReason: serializer.fromJson<String?>(json['pauseReason']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -3409,6 +3511,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
         sessionPartialDecision,
       ),
       'rangeMode': serializer.toJson<String>(rangeMode),
+      'pauseReason': serializer.toJson<String?>(pauseReason),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -3428,6 +3531,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
     Value<String?> sessionDuplicateDecision = const Value.absent(),
     Value<String?> sessionPartialDecision = const Value.absent(),
     String? rangeMode,
+    Value<String?> pauseReason = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => CaptureJob(
@@ -3452,6 +3556,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
         ? sessionPartialDecision.value
         : this.sessionPartialDecision,
     rangeMode: rangeMode ?? this.rangeMode,
+    pauseReason: pauseReason.present ? pauseReason.value : this.pauseReason,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -3486,6 +3591,9 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
           ? data.sessionPartialDecision.value
           : this.sessionPartialDecision,
       rangeMode: data.rangeMode.present ? data.rangeMode.value : this.rangeMode,
+      pauseReason: data.pauseReason.present
+          ? data.pauseReason.value
+          : this.pauseReason,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -3507,6 +3615,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
           ..write('sessionDuplicateDecision: $sessionDuplicateDecision, ')
           ..write('sessionPartialDecision: $sessionPartialDecision, ')
           ..write('rangeMode: $rangeMode, ')
+          ..write('pauseReason: $pauseReason, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -3528,6 +3637,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
     sessionDuplicateDecision,
     sessionPartialDecision,
     rangeMode,
+    pauseReason,
     createdAt,
     updatedAt,
   );
@@ -3548,6 +3658,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
           other.sessionDuplicateDecision == this.sessionDuplicateDecision &&
           other.sessionPartialDecision == this.sessionPartialDecision &&
           other.rangeMode == this.rangeMode &&
+          other.pauseReason == this.pauseReason &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -3566,6 +3677,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
   final Value<String?> sessionDuplicateDecision;
   final Value<String?> sessionPartialDecision;
   final Value<String> rangeMode;
+  final Value<String?> pauseReason;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -3583,6 +3695,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     this.sessionDuplicateDecision = const Value.absent(),
     this.sessionPartialDecision = const Value.absent(),
     this.rangeMode = const Value.absent(),
+    this.pauseReason = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -3601,6 +3714,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     this.sessionDuplicateDecision = const Value.absent(),
     this.sessionPartialDecision = const Value.absent(),
     this.rangeMode = const Value.absent(),
+    this.pauseReason = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -3624,6 +3738,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     Expression<String>? sessionDuplicateDecision,
     Expression<String>? sessionPartialDecision,
     Expression<String>? rangeMode,
+    Expression<String>? pauseReason,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -3644,6 +3759,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
       if (sessionPartialDecision != null)
         'session_partial_decision': sessionPartialDecision,
       if (rangeMode != null) 'range_mode': rangeMode,
+      if (pauseReason != null) 'pause_reason': pauseReason,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -3664,6 +3780,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     Value<String?>? sessionDuplicateDecision,
     Value<String?>? sessionPartialDecision,
     Value<String>? rangeMode,
+    Value<String?>? pauseReason,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -3684,6 +3801,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
       sessionPartialDecision:
           sessionPartialDecision ?? this.sessionPartialDecision,
       rangeMode: rangeMode ?? this.rangeMode,
+      pauseReason: pauseReason ?? this.pauseReason,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -3736,6 +3854,9 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     if (rangeMode.present) {
       map['range_mode'] = Variable<String>(rangeMode.value);
     }
+    if (pauseReason.present) {
+      map['pause_reason'] = Variable<String>(pauseReason.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -3764,6 +3885,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
           ..write('sessionDuplicateDecision: $sessionDuplicateDecision, ')
           ..write('sessionPartialDecision: $sessionPartialDecision, ')
           ..write('rangeMode: $rangeMode, ')
+          ..write('pauseReason: $pauseReason, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -6291,6 +6413,7 @@ typedef $$ChaptersTableCreateCompanionBuilder =
       Value<DateTime?> discoveredAt,
       Value<String?> discoveryBasis,
       Value<String?> discoveryConfidence,
+      Value<DateTime?> offlineRemovedAt,
       Value<int> rowid,
     });
 typedef $$ChaptersTableUpdateCompanionBuilder =
@@ -6322,6 +6445,7 @@ typedef $$ChaptersTableUpdateCompanionBuilder =
       Value<DateTime?> discoveredAt,
       Value<String?> discoveryBasis,
       Value<String?> discoveryConfidence,
+      Value<DateTime?> offlineRemovedAt,
       Value<int> rowid,
     });
 
@@ -6484,6 +6608,11 @@ class $$ChaptersTableFilterComposer
 
   ColumnFilters<String> get discoveryConfidence => $composableBuilder(
     column: $table.discoveryConfidence,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get offlineRemovedAt => $composableBuilder(
+    column: $table.offlineRemovedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6650,6 +6779,11 @@ class $$ChaptersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<DateTime> get offlineRemovedAt => $composableBuilder(
+    column: $table.offlineRemovedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$LibraryItemsTableOrderingComposer get libraryItemId {
     final $$LibraryItemsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -6801,6 +6935,11 @@ class $$ChaptersTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<DateTime> get offlineRemovedAt => $composableBuilder(
+    column: $table.offlineRemovedAt,
+    builder: (column) => column,
+  );
+
   $$LibraryItemsTableAnnotationComposer get libraryItemId {
     final $$LibraryItemsTableAnnotationComposer composer = $composerBuilder(
       composer: this,
@@ -6880,6 +7019,7 @@ class $$ChaptersTableTableManager
                 Value<DateTime?> discoveredAt = const Value.absent(),
                 Value<String?> discoveryBasis = const Value.absent(),
                 Value<String?> discoveryConfidence = const Value.absent(),
+                Value<DateTime?> offlineRemovedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChaptersCompanion(
                 id: id,
@@ -6909,6 +7049,7 @@ class $$ChaptersTableTableManager
                 discoveredAt: discoveredAt,
                 discoveryBasis: discoveryBasis,
                 discoveryConfidence: discoveryConfidence,
+                offlineRemovedAt: offlineRemovedAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -6940,6 +7081,7 @@ class $$ChaptersTableTableManager
                 Value<DateTime?> discoveredAt = const Value.absent(),
                 Value<String?> discoveryBasis = const Value.absent(),
                 Value<String?> discoveryConfidence = const Value.absent(),
+                Value<DateTime?> offlineRemovedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChaptersCompanion.insert(
                 id: id,
@@ -6969,6 +7111,7 @@ class $$ChaptersTableTableManager
                 discoveredAt: discoveredAt,
                 discoveryBasis: discoveryBasis,
                 discoveryConfidence: discoveryConfidence,
+                offlineRemovedAt: offlineRemovedAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -7053,6 +7196,7 @@ typedef $$CaptureJobsTableCreateCompanionBuilder =
       Value<String?> sessionDuplicateDecision,
       Value<String?> sessionPartialDecision,
       Value<String> rangeMode,
+      Value<String?> pauseReason,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -7072,6 +7216,7 @@ typedef $$CaptureJobsTableUpdateCompanionBuilder =
       Value<String?> sessionDuplicateDecision,
       Value<String?> sessionPartialDecision,
       Value<String> rangeMode,
+      Value<String?> pauseReason,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
@@ -7148,6 +7293,11 @@ class $$CaptureJobsTableFilterComposer
 
   ColumnFilters<String> get rangeMode => $composableBuilder(
     column: $table.rangeMode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pauseReason => $composableBuilder(
+    column: $table.pauseReason,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7236,6 +7386,11 @@ class $$CaptureJobsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get pauseReason => $composableBuilder(
+    column: $table.pauseReason,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -7311,6 +7466,11 @@ class $$CaptureJobsTableAnnotationComposer
   GeneratedColumn<String> get rangeMode =>
       $composableBuilder(column: $table.rangeMode, builder: (column) => column);
 
+  GeneratedColumn<String> get pauseReason => $composableBuilder(
+    column: $table.pauseReason,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -7362,6 +7522,7 @@ class $$CaptureJobsTableTableManager
                 Value<String?> sessionDuplicateDecision = const Value.absent(),
                 Value<String?> sessionPartialDecision = const Value.absent(),
                 Value<String> rangeMode = const Value.absent(),
+                Value<String?> pauseReason = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -7379,6 +7540,7 @@ class $$CaptureJobsTableTableManager
                 sessionDuplicateDecision: sessionDuplicateDecision,
                 sessionPartialDecision: sessionPartialDecision,
                 rangeMode: rangeMode,
+                pauseReason: pauseReason,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -7398,6 +7560,7 @@ class $$CaptureJobsTableTableManager
                 Value<String?> sessionDuplicateDecision = const Value.absent(),
                 Value<String?> sessionPartialDecision = const Value.absent(),
                 Value<String> rangeMode = const Value.absent(),
+                Value<String?> pauseReason = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -7415,6 +7578,7 @@ class $$CaptureJobsTableTableManager
                 sessionDuplicateDecision: sessionDuplicateDecision,
                 sessionPartialDecision: sessionPartialDecision,
                 rangeMode: rangeMode,
+                pauseReason: pauseReason,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

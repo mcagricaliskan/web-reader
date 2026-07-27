@@ -326,6 +326,21 @@ destructive-styled, and requires an explicit confirmation naming the item.
 migration, or cleanup job. Cleanup routines operate on files, keyed by explicit user action — never
 on lifecycle state.
 
+**As built (2026-07-27).** *Free up space* shipped as **"Remove offline files"** (D35). It is
+available for one chapter, a multi-select in series detail, a whole series, and every finished
+chapter at once (Storage). It removes bytes only: series, chapter rows, source URLs, ordering,
+reading progress, read marks, last-read times, update-check metadata and user-edited titles all
+survive, and the chapter then reads as *"Not available offline — capture again"*. Chapters that are
+open in the reader or mid-capture are **kept**, and the confirmation says so rather than failing.
+Single and small removals offer an Undo; bulk work runs as an Activity task with live progress.
+*Delete item* remains unbuilt and out of scope.
+
+**After finishing a chapter (D37).** A persisted preference — *Ask each time* (default) · *Keep
+offline* · *Remove automatically* — applies **only** when the reader moves forward from a finished
+chapter to a different, openable one. In *Ask* mode the dialog's highlighted answer is always the
+preserving one, and only an explicit *"Don't ask again"* changes the stored preference. Changing the
+preference never removes anything already downloaded.
+
 ---
 
 ## 11. New-chapter checking
@@ -365,7 +380,7 @@ Future: scheduled/background checking, batched "check all active", change detect
 | **Capture session** | Observe and control one autonomous run | Current chapter/URL · captured count vs. limit · current state · asset progress when known · retry count · last error · Pause / Resume / Retry / Skip / Stop |
 | **Library / Home** | Get back to reading | Continue Reading, New Chapters, Pinned, Recently Read; entry to Active / Dormant / Archive |
 | **Series detail** | Everything about one library item | Title + source · lifecycle · pin/favorite toggles · last read, last completed, latest known · unread count · last check time · *Check for updates* · *Continue reading* · *Capture more* · local chapter list · failed/incomplete captures called out · Archive/Restore · *Delete item* (separated, destructive) |
-| **Reader** | Read offline | Vertical webtoon view or text view · saved position · prev/next captured chapter · mark read/unread · explicit banner when a chapter is incomplete/failed · explicit state when the next chapter is known but not offline |
+| **Reader** | Read offline | Vertical webtoon view or text view · saved position · prev/next captured chapter · **swipe right to go back to the episode list** · mark read/unread · explicit banner when a chapter is incomplete/failed · explicit state when the next chapter is known but not offline |
 
 **Capture-screen UX considerations** (documented, not implemented device-specifically in the MVP):
 sessions can run for many minutes with the app open, so the screen should stay awake, dim to a

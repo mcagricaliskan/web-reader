@@ -145,6 +145,7 @@ of the last success — otherwise "last checked" silently becomes a lie after on
 | `discovered_at` | INTEGER NOT NULL | |
 | `discovered_via` | TEXT NOT NULL | `capture` \| `updateCheck` \| `manual` |
 | `capture_status` | TEXT NOT NULL DEFAULT `'notCaptured'` | §3 |
+| `offline_removed_at` | INTEGER | **As built (v9)** — this sketch's `content_deleted_at` under the name the code uses. When the USER removed this chapter's offline files; distinct from `content_missing_at` (files the system lost). Renders as "Not available offline — capture again", never as an error. Cleared explicitly on re-capture, because drift's upsert leaves nulls alone |
 | `capture_started_at` | INTEGER | |
 | `captured_at` | INTEGER | |
 | `capture_attempts` | INTEGER NOT NULL DEFAULT 0 | |
@@ -155,7 +156,7 @@ of the last success — otherwise "last checked" silently becomes a lie after on
 | `asset_count` | INTEGER | |
 | `byte_size` | INTEGER | For the storage screen |
 | `content_hash` | TEXT | SHA-256 over ordered asset hashes, or over normalised text |
-| `content_deleted_at` | INTEGER | User freed space. Row and history stay |
+| `content_deleted_at` | INTEGER | User freed space. Row and history stay. **Built as `offline_removed_at` (v9)** — same concept, see above |
 | `content_missing_at` | INTEGER | Files vanished behind our back |
 | `next_url` | TEXT | The next URL this page yielded — the capture chain, kept for diagnosis |
 | `read_status` | TEXT NOT NULL DEFAULT `'unread'` | §4 |
@@ -166,6 +167,12 @@ of the last success — otherwise "last checked" silently becomes a lie after on
 | `completed_at` | INTEGER | |
 
 ### 2.4 `capture_session`
+
+> **As built:** the runtime table is `capture_jobs`. Schema v9 adds
+> `pause_reason` — why a running job is held (`browserHidden` today, set when
+> the user leaves the Browser mid-capture). It lets Activity say "paused —
+> Browser required" instead of a bare "paused", survives a restart, and is
+> cleared explicitly on resume (drift's upsert leaves nulls alone).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -236,8 +243,15 @@ failed}`. A retry starts a **new** attempt from `notCaptured` with a fresh stagi
 
 - Opening a chapter sets `inProgress`, `first_opened_at` (once), and `last_read_at`. **It never sets
   `completed`.**
-- *Mark as unread* sets `unread` but **keeps `progress_anchor` and `progress_fraction`**, so the user
-  can still resume. Only `completed_at` is cleared.
+- **A completed chapter is 100%.** `progress_fraction` is forced to 1 whenever `read_status` is
+  `completed` — on the dwell completion, on *Mark as read*, and on every progress save afterwards.
+  Re-reading a finished chapter moves the *anchor* (so resuming still lands where the reader is) but
+  never the fraction. Without this, re-opening a finished chapter and scrolling up reported it as 40%
+  read. `readProgressFor()` applies the same rule on the display side, so rows written before it
+  existed also read correctly; `ReadingRepository.repairCompletedProgress()` fixes them at boot.
+- *Mark as unread* sets `unread`, clears `completed_at`, and **keeps the anchor** so the user can
+  still resume. The fraction is reset to 0 when the chapter had been completed — completion had
+  forced it to 1, and leaving it there would show a full bar on a chapter marked unread.
 - Capturing a chapter never changes `read_status`. Discovering one never changes it either. Asserted
   in tests.
 
@@ -493,7 +507,7 @@ table, and the series pointers are denormalised onto `library_items`.
 | Column | Meaning |
 |---|---|
 | `read_status` | `unread` / `inProgress` / `completed` |
-| `progress_fraction` | 0..1 through the chapter — the durable half of the position |
+| `progress_fraction` | 0..1 through the chapter — the durable half of the position. **Always 1 when `read_status` is `completed`** |
 | `progress_image_index` | Anchor: panel index at the top of the viewport |
 | `progress_offset_in_image` | 0..1 down that panel |
 | `first_opened_at`, `last_read_at`, `completed_at`, `progress_updated_at` | Timestamps |

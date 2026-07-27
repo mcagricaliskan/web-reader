@@ -14,6 +14,22 @@ ReadStatus readStatusFromName(String? name) => ReadStatus.values.firstWhere(
   orElse: () => ReadStatus.unread,
 );
 
+/// The one rule for what "how far through" means: **a completed chapter is
+/// 100%, always.**
+///
+/// Reading a finished chapter again scrolls its stored fraction back down —
+/// the scroll position is genuinely where the reader is — but "finished" is a
+/// statement about the chapter, not about the current scroll. Without this,
+/// re-opening a finished chapter and scrolling up makes it report 40% read.
+///
+/// Applied on both sides: writes store 1.0 for a completed chapter, and every
+/// display goes through here so rows written before this rule existed read
+/// correctly too.
+double readProgressFor({required String? readStatus, required double stored}) =>
+    readStatusFromName(readStatus) == ReadStatus.completed
+    ? 1
+    : stored.clamp(0.0, 1.0);
+
 /// A hybrid position: an anchor for precision, a fraction for durability.
 ///
 /// The anchor (`imageIndex` + `offsetInImage`) restores the exact spot but goes

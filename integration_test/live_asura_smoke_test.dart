@@ -139,25 +139,53 @@ void main() {
         find.byKey(const ValueKey('navTab-Library')),
         warnIfMissed: false,
       );
-      await waitFor(
-        tester,
-        () => job.progress.state == CaptureState.waitingForBrowser,
-        timeout: const Duration(seconds: 30),
-      );
+      // The contract while hidden is "never a stall, never garbage":
+      // EITHER the surface keeps real metrics and the run just continues
+      // (what a once-painted WKWebView does on the Simulator), OR the
+      // metrics break (zero viewport / frozen scroll) and the run pauses in
+      // waitingForBrowser until the user returns. Both are correct; what
+      // this asserts is that one of them happens — no frozen "scrolling"
+      // state making no progress.
+      final scrollBefore = job.progress.scrollPercent;
+      final storedBefore = job.progress.storedChapters;
+      var pausedWhileHidden = false;
+      var progressedWhileHidden = false;
+      final hiddenUntil = DateTime.now().add(const Duration(seconds: 25));
+      while (DateTime.now().isBefore(hiddenUntil)) {
+        await settle(tester, const Duration(milliseconds: 250));
+        if (job.progress.state == CaptureState.waitingForBrowser) {
+          pausedWhileHidden = true;
+          break;
+        }
+        if (job.progress.storedChapters > storedBefore ||
+            job.progress.scrollPercent > scrollBefore + 0.05 ||
+            job.progress.state == CaptureState.downloading ||
+            job.progress.state == CaptureState.navigating ||
+            job.progress.state.isTerminal) {
+          progressedWhileHidden = true;
+          break;
+        }
+      }
       expect(
-        job.progress.state,
-        CaptureState.waitingForBrowser,
-        reason: 'a hidden WebView pauses the run instead of stalling it',
+        pausedWhileHidden || progressedWhileHidden,
+        isTrue,
+        reason:
+            'hidden tab must either pause (broken metrics) or keep making '
+            'real progress — observed neither for 25s '
+            '(state=${job.progress.state.name})',
       );
       debugPrint(
-        '[live] hidden tab -> waitingForBrowser after '
-        '${DateTime.now().difference(started).inSeconds}s',
+        '[live] hidden tab -> '
+        '${pausedWhileHidden ? 'PAUSED in waitingForBrowser' : 'kept working (metrics stayed live)'} '
+        'after ${DateTime.now().difference(started).inSeconds}s',
       );
-      // The Library shows the banner with the way back.
-      await settle(tester, const Duration(milliseconds: 600));
-      expect(find.textContaining('open the Browser'), findsWidgets);
+      if (pausedWhileHidden) {
+        // The Library shows the banner with the way back.
+        await settle(tester, const Duration(milliseconds: 600));
+        expect(find.textContaining('open the Browser'), findsWidgets);
+      }
 
-      // ...and resume when the user returns.
+      // Return to the Browser; a paused run must resume.
       await tester.tap(
         find.byKey(const ValueKey('navTab-Browser')),
         warnIfMissed: false,
@@ -168,7 +196,7 @@ void main() {
         timeout: const Duration(seconds: 30),
       );
       expect(job.progress.state, isNot(CaptureState.waitingForBrowser));
-      debugPrint('[live] browser visible again -> resumed');
+      debugPrint('[live] browser visible again -> running');
 
       await waitFor(
         tester,

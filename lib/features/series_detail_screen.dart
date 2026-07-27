@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,6 +13,7 @@ import '../storage/database.dart';
 import '../storage/manifest.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'cleanup_dialogs.dart';
 import 'library_screen.dart'
     show
         SeriesGroup,
@@ -22,9 +25,17 @@ import 'library_screen.dart'
 /// The chapters of one series, in reading order, each opening the offline
 /// reader.
 class SeriesDetailScreen extends ConsumerWidget {
-  const SeriesDetailScreen({super.key, required this.seriesId});
+  const SeriesDetailScreen({
+    super.key,
+    required this.seriesId,
+    this.startInSelectionMode = false,
+  });
 
   final String seriesId;
+
+  /// Opened from Storage's "Choose chapters to remove" — selection mode
+  /// lives HERE, never on the Storage screen itself.
+  final bool startInSelectionMode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -44,19 +55,197 @@ class SeriesDetailScreen extends ConsumerWidget {
             body: const Center(child: Text('This series is no longer listed.')),
           );
         }
-        return _SeriesDetail(group: data);
+        return _SeriesDetail(
+          group: data,
+          startInSelectionMode: startInSelectionMode,
+        );
       },
     );
   }
 }
 
-class _SeriesDetail extends ConsumerWidget {
-  const _SeriesDetail({required this.group});
+class _SeriesDetail extends ConsumerStatefulWidget {
+  const _SeriesDetail({required this.group, this.startInSelectionMode = false});
 
   final SeriesGroup group;
+  final bool startInSelectionMode;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SeriesDetail> createState() => _SeriesDetailState();
+}
+
+class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
+  /// Selected chapter ids while in selection mode; null when not selecting.
+  Set<String>? _selection;
+
+  /// chapterId → why it cannot be removed right now. Computed once when
+  /// selection mode opens, not per row build (each lookup consults the
+  /// reader lock and the running job).
+  Map<String, String> _locks = const {};
+
+  SeriesGroup get group => widget.group;
+  bool get _selecting => _selection != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.startInSelectionMode) {
+      _selection = <String>{};
+      WidgetsBinding.instance.addPostFrameCallback((_) => _refreshLocks());
+    }
+  }
+
+  void _enterSelection() {
+    setState(() => _selection = <String>{});
+    unawaited(_refreshLocks());
+  }
+
+  void _exitSelection() => setState(() {
+    _selection = null;
+    _locks = const {};
+  });
+
+  Future<void> _refreshLocks() async {
+    final cleanup = ref.read(cleanupProvider);
+    final locks = <String, String>{};
+    for (final c in group.chapters) {
+      if (!cleanup.isRemovable(c)) continue;
+      final reason = await cleanup.lockReasonFor(c);
+      if (reason != null) locks[c.id] = reason;
+    }
+    if (mounted) setState(() => _locks = locks);
+  }
+
+  void _toggle(String id) => setState(() {
+    final sel = _selection!;
+    sel.contains(id) ? sel.remove(id) : sel.add(id);
+  });
+
+  Future<void> _selectAllOffline(List<Chapter> chapters) async {
+    final removable = await _removableOf(chapters);
+    if (!mounted) return;
+    setState(() => _selection = removable.map((c) => c.id).toSet());
+  }
+
+  Future<void> _selectFinished(List<Chapter> chapters) async {
+    final removable = await _removableOf(
+      chapters.where((c) => c.readStatus == 'completed'),
+    );
+    if (!mounted) return;
+    setState(() => _selection = removable.map((c) => c.id).toSet());
+  }
+
+  /// Remove the current selection, with the design's confirmation and an
+  /// undo toast. Locked chapters were filtered out of the selection already,
+  /// but the service re-checks — the reader may have opened one meanwhile.
+  Future<void> _confirmRemoveSelection(List<Chapter> chapters) async {
+    final ids = _selection!;
+    if (ids.isEmpty) return;
+    final chosen = chapters.where((c) => ids.contains(c.id)).toList();
+    final bytes = chosen.fold<int>(0, (sum, c) => sum + c.byteSize);
+    final n = chosen.length;
+
+    final ok = await showRemovalConfirm(
+      context: context,
+      summary: RemovalSummary(
+        title: 'Remove offline files?',
+        body: n == 1
+            ? 'This chapter stays in your library — read marks, history and '
+                  'source links are kept. It just will not be available '
+                  'offline until captured again.'
+            : 'These chapters stay in your library — read marks, history and '
+                  'source links are kept. They just will not be available '
+                  'offline until captured again.',
+        facts: [('Chapters', '$n'), ('Space freed', '~${formatBytes(bytes)}')],
+      ),
+    );
+    if (!ok || !mounted) return;
+
+    final result = await ref
+        .read(cleanupProvider)
+        .removeOffline(chosen.map((c) => c.id).toList());
+    if (!mounted) return;
+    _exitSelection();
+    showCleanupToast(
+      context,
+      text:
+          '${result.removed} chapter${result.removed == 1 ? '' : 's'} removed '
+          'offline · ${formatBytes(result.freedBytes)} freed'
+          '${result.keptLocked.isEmpty ? '' : ' · ${result.keptLocked.length} kept (in use)'}',
+      undo: result.canUndo ? result.undo.undo : null,
+    );
+  }
+
+  /// Remove every offline chapter of this series, through the queue: a
+  /// hundreds-of-chapters sweep deserves a visible task, not a frozen sheet.
+  Future<void> _confirmRemoveSeries() async {
+    final cleanup = ref.read(cleanupProvider);
+    final offline = group.chapters.where(cleanup.isRemovable).toList();
+    if (offline.isEmpty) return;
+    final removable = await _removableOf(offline);
+    final locked = offline.length - removable.length;
+    final bytes = removable.fold<int>(0, (sum, c) => sum + c.byteSize);
+    if (!mounted) return;
+
+    final ok = await showRemovalConfirm(
+      context: context,
+      summary: RemovalSummary(
+        title: 'Remove offline files?',
+        body:
+            'Every stored chapter of this series will no longer be available '
+            'offline. The series, read marks and history stay in your '
+            'library — you can capture it again later.',
+        facts: [
+          ('Chapters', '${removable.length}'),
+          ('Space freed', '~${formatBytes(bytes)}'),
+        ],
+        lockNote: locked == 0
+            ? null
+            : '$locked chapter${locked == 1 ? ' is' : 's are'} open or being '
+                  'captured right now — they will be kept.',
+      ),
+    );
+    if (!ok || !mounted) return;
+
+    // Small series: inline with undo. Large: a queue task with progress.
+    if (removable.length <= 5) {
+      final result = await cleanup.removeOffline(
+        removable.map((c) => c.id).toList(),
+      );
+      if (!mounted) return;
+      showCleanupToast(
+        context,
+        text:
+            '${result.removed} chapter${result.removed == 1 ? '' : 's'} '
+            'removed offline · ${formatBytes(result.freedBytes)} freed',
+        undo: result.canUndo ? result.undo.undo : null,
+      );
+      return;
+    }
+    await ref
+        .read(taskQueueProvider)
+        .enqueueCleanup(libraryItemId: group.item.id);
+    if (!mounted) return;
+    showCleanupToast(
+      context,
+      text: 'Removing offline files — progress in Activity',
+    );
+  }
+
+  /// Chapters whose files can actually go: offline, and not in use.
+  Future<List<Chapter>> _removableOf(Iterable<Chapter> candidates) async {
+    final cleanup = ref.read(cleanupProvider);
+    final out = <Chapter>[];
+    for (final c in candidates) {
+      if (!cleanup.isRemovable(c)) continue;
+      if (await cleanup.lockReasonFor(c) != null) continue;
+      out.add(c);
+    }
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final chapters = sortChaptersForReading(group.capturedChapters);
     final knownRemote = sortChaptersForReading(group.knownRemoteChapters);
     final reading = computeSeriesReadingState(group.chapters);
@@ -67,16 +256,45 @@ class _SeriesDetail extends ConsumerWidget {
     final bytes = group.chapters.fold<int>(0, (sum, c) => sum + c.byteSize);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(group.displayName, overflow: TextOverflow.ellipsis),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.more_vert, size: 22),
-            tooltip: 'Series actions',
-            onPressed: () => _showMenu(context, ref),
-          ),
-        ],
-      ),
+      appBar: _selecting
+          ? AppBar(
+              backgroundColor: const Color(0xFFEAF1F4),
+              foregroundColor: const Color(0xFF133845),
+              leading: IconButton(
+                icon: const Icon(Icons.close, size: 24),
+                tooltip: 'Cancel selection',
+                onPressed: _exitSelection,
+              ),
+              title: Text('${_selection!.length} selected'),
+              actions: [
+                TextButton(
+                  onPressed: () => _selectAllOffline(chapters),
+                  child: const Text('All offline'),
+                ),
+                TextButton(
+                  onPressed: () => _selectFinished(chapters),
+                  child: const Text('Finished'),
+                ),
+              ],
+            )
+          : AppBar(
+              title: Text(group.displayName, overflow: TextOverflow.ellipsis),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.more_vert, size: 22),
+                  tooltip: 'Series actions',
+                  onPressed: () => _showMenu(context, ref),
+                ),
+              ],
+            ),
+      bottomNavigationBar: _selecting
+          ? _SelectionBar(
+              selected: _selection!,
+              chapters: chapters,
+              onCancel: _exitSelection,
+              onRemove: () => _confirmRemoveSelection(chapters),
+            )
+          : null,
       body: ListView(
         padding: const EdgeInsets.only(bottom: 40),
         children: [
@@ -215,7 +433,13 @@ class _SeriesDetail extends ConsumerWidget {
           ),
           const Divider(),
           for (final chapter in chapters) ...[
-            _ChapterRow(chapter: chapter),
+            _ChapterRow(
+              chapter: chapter,
+              selecting: _selecting,
+              selected: _selection?.contains(chapter.id) ?? false,
+              lockReason: _locks[chapter.id],
+              onToggle: () => _toggle(chapter.id),
+            ),
             const Divider(),
           ],
         ],
@@ -256,6 +480,26 @@ class _SeriesDetail extends ConsumerWidget {
                     if (archived && context.mounted) context.pop();
                   },
                 ),
+              ListTile(
+                leading: const Icon(Icons.checklist),
+                title: const Text('Manage downloads'),
+                subtitle: const Text('Select chapters · remove offline files'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _enterSelection();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_sweep),
+                title: const Text('Remove offline files…'),
+                subtitle: const Text(
+                  'Whole series · keeps history and read marks',
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _confirmRemoveSeries();
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.ads_click),
                 title: const Text('Element rules'),
@@ -354,6 +598,76 @@ class _SeriesDetail extends ConsumerWidget {
     await ref
         .read(seriesRepositoryProvider)
         .rename(group.item.id, result.trim().isEmpty ? null : result);
+  }
+}
+
+/// The docked selection bar: how many, roughly how much space, and the two
+/// ways out. Disabled-looking until something is selected.
+class _SelectionBar extends StatelessWidget {
+  const _SelectionBar({
+    required this.selected,
+    required this.chapters,
+    required this.onCancel,
+    required this.onRemove,
+  });
+
+  final Set<String> selected;
+  final List<Chapter> chapters;
+  final VoidCallback onCancel;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = chapters
+        .where((c) => selected.contains(c.id))
+        .fold<int>(0, (sum, c) => sum + c.byteSize);
+    final any = selected.isNotEmpty;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFFFBFAF8),
+        border: Border(top: BorderSide(color: Color(0xFFE7E3DC))),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        14,
+        10,
+        14,
+        10 + MediaQuery.paddingOf(context).bottom,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${selected.length} selected',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontVariations: wght(600),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  any
+                      ? '~${formatBytes(bytes)} will be freed'
+                      : 'select chapters below',
+                  style: monoStyle(size: 11.5, color: const Color(0xFF5F5B54)),
+                ),
+              ],
+            ),
+          ),
+          TextButton(onPressed: onCancel, child: const Text('Cancel')),
+          const SizedBox(width: 4),
+          FilledButton(
+            onPressed: any ? onRemove : null,
+            child: const Text('Remove offline files'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -735,9 +1049,21 @@ class _RemoteChapters extends StatelessWidget {
 }
 
 class _ChapterRow extends StatelessWidget {
-  const _ChapterRow({required this.chapter});
+  const _ChapterRow({
+    required this.chapter,
+    this.selecting = false,
+    this.selected = false,
+    this.lockReason,
+    this.onToggle,
+  });
 
   final Chapter chapter;
+  final bool selecting;
+  final bool selected;
+
+  /// Why this chapter cannot be selected (open in the reader, mid-capture).
+  final String? lockReason;
+  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -747,74 +1073,113 @@ class _ChapterRow extends StatelessWidget {
         (status == CaptureStatus.complete || status == CaptureStatus.partial);
     final look = captureLook(chapter);
     final label = chapter.chapterLabel?.trim();
+    // Selectable = offline and not in use. Everything else stays visible but
+    // dimmed with a lock, so "why can't I pick that one" answers itself.
+    final selectable = selecting && offline && lockReason == null;
 
-    return InkWell(
-      key: ValueKey('chapterRow-${chapter.id}'),
-      onTap: offline ? () => context.push('/reader/${chapter.id}') : null,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 11, 16, 11),
-        child: Row(
-          children: [
-            // Leading = capture state (download vocabulary), trailing = read
-            // state (checkmark vocabulary). Two facts, two glyph families —
-            // never mixed.
-            SizedBox(width: 24, child: CaptureGlyph(look)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label != null && label.isNotEmpty ? label : chapter.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: monoStyle(
-                      size: 13.5,
-                      weight: FontWeight.w500,
-                      color: look.dimTitle
-                          ? const Color(0xFF8C877E)
-                          : const Color(0xFF1B1A18),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
+    return Opacity(
+      opacity: selecting && !selectable ? 0.45 : 1,
+      child: Container(
+        color: selected ? const Color(0xFFEFF4F6) : Colors.transparent,
+        child: InkWell(
+          key: ValueKey('chapterRow-${chapter.id}'),
+          onTap: selecting
+              ? (selectable ? onToggle : null)
+              : (offline ? () => context.push('/reader/${chapter.id}') : null),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 11, 16, 11),
+            child: Row(
+              children: [
+                // Leading = capture state (download vocabulary), trailing = read
+                // state (checkmark vocabulary). Two facts, two glyph families —
+                // never mixed. In selection mode the leading slot becomes the
+                // checkbox (or a lock).
+                SizedBox(
+                  width: 24,
+                  child: selecting
+                      ? Icon(
+                          !offline || lockReason != null
+                              ? Icons.lock
+                              : (selected
+                                    ? Icons.check_box
+                                    : Icons.check_box_outline_blank),
+                          size: 22,
+                          color: selected
+                              ? const Color(0xFF35606F)
+                              : (selectable
+                                    ? const Color(0xFF5F5B54)
+                                    : const Color(0xFFC4BFB5)),
+                        )
+                      : CaptureGlyph(look),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        look.label,
-                        style: TextStyle(fontSize: 11.5, color: look.color),
-                      ),
-                      const Text(
-                        ' · ',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: Color(0xFFCFC9BF),
+                        label != null && label.isNotEmpty
+                            ? label
+                            : chapter.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: monoStyle(
+                          size: 13.5,
+                          weight: FontWeight.w500,
+                          color: look.dimTitle
+                              ? const Color(0xFF8C877E)
+                              : const Color(0xFF1B1A18),
                         ),
                       ),
-                      Expanded(
-                        child: Text(
-                          _meta(chapter),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: monoStyle(
-                            size: 11.5,
-                            color: const Color(0xFF5F5B54),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                            look.label,
+                            style: TextStyle(fontSize: 11.5, color: look.color),
                           ),
-                        ),
+                          const Text(
+                            ' · ',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Color(0xFFCFC9BF),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              selecting && lockReason != null
+                                  ? '$lockReason — kept'
+                                  : _meta(chapter),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: monoStyle(
+                                size: 11.5,
+                                color: const Color(0xFF5F5B54),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                if (offline && !selecting) ReadGlyph(chapter: chapter),
+              ],
             ),
-            const SizedBox(width: 8),
-            if (offline) ReadGlyph(chapter: chapter),
-          ],
+          ),
         ),
       ),
     );
   }
 
   String _meta(Chapter chapter) {
+    // A user-removed chapter has no images and no size to report; what
+    // matters is that it can come back.
+    if (chapter.contentPath == null && chapter.offlineRemovedAt != null) {
+      return 'removed ${formatRelative(chapter.offlineRemovedAt)} · '
+          'capture again to read';
+    }
     final parts = <String>[
       '${chapter.storedImageCount}/${chapter.detectedImageCount} images',
       if (chapter.byteSize > 0) formatBytes(chapter.byteSize),

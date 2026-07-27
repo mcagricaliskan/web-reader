@@ -1,3 +1,4 @@
+import '../reading/reading_position.dart';
 import '../reading/reading_repository.dart';
 import '../storage/database.dart';
 import 'library_screen.dart' show SeriesGroup;
@@ -25,7 +26,10 @@ class ContinueEntry {
     return (label != null && label.isNotEmpty) ? label : chapter.title;
   }
 
-  double get progress => chapter.progressFraction.clamp(0.0, 1.0);
+  double get progress => readProgressFor(
+    readStatus: chapter.readStatus,
+    stored: chapter.progressFraction,
+  );
   bool get isCompleted => chapter.readStatus == 'completed';
   bool get isPartialCapture => chapter.captureStatus == 'partial';
   DateTime? get lastReadAt => state.lastReadAt;

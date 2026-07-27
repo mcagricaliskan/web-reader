@@ -10,7 +10,9 @@ import 'features/library_screen.dart';
 import 'features/reader_screen.dart';
 import 'features/rules_screen.dart';
 import 'features/series_detail_screen.dart';
+import 'features/cleanup_dialogs.dart';
 import 'features/settings_screen.dart';
+import 'features/storage_screen.dart';
 import 'library/update_checker.dart';
 import 'providers.dart';
 import 'ui/theme.dart';
@@ -40,8 +42,10 @@ class _WebReaderAppState extends State<WebReaderApp> {
       ),
       GoRoute(
         path: '/series/:seriesId',
-        builder: (context, state) =>
-            SeriesDetailScreen(seriesId: state.pathParameters['seriesId']!),
+        builder: (context, state) => SeriesDetailScreen(
+          seriesId: state.pathParameters['seriesId']!,
+          startInSelectionMode: state.uri.queryParameters['select'] == '1',
+        ),
       ),
       GoRoute(path: '/rules', builder: (context, state) => const RulesScreen()),
       GoRoute(
@@ -55,6 +59,10 @@ class _WebReaderAppState extends State<WebReaderApp> {
       GoRoute(
         path: '/archived',
         builder: (context, state) => const ArchivedScreen(),
+      ),
+      GoRoute(
+        path: '/storage',
+        builder: (context, state) => const StorageScreen(),
       ),
     ],
   );
@@ -107,6 +115,29 @@ class _ShellState extends ConsumerState<_Shell> {
     super.dispose();
   }
 
+  /// True when leaving the Browser right now would strand a WebView-
+  /// dependent phase. Downloading/saving phases and already-paused runs are
+  /// deliberately excluded — the modal must not cry wolf.
+  bool get _leavingBrowserIsRisky =>
+      _index == 1 && (_job.needsRenderedBrowser || _checker.isRunning);
+
+  /// The design's leave-Browser confirmation. Returns true when navigation
+  /// may proceed (either nothing was at risk, or the user chose to pause).
+  Future<bool> confirmLeaveBrowser() async {
+    if (!_leavingBrowserIsRisky) return true;
+    final leave = await showLeaveBrowserDialog(
+      context: context,
+      progressLine: _job.isRunning
+          ? _job.progressSummary
+          : 'Checking for new chapters',
+    );
+    if (!leave) return false;
+    // Pause the WebView-dependent phase before anything moves. The task
+    // stays active and queued work is untouched: this is a hold, not a stop.
+    if (_job.isRunning) _job.pauseForBrowserHidden();
+    return true;
+  }
+
   /// A widget inside a tab asked for a tab switch (e.g. "Open Browser" on a
   /// capture that is holding on a hidden WebView).
   void _onTabRequested() {
@@ -132,21 +163,91 @@ class _ShellState extends ConsumerState<_Shell> {
     _wasBusy = busy;
   }
 
+  /// Returning to the Browser: the capture engine's own render guard does
+  /// the validating (viewport, then the page it was on). Here we only lift
+  /// the leave-pause; if the page changed, the engine keeps holding and the
+  /// Browser shows why.
+  void _onEnteredBrowser() {
+    if (_job.pauseReason == kPauseBrowserHidden) {
+      _job.resumeAfterBrowserVisible();
+    }
+  }
+
+  Future<void> _select(int i) async {
+    if (i == _index) return;
+    if (i != 1 && !await confirmLeaveBrowser()) return;
+    if (!mounted) return;
+    setState(() => _index = i);
+    if (i == 1) _onEnteredBrowser();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      // IndexedStack, not a swapped child: switching tabs must not dispose the
-      // WebView or a running capture dies with it.
-      body: IndexedStack(
-        index: _index,
-        children: const [LibraryScreen(), BrowserScreen()],
-      ),
-      bottomNavigationBar: _BottomNav(
-        index: _index,
-        onSelect: (i) => setState(() => _index = i),
+    return LeaveBrowserGuard(
+      confirm: confirmLeaveBrowser,
+      // System back out of the shell is a leave too: block it while a
+      // WebView-dependent phase is running, then let it through once the
+      // user has answered.
+      child: PopScope(
+        canPop: !_leavingBrowserIsRisky,
+        onPopInvokedWithResult: (didPop, _) async {
+          if (didPop) return;
+          final navigator = Navigator.of(context);
+          if (await confirmLeaveBrowser() && mounted) {
+            navigator.maybePop();
+          }
+        },
+        child: Scaffold(
+          // IndexedStack, not a swapped child: switching tabs must not
+          // dispose the WebView or a running capture dies with it.
+          body: IndexedStack(
+            index: _index,
+            children: const [LibraryScreen(), BrowserScreen()],
+          ),
+          bottomNavigationBar: _BottomNav(index: _index, onSelect: _select),
+        ),
       ),
     );
   }
+}
+
+/// Exposes the shell's leave-Browser confirmation to anything that can
+/// navigate away from it — route pushes (Settings, Activity, Storage,
+/// Archived, Rules) and system back.
+///
+/// An InheritedWidget rather than a provider so a widget deep in the Library
+/// or Browser tab can ask "may I navigate?" without knowing the shell exists.
+class LeaveBrowserGuard extends InheritedWidget {
+  const LeaveBrowserGuard({
+    super.key,
+    required this.confirm,
+    required super.child,
+  });
+
+  /// Resolves true when navigation may proceed.
+  final Future<bool> Function() confirm;
+
+  static LeaveBrowserGuard? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<LeaveBrowserGuard>();
+
+  /// Ask before leaving. Safe to call from anywhere — with no guard in the
+  /// tree (tests, deep routes) it simply allows the navigation.
+  static Future<bool> confirmLeave(BuildContext context) async {
+    final guard = maybeOf(context);
+    if (guard == null) return true;
+    return guard.confirm();
+  }
+
+  /// Guarded `context.push`: confirms first when a capture needs the
+  /// Browser, then navigates. Used by every route that leaves the Browser.
+  static Future<void> push(BuildContext context, String location) async {
+    if (!await confirmLeave(context)) return;
+    if (context.mounted) context.push(location);
+  }
+
+  @override
+  bool updateShouldNotify(LeaveBrowserGuard oldWidget) =>
+      confirm != oldWidget.confirm;
 }
 
 /// The design's two-item bar: a filled pill behind the selected glyph rather

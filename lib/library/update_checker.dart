@@ -363,7 +363,25 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
           knownUrlKeys: _visited,
           maxNew: config.maxNewChapters,
         );
-        if (discovery.listRecognised) {
+        _addLog(
+          'chapter list: ${discovery.direction.name}, '
+          '${discovery.knownSeen} already held, '
+          '${discovery.newChapters.length} new'
+          '${discovery.orderingConfident ? '' : ' (ordering unclear)'}',
+        );
+        if (discovery.dropped > 0) {
+          _addLog(
+            '${discovery.dropped} further new chapter(s) left for the next '
+            'check (limit ${config.maxNewChapters})',
+          );
+        }
+        // Trusting an empty result means declaring the series up to date
+        // without looking any further. That is only safe when the list's own
+        // ordering was unambiguous; otherwise "nothing above the checkpoint"
+        // may just mean we could not tell what was above it, and the chain
+        // walk gets its turn.
+        if (discovery.listRecognised &&
+            (discovery.newChapters.isNotEmpty || discovery.orderingConfident)) {
           for (final found_ in discovery.newChapters) {
             maxSequence++;
             await _recordDiscovered(
@@ -387,7 +405,12 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
             detail: 'chapter list on the series page',
           );
         }
-        _addLog('no recognisable chapter list — walking the chapter chain');
+        _addLog(
+          discovery.listRecognised
+              ? 'chapter list gave nothing but could not be ordered — '
+                    'walking the chapter chain'
+              : 'no recognisable chapter list — walking the chapter chain',
+        );
       } else {
         _addLog('series page unreachable — walking the chapter chain');
       }
@@ -706,28 +729,110 @@ class DiscoveredChapter {
   final double? number;
 }
 
+/// Which way a chapter list runs down the page.
+///
+/// Most sites list newest first; some list oldest first; a few are not
+/// ordered coherently at all. Getting this wrong is what makes an update
+/// check capture chapter 1 when the user wanted 386.
+enum ChapterListDirection { newestFirst, oldestFirst, unknown }
+
 class ChapterListDiscovery {
   const ChapterListDiscovery({
     required this.listRecognised,
     required this.newChapters,
     this.knownSeen = 0,
+    this.direction = ChapterListDirection.unknown,
+    this.orderingConfident = false,
+    this.dropped = 0,
   });
 
   /// Whether the page plausibly showed this series' chapter list at all.
   /// False means "fall back to the chain walk", not "up to date".
   final bool listRecognised;
+
+  /// New chapters in **capture order: oldest first**, so a partial run leaves
+  /// a contiguous block rather than holes.
   final List<DiscoveredChapter> newChapters;
   final int knownSeen;
+
+  /// Which way the list ran, as read off the page itself.
+  final ChapterListDirection direction;
+
+  /// True only when the list's own ordering was unambiguous. An empty result
+  /// from a list we could not order is *not* evidence of being up to date —
+  /// see the caller, which keeps walking the chain in that case.
+  final bool orderingConfident;
+
+  /// New chapters found but cut by `maxNew`. Reported rather than silently
+  /// dropped: the next check picks them up, and the log should say so.
+  final int dropped;
 }
+
+/// One same-series link, with the two things ordering can be read from: the
+/// number in its label and its position in the list.
+class _ChapterLink {
+  _ChapterLink({
+    required this.index,
+    required this.url,
+    required this.key,
+    required this.title,
+    required this.number,
+    required this.depth,
+  }) : position = number;
+
+  final int index;
+  final String url;
+  final String key;
+  final String title;
+  final double? number;
+  final int depth;
+
+  /// Where this chapter sits on the number line: its own number, or — for an
+  /// unnumbered one — a value interpolated from its numbered neighbours.
+  /// Null only when the list offers nothing to interpolate from.
+  double? position;
+}
+
+/// Whether a link is a chapter *of this series*.
+///
+/// [seriesFingerprint] answers this for ordinary chapters by dropping a
+/// trailing chapter-looking segment. It cannot for a chapter whose slug is
+/// just a word — `/manga/foo/extra`, `/manga/foo/side-story` — which keeps
+/// its own segment and so fingerprints as a different series. Those are
+/// admitted on structure instead: exactly one segment below the series path.
+/// (What stops that from admitting `/manga/foo/comments` is the caller, which
+/// only keeps an unnumbered link that sits *inside* the numbered run.)
+bool _belongsToSeries(String url, String seriesKey) {
+  if (seriesFingerprint(url) == seriesKey) return true;
+  final path = Uri.tryParse(url)?.path;
+  if (path == null) return false;
+  final trailing = RegExp(r'/+$');
+  final prefix = '${seriesKey.replaceAll(trailing, '')}/';
+  final trimmed = path.replaceAll(trailing, '');
+  if (!trimmed.startsWith(prefix)) return false;
+  return !trimmed.substring(prefix.length).contains('/');
+}
+
+int _pathDepth(String url) =>
+    Uri.tryParse(url)?.pathSegments.where((s) => s.isNotEmpty).length ?? 0;
 
 /// Read a series page's chapter list. Pure — unit tested against literal
 /// probes.
 ///
-/// A link counts as a chapter link when it stays on the same series path and
-/// carries a parseable chapter number. New = a number above the latest known
-/// (or an unknown URL when nothing is numbered — but never merged on a
-/// guess: unnumbered unknown links are ignored rather than recorded, because
-/// "new" cannot be established for them from a list alone).
+/// Three things this has to get right, in order of how often they bite:
+///
+/// 1. **Newest-to-oldest lists.** The links arrive in DOM order, which is the
+///    site's own ordering. That ordering is measured (not assumed) and used
+///    to emit new chapters oldest-first, whichever way the page runs.
+/// 2. **Decimals.** `385 < 385.5 < 386`; comparisons are on the parsed
+///    numbers, never on text.
+/// 3. **Unnumbered chapters.** `"Extra"`, `"Prologue"`, `"Side Story"` have no
+///    number to compare, so they are placed by position relative to the
+///    chapters already held — not discarded, which is what used to happen.
+///
+/// "Starting from the middle" falls out of the same rule: the checkpoint is
+/// the highest number already held plus the set of known URLs, so a library
+/// holding 100–105 of 400 finds 106 onwards and captures upward from there.
 ChapterListDiscovery discoverFromChapterList(
   PageProbe probe, {
   required String seriesKey,
@@ -736,54 +841,189 @@ ChapterListDiscovery discoverFromChapterList(
   int maxNew = 20,
 }) {
   final base = probe.url;
+  final baseKey = normalizeUrl(base);
   final seen = <String>{};
-  final chapterLinks = <DiscoveredChapter>[];
-  var knownSeen = 0;
+  final candidates = <_ChapterLink>[];
 
   for (final link in probe.links) {
     final resolved = resolveUrl(base, link.href);
     if (resolved == null) continue;
     if (hostOf(resolved).toLowerCase() != hostOf(base).toLowerCase()) continue;
-    if (seriesFingerprint(resolved) != seriesKey) continue;
+    if (!_belongsToSeries(resolved, seriesKey)) continue;
 
     final key = normalizeUrl(resolved);
+    // The series page links to itself from its own header; that is not a
+    // chapter.
+    if (key == baseKey) continue;
     if (!seen.add(key)) continue;
 
-    final number = parseChapterNumber(title: link.text, url: resolved);
-    if (number == null) continue;
-
-    if (knownUrlKeys.contains(key)) {
-      knownSeen++;
-      continue;
-    }
-    chapterLinks.add(
-      DiscoveredChapter(
+    candidates.add(
+      _ChapterLink(
+        index: candidates.length,
         url: resolved,
+        key: key,
         title: link.text.trim().isEmpty ? resolved : link.text.trim(),
-        number: number,
+        number: parseChapterNumber(title: link.text, url: resolved),
+        depth: _pathDepth(resolved),
       ),
     );
   }
+
+  final numbered = candidates.where((c) => c.number != null).toList();
+
+  // An unnumbered link only counts as a chapter when it sits inside the
+  // numbered run and at the same URL depth. Without that, a series page's
+  // "comments" or "bookmark" link would be captured as a chapter — which is
+  // why these used to be dropped outright.
+  final modalDepth = _modalDepth(numbered);
+  final firstNumbered = numbered.isEmpty ? -1 : numbered.first.index;
+  final lastNumbered = numbered.isEmpty ? -1 : numbered.last.index;
+  final links = candidates.where((c) {
+    if (c.number != null) return true;
+    if (knownUrlKeys.contains(c.key)) return true;
+    return c.depth == modalDepth &&
+        c.index > firstNumbered &&
+        c.index < lastNumbered;
+  }).toList();
+
+  // Give every unnumbered chapter a place on the number line by interpolating
+  // between its numbered neighbours in list order: a "Side Story" between
+  // 386 and 385 belongs at 385.5. That is what lets the *same* comparison
+  // decide novelty and ordering for numbered and unnumbered chapters alike —
+  // and it is immune to the shortcut links ("First Chapter", "Latest") that
+  // real series pages put above their list.
+  _interpolateUnnumbered(links);
+
+  // --- which way does the list run? ---------------------------------------
+  //
+  // Reported, and used only to gate early stopping. Deliberately tolerant:
+  // those same shortcut links break strict monotonicity on both sites this
+  // project verifies against, so a majority with a clear margin is what a
+  // real chapter list looks like.
+  var ascendingPairs = 0;
+  var descendingPairs = 0;
+  for (var i = 1; i < numbered.length; i++) {
+    final delta = numbered[i].number!.compareTo(numbered[i - 1].number!);
+    if (delta > 0) {
+      ascendingPairs++;
+    } else if (delta < 0) {
+      descendingPairs++;
+    }
+  }
+  final orderedPairs = ascendingPairs + descendingPairs;
+  final majority = descendingPairs >= ascendingPairs
+      ? descendingPairs
+      : ascendingPairs;
+  final decided = orderedPairs > 0 && majority >= orderedPairs * 0.8;
+  final direction = !decided
+      ? ChapterListDirection.unknown
+      : descendingPairs > ascendingPairs
+      ? ChapterListDirection.newestFirst
+      : ChapterListDirection.oldestFirst;
+  // Enough entries for the majority to mean something. Two links that happen
+  // to descend are a coincidence; three or more are an ordering.
+  final confident =
+      direction != ChapterListDirection.unknown && numbered.length >= 3;
+
+  var knownSeen = 0;
+  for (final c in links) {
+    if (knownUrlKeys.contains(c.key)) knownSeen++;
+  }
+
+  // --- which of them are new ----------------------------------------------
+  final fresh = <_ChapterLink>[];
+  for (final c in links) {
+    if (knownUrlKeys.contains(c.key)) continue;
+    final position = c.position;
+    final bool isNew;
+    if (latestKnownNumber == null) {
+      // Nothing to measure against: the first check reports the whole list.
+      isNew = true;
+    } else if (position != null) {
+      // Decimal-safe by construction: 385.5 > 385, and 386 > 385.5.
+      isNew = position > latestKnownNumber;
+    } else {
+      // Neither a number nor a numbered neighbour. "New" cannot be
+      // established from a list alone, so it is not claimed.
+      isNew = false;
+    }
+    if (isNew) fresh.add(c);
+  }
+
+  // --- oldest first, so capture runs forward -------------------------------
+  fresh.sort((a, b) {
+    final ap = a.position;
+    final bp = b.position;
+    if (ap != null && bp != null) {
+      final byNumber = ap.compareTo(bp);
+      if (byNumber != 0) return byNumber;
+    } else if (ap != null) {
+      return -1;
+    } else if (bp != null) {
+      return 1;
+    }
+    return a.index.compareTo(b.index);
+  });
 
   // Recognised = the page demonstrably lists this series' chapters: either
   // it shows chapters we already hold, or several numbered same-series
   // links. A page with neither tells us nothing and must not produce
   // "up to date".
-  final recognised = knownSeen > 0 || (knownSeen + chapterLinks.length) >= 2;
-
-  final fresh =
-      chapterLinks
-          .where(
-            (c) =>
-                latestKnownNumber == null ||
-                (c.number ?? 0) > latestKnownNumber,
-          )
-          .toList()
-        ..sort((a, b) => (a.number ?? 0).compareTo(b.number ?? 0));
+  final recognised = knownSeen > 0 || numbered.length >= 2;
 
   return ChapterListDiscovery(
     listRecognised: recognised,
-    newChapters: fresh.take(maxNew).toList(),
+    newChapters: fresh
+        .take(maxNew)
+        .map(
+          (c) => DiscoveredChapter(url: c.url, title: c.title, number: c.number),
+        )
+        .toList(),
     knownSeen: knownSeen,
+    direction: direction,
+    orderingConfident: confident,
+    dropped: fresh.length > maxNew ? fresh.length - maxNew : 0,
   );
+}
+
+/// Place each unnumbered chapter between its numbered neighbours in list
+/// order. With neighbours on both sides it lands midway between them; with
+/// only one side it borrows that neighbour's number, which keeps it adjacent
+/// to where the site put it. With no numbered neighbour at all it stays
+/// null — and an entry with no position is never claimed as new.
+void _interpolateUnnumbered(List<_ChapterLink> links) {
+  for (var i = 0; i < links.length; i++) {
+    if (links[i].number != null) continue;
+    double? before;
+    for (var j = i - 1; j >= 0; j--) {
+      if (links[j].number != null) {
+        before = links[j].number;
+        break;
+      }
+    }
+    double? after;
+    for (var j = i + 1; j < links.length; j++) {
+      if (links[j].number != null) {
+        after = links[j].number;
+        break;
+      }
+    }
+    links[i].position = before != null && after != null
+        ? (before + after) / 2
+        : (before ?? after);
+  }
+}
+
+/// The URL depth most of the numbered chapter links share.
+int _modalDepth(List<_ChapterLink> numbered) {
+  if (numbered.isEmpty) return -1;
+  final counts = <int, int>{};
+  for (final c in numbered) {
+    counts[c.depth] = (counts[c.depth] ?? 0) + 1;
+  }
+  var best = numbered.first.depth;
+  for (final entry in counts.entries) {
+    if (entry.value > (counts[best] ?? 0)) best = entry.key;
+  }
+  return best;
 }

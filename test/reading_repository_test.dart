@@ -137,9 +137,14 @@ void main() {
         expect(chapter!.readStatus, ReadStatus.completed.name);
         expect(chapter.completedAt, firstCompletion);
         expect(
+          chapter.progressImageIndex,
+          1,
+          reason: 'the anchor still tracks where they actually are',
+        );
+        expect(
           chapter.progressFraction,
-          closeTo(0.2, 0.001),
-          reason: 'the position still tracks where they actually are',
+          1,
+          reason: 'a finished chapter reads 100%, wherever the scroll is',
         );
       },
     );
@@ -189,7 +194,13 @@ void main() {
         3,
         reason: 'unread means unfinished, not never-visited',
       );
-      expect(chapter.progressFraction, closeTo(0.6, 0.001));
+      expect(chapter.progressOffsetInImage, closeTo(0.4, 0.001));
+      expect(
+        chapter.progressFraction,
+        0,
+        reason: 'completion had forced the bar to 100%; unread empties it '
+            'again rather than leaving a full bar on an unread chapter',
+      );
     });
 
     test('marking unread moves the series pointer back', () async {
@@ -358,9 +369,14 @@ void main() {
       expect(chapter.readStatus, 'completed');
       expect(chapter.completedAt, isNotNull);
       expect(
+        chapter.progressImageIndex,
+        5,
+        reason: 'the later position still wins',
+      );
+      expect(
         chapter.progressFraction,
-        closeTo(0.98, 0.001),
-        reason: 'the later position still wins — only the completion sticks',
+        1,
+        reason: 'the completion sticks, and completed means 100%',
       );
     });
 

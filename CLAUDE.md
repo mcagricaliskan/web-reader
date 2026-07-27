@@ -56,6 +56,8 @@ flutter test integration_test/user_assist_test.dart   -d <udid>
 flutter test integration_test/live_capture_test.dart     -d <udid>  # uzaymanga, 1 chapter
 flutter test integration_test/live_asura_smoke_test.dart -d <udid>  # asura, 2 chapters
 flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only, both sites
+#   ^ two groups: one chapter page per site (extraction + next-detection),
+#     and one series index page per site (chapter-list ordering, D40).
 ```
 
 ### Live-site matrix
@@ -64,13 +66,13 @@ flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only,
 |---|---|---|
 | Series | Efsanevi Büyü İmparatoru | The Nebula's Civilization |
 | Example URL | `https://uzaymanga.com/manga/efsanevi-buyu-imparatoru/885-bolum-oku` | `https://asurascans.com/comics/the-nebulas-civilization-059befe1/chapter/137` |
-| Purpose | Real single-chapter capture · Referer-gated AVIF CDN · very tall panels (800×16000) · MIME/extension verification · next-chapter detection · aspect-ratio/manifest repair · adaptive scroll on a long lazy chapter | Very long eager-rendered chapter (~146k px, ~31 panels) · fast traversal over loaded content · hidden-WebView pause protection · comment-avatar false-positive rejection · JPEG bytes under `.webp` URLs · next-chapter detection · bounded multi-chapter chain · large-chapter downloads (15–40 MB) |
+| Purpose | Real single-chapter capture · Referer-gated AVIF CDN · very tall panels (800×16000) · MIME/extension verification · next-chapter detection · aspect-ratio/manifest repair · adaptive scroll on a long lazy chapter · chapter-list ordering on the series index page | Very long eager-rendered chapter (~146k px, ~31 panels) · fast traversal over loaded content · hidden-WebView pause protection · comment-avatar false-positive rejection · JPEG bytes under `.webp` URLs · next-chapter detection · bounded multi-chapter chain · large-chapter downloads (15–40 MB) · chapter-list ordering on the series index page |
 | Download allowed | Yes — 1 chapter (~1.4 MB) | Yes — max 2 chapters (~30–80 MB) |
 | Max chapters | 1 | 2 |
 | Content type | Webtoon, AVIF strips, no HTML size attrs | Webtoon, WebP/JPEG strips via Astro/React island (panels absent from static HTML; hydrate eagerly) |
 | Test file | `integration_test/live_capture_test.dart` (+ probe) | `integration_test/live_asura_smoke_test.dart` (+ probe) |
-| Last verified | 2026-07-27 (capture+dims+extensions) | 2026-07-27 (2-chapter smoke incl. pause/resume) |
-| Caveats | Turkish titles; site occasionally slow; CDN 503s single assets (partial-capture path) | Cloudflare-fronted; comment avatars sit pending forever; URL slugs contain content hashes and may rot |
+| Last verified | 2026-07-27 (capture+dims+extensions; series-page list read-only: 500 links, 483 chapters, `newestFirst`, confident) | 2026-07-27 (2-chapter smoke incl. pause/resume; series-page list read-only: 141 links, 103 chapters, `newestFirst`, confident) |
+| Caveats | Series page carries *İlk Bölüm* / *En Son Bölüm* jump links above the list (D40); Turkish titles; site occasionally slow; CDN 503s single assets (partial-capture path) | Cloudflare-fronted; comment avatars sit pending forever; URL slugs contain content hashes and may rot; a hidden-but-once-painted WebView keeps live metrics on the Simulator (run continues — correct); the pause fires only on broken metrics |
 
 > **Coding-agent rule:** when a change affects an area covered by a matrix
 > entry, run the relevant bounded live smoke test after deterministic tests —
@@ -94,3 +96,24 @@ flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only,
   D29). Do not let a caret drift it.
 - SPM stays disabled for iOS builds (D25) until verified on a physical
   device.
+- **A completed chapter is 100% read** (D39). `progress_fraction` is pinned
+  at 1 whenever `read_status` is `completed`, enforced on write and again on
+  display (`readProgressFor`). Re-reading a finished chapter moves the anchor,
+  never the fraction.
+- Update-check chapter-list ordering is **measured from the page**, never
+  assumed. Emission is oldest-first; "nothing new" ends a check only when the
+  ordering was unambiguous, otherwise the chain walk still runs.
+- **Removing offline files is never deleting a chapter** (D35): bytes go,
+  every piece of metadata and reading history stays, and the chapter reads
+  as "Not available offline — capture again". Permanent metadata deletion is
+  a separate concept and is not implemented.
+- **Leaving the Browser during a WebView-dependent capture phase pauses it**
+  (D36) — never cancels, never continues blind. Downloading/saving phases do
+  not trigger the confirmation.
+- **The after-finished cleanup preference defaults to Ask** (D37);
+  "Don't ask again" is the only thing that changes the persistent setting.
+  Changing the setting never removes anything retroactively.
+- **drift trap:** `insertOnConflictUpdate` treats a null field on a data
+  class as *absent*, so nullable columns survive an upsert. Anything that
+  must be cleared needs its own narrow writer (`clearOfflineRemovedMark`,
+  `clearJobPauseReason`).

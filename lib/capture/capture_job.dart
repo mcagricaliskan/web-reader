@@ -22,6 +22,9 @@ import 'site_rule.dart';
 
 const _uuid = Uuid();
 
+/// The persisted pause reason for "the user left the Browser mid-capture".
+const kPauseBrowserHidden = 'browserHidden';
+
 /// Drives a bounded multi-chapter run: capture, find next, validate, navigate,
 /// repeat. Only one job runs at a time.
 ///
@@ -112,10 +115,105 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
 
   // --- controls -----------------------------------------------------------
 
+  /// Test seams: put the controller in a running state without standing up
+  /// a real run, so the leave-Browser rules can be exercised per phase.
+  @visibleForTesting
+  void debugSetRunning(bool value) => _running = value;
+
+  @visibleForTesting
+  void debugSetProgress(CaptureProgress progress) {
+    _jobId ??= _uuid.v4();
+    _progress = progress;
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  Future<void> debugPersist() => _persistJob(
+    _progress.state,
+    _progress.currentUrl,
+    _progress.storedChapters,
+  );
+
+  /// Why the run is paused, when it is paused for a reason worth persisting
+  /// and naming in the UI. `browserHidden` is the leave-the-Browser pause.
+  String? pauseReason;
+
   void pause() {
+    pauseReason = null;
     _engine?.pause();
     _addLog('paused by user');
     notifyListeners();
+  }
+
+  /// The user left the Browser while a rendered-WebView phase was running.
+  /// The run holds exactly where it is: nothing scrolls, nothing extracts,
+  /// nothing is marked complete, and the queue task keeps the reason so
+  /// Activity can say "Browser required" instead of a bare "paused".
+  void pauseForBrowserHidden() {
+    if (!_running || isPaused) return;
+    pauseReason = kPauseBrowserHidden;
+    _engine?.pause();
+    _addLog('paused — the Browser was left while capture needed it');
+    unawaited(
+      _persistJob(
+        _progress.state,
+        _progress.currentUrl,
+        _progress.storedChapters,
+      ),
+    );
+    notifyListeners();
+  }
+
+  /// Back on the Browser and the surface is usable again.
+  void resumeAfterBrowserVisible() {
+    if (pauseReason != kPauseBrowserHidden) return;
+    pauseReason = null;
+    _engine?.resume();
+    _addLog('resumed — the Browser is visible again');
+    final id = _jobId;
+    unawaited(() async {
+      await _persistJob(
+        _progress.state,
+        _progress.currentUrl,
+        _progress.storedChapters,
+      );
+      // Explicit: a null on the data class would be treated as "leave it".
+      if (id != null) await db.clearJobPauseReason(id);
+    }());
+    notifyListeners();
+  }
+
+  /// True while a phase that genuinely needs a rendered WebView is running:
+  /// inspecting, scrolling, waiting for page assets, verifying, extracting,
+  /// detecting the next link, or navigating. Downloading and saving read
+  /// bytes over HTTP and touch no layout — leaving during those is safe, so
+  /// the confirmation must not appear.
+  bool get needsRenderedBrowser {
+    // Already held for this exact reason: asking again would be noise.
+    if (!_running || isPaused || pauseReason != null) return false;
+    return switch (_progress.state) {
+      CaptureState.inspecting ||
+      CaptureState.scrolling ||
+      CaptureState.waitingForAssets ||
+      CaptureState.verifying ||
+      CaptureState.extracting ||
+      CaptureState.detectingNext ||
+      CaptureState.navigating => true,
+      _ => false,
+    };
+  }
+
+  /// One line for the leave dialog: what this run has done so far.
+  String get progressSummary {
+    final p = _progress;
+    final parts = <String>[
+      if (p.chapterTitle.isNotEmpty) p.chapterTitle,
+      '${p.storedChapters} captured',
+      if (p.skippedChapters > 0) '${p.skippedChapters} skipped',
+      if (p.requestedChapters > p.storedChapters)
+        '${p.requestedChapters - p.storedChapters} remaining',
+    ];
+    return parts.join(' · ');
   }
 
   void resume() {
@@ -1068,6 +1166,7 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
         sessionDuplicateDecision: sessionDuplicateDecision.name,
         sessionPartialDecision: sessionPartialDecision.name,
         rangeMode: rangeMode.name,
+        pauseReason: pauseReason,
         createdAt: now,
         updatedAt: now,
       ),

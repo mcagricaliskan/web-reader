@@ -209,6 +209,22 @@ class FileStore {
     await tmp.rename(p.join(dir, manifestFileName));
   }
 
+  /// Bytes sitting in `tmp/` — interrupted captures and pending cleanup
+  /// undos. Reported on the Storage screen as recoverable space.
+  Future<int> stagingByteSize() async {
+    final tmp = Directory(_tmpPath);
+    if (!tmp.existsSync()) return 0;
+    var total = 0;
+    try {
+      await for (final e in tmp.list(recursive: true)) {
+        if (e is File) total += await e.length();
+      }
+    } catch (_) {
+      // A sweep racing this walk is not worth failing a size readout over.
+    }
+    return total;
+  }
+
   /// Startup sweep: staging directories belong to no live session.
   Future<int> sweepStaging() async {
     final tmp = Directory(_tmpPath);

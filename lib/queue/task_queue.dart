@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
@@ -10,7 +11,9 @@ import '../core/config.dart';
 import '../capture/capture_preflight.dart';
 import '../capture/capture_state.dart';
 import '../library/update_checker.dart';
+import '../storage/cleanup.dart';
 import '../storage/database.dart';
+import '../storage/file_store.dart';
 
 const _uuid = Uuid();
 
@@ -22,10 +25,21 @@ enum QueueTaskType {
   multiChapterCapture,
   seriesCheck,
   checkAllSeries,
+
+  /// Bulk offline-file removal (a whole series, or every finished chapter).
+  /// Removal is never metadata deletion; see [CleanupService].
+  removeOfflineFiles,
 }
 
 QueueTaskType queueTaskTypeFromName(String name) => QueueTaskType.values
     .firstWhere((t) => t.name == name, orElse: () => QueueTaskType.seriesCheck);
+
+/// What a removeOfflineFiles task targets, encoded in `startUrl` (the column
+/// is free-form text; a cleanup task has no URL): `series` uses
+/// libraryItemId; `finishedEverywhere` sweeps every completed offline
+/// chapter in the active library.
+const kCleanupScopeSeries = 'cleanup:series';
+const kCleanupScopeFinished = 'cleanup:finishedEverywhere';
 
 enum QueueTaskState { queued, running, completed, failed, cancelled }
 
@@ -60,10 +74,17 @@ class TaskQueueController extends ChangeNotifier {
     required this.captureJob,
     required this.checker,
     required this.browser,
+    CleanupService? cleanup,
     this.historyLimit = 50,
     @visibleForTesting this.captureRunner,
     @visibleForTesting this.checkRunner,
-  }) {
+  }) : cleanup =
+           cleanup ??
+           CleanupService(
+             db: db,
+             fileStore: FileStore(Directory.systemTemp),
+             captureJob: captureJob,
+           ) {
     // The pump defers while someone else owns the WebView (a resumed capture,
     // a directly-started check). Ownership release does not notify by itself,
     // but both controllers notify at the end of their runs — after clearing
@@ -90,6 +111,7 @@ class TaskQueueController extends ChangeNotifier {
   final CaptureJobController captureJob;
   final UpdateChecker checker;
   final BrowserController browser;
+  final CleanupService cleanup;
   final int historyLimit;
 
   /// Test seams: replace the real work while keeping the real scheduler.
@@ -246,6 +268,24 @@ class TaskQueueController extends ChangeNotifier {
     return queuedChecks.length;
   }
 
+  /// Bulk offline-file removal as an observable task: a whole series
+  /// (pass [libraryItemId]) or every finished offline chapter everywhere.
+  /// Small single-chapter removals stay inline (toast + undo) — a queue row
+  /// for an instant is noise.
+  Future<String> enqueueCleanup({String? libraryItemId}) => _enqueue(
+    QueueTask(
+      id: _uuid.v4(),
+      taskType: QueueTaskType.removeOfflineFiles.name,
+      libraryItemId: libraryItemId,
+      startUrl: libraryItemId != null
+          ? kCleanupScopeSeries
+          : kCleanupScopeFinished,
+      state: QueueTaskState.queued.name,
+      orderIndex: 0,
+      queuedAt: DateTime.now(),
+    ),
+  );
+
   Future<String> _enqueue(QueueTask task) async {
     final order = await db.nextQueueOrderIndex();
     await db.upsertQueueTask(task.copyWith(orderIndex: order));
@@ -279,6 +319,10 @@ class TaskQueueController extends ChangeNotifier {
         case QueueTaskType.seriesCheck:
         case QueueTaskType.checkAllSeries:
           checker.cancel();
+        case QueueTaskType.removeOfflineFiles:
+          // Removal batches finish each chapter atomically; there is no
+          // mid-chapter state to interrupt. The flag stops it via _finish.
+          break;
       }
       notifyListeners();
     }
@@ -382,6 +426,9 @@ class TaskQueueController extends ChangeNotifier {
         return p.state == CaptureState.failed
             ? QueueOutcome.failure(p.lastError ?? summary)
             : QueueOutcome.success(summary);
+      case QueueTaskType.removeOfflineFiles:
+        if (checkRunner != null) return checkRunner!(task);
+        return _runCleanup(task);
       case QueueTaskType.seriesCheck:
       case QueueTaskType.checkAllSeries:
         if (checkRunner != null) return checkRunner!(task);
@@ -401,6 +448,70 @@ class TaskQueueController extends ChangeNotifier {
             ? QueueOutcome.failure(summary)
             : QueueOutcome.success(summary);
     }
+  }
+
+  /// Removal never touches metadata; locked chapters (open reader, active
+  /// capture) are kept and counted. Progress lands on the task row so the
+  /// Activity screen can show "18 / 42 · 1.2 GB freed" live.
+  Future<QueueOutcome> _runCleanup(QueueTask task) async {
+    final all = task.libraryItemId != null
+        ? await db.chaptersForItem(task.libraryItemId!)
+        : await _finishedOfflineEverywhere();
+    final targets = [
+      for (final c in all)
+        if (cleanup.isRemovable(c) &&
+            (task.libraryItemId != null || c.readStatus == 'completed'))
+          c.id,
+    ];
+    if (targets.isEmpty) {
+      return const QueueOutcome.success('nothing to remove');
+    }
+    final result = await cleanup.removeOfflineNow(
+      targets,
+      onProgress: (processed, freed) async {
+        if (processed % 5 != 0) return;
+        final row = await db.queueTaskById(task.id);
+        if (row == null) return;
+        await db.upsertQueueTask(
+          row.copyWith(
+            outcome: Value(
+              '$processed / ${targets.length} · ${_fmtBytes(freed)} freed',
+            ),
+          ),
+        );
+        notifyListeners();
+      },
+    );
+    final kept = result.keptLocked.isEmpty
+        ? ''
+        : ' · ${result.keptLocked.length} kept (in use)';
+    return QueueOutcome.success(
+      '${result.removed} chapter(s) removed · '
+      '${_fmtBytes(result.freedBytes)} freed$kept',
+    );
+  }
+
+  /// Completed offline chapters across the ACTIVE library (archived series
+  /// are asleep; their files are removed per-series if the user wants).
+  Future<List<Chapter>> _finishedOfflineEverywhere() async {
+    final items = await db.allLibraryItems();
+    final active = {
+      for (final i in items)
+        if (i.lifecycle != 'archived') i.id,
+    };
+    final chapters = await db.allChapters();
+    return [
+      for (final c in chapters)
+        if (active.contains(c.libraryItemId) && c.readStatus == 'completed') c,
+    ];
+  }
+
+  static String _fmtBytes(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) return '${(bytes / (1024 * 1024)).round()} MB';
+    return '${(bytes / 1024).round()} KB';
   }
 
   Future<void> _finish(

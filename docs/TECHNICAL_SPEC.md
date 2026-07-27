@@ -509,7 +509,26 @@ sized — a comment avatar stuck loading forever does not spend
 `maxAssetWait`. Measured effect: uzaymanga ch885 scroll 47 s → single-digit
 seconds; Asura ch137 ~88 s → seconds (live-verified; see CLAUDE.md matrix).
 
-### 6.4 Infinite scroll
+#### 6.3a Leaving the Browser mid-capture *(as built, 2026-07-27)*
+
+The render guard (§6.3, D32) handles a WebView that goes unrendered *without
+warning*. The complementary case is the user deliberately navigating away.
+
+`CaptureJobController.needsRenderedBrowser` is true only for phases that
+actually measure or drive layout — inspecting, scrolling, waiting for page
+assets, verifying, extracting, detecting the next link, navigating. It is
+false while downloading or committing (bytes over HTTP touch no layout), when
+nothing is running, and when the run is already paused.
+
+When it is true, every exit from the Browser — bottom nav, system back, and
+route pushes to Settings / Activity / Storage / Archived / Rules — is fronted
+by `LeaveBrowserGuard` and confirms first. *Leave and pause* holds the phase,
+persists `capture_jobs.pause_reason = browserHidden`, and keeps the queue task
+active; the strip and Activity both show the hold with an *Open Browser*
+action. Returning clears the pause and lets the engine's own render guard
+re-validate the surface and the page before work continues.
+
+## 6.4 Infinite scroll
 
 Detected as: `scrollHeight` growing past `initialHeight × 4`, or step count exceeding `maxSteps`
 (default 400), without ever reaching a stable bottom. Response: stop scrolling, extract what is
@@ -696,6 +715,35 @@ flowchart TD
   is used as the walk origin.
 - Chapter-list discovery: recipe selector → heuristic (a container holding ≥ 3 links whose hrefs share
   a path prefix with known chapter URLs, ordered by DOM position).
+
+### 9.1 Ordering a chapter list (as built)
+
+The links arrive in DOM order, which *is* the site's own ordering, so the direction is **measured
+rather than assumed**:
+
+- **Position.** Every chapter link gets a place on the number line: its own parsed number, or — for
+  an unnumbered one — a value interpolated from its numbered neighbours *in list order* (a
+  `Side Story` between 386 and 385 lands at 385.5). One comparison then decides both novelty and
+  ordering for numbered and unnumbered chapters alike. A link with no numbered neighbour at all has
+  no position and is never claimed as new: "new" cannot be established for it from a list alone.
+- **Unnumbered chapters** (`Extra`, `Side Story`, `Prologue`) are therefore no longer discarded. Two
+  guards keep page furniture out: an unnumbered link must sit inside the numbered run and at the same
+  URL depth as the numbered chapters.
+- **Checkpoint.** The highest chapter number already held, plus the set of known URL keys. A library
+  holding 100–105 of 400 therefore continues from 106 rather than restarting at 1 — "starting from
+  the middle" is the same code path as any other check.
+- **Decimals.** Comparison is on parsed numbers, never on text, so `385 < 385.5 < 386`.
+- **Direction** is reported and gates early stopping only. It is deliberately tolerant: a majority of
+  ≥ 80 % of ordered pairs, over ≥ 3 numbered links. Both live-verified sites put *First Chapter* and
+  *Latest Chapter* jump links above their list, which breaks strict monotonicity — a strict rule made
+  every real page `unknown`, and every up-to-date check pay for a chain walk.
+- **Dedup** is by normalised URL key, so a chapter linked twice (thumbnail plus title) is recorded
+  once.
+- **Emission order is oldest first**, so a run that is cut short by `maxNewChapters` leaves a
+  contiguous block rather than holes. Anything cut is logged, never silently dropped.
+- **Early stopping requires confidence.** "No new chapters in the list" ends the check only when the
+  ordering was unambiguous (a strictly monotonic run of ≥ 3 numbered links). Otherwise the check
+  falls through to the chain walk — an unorderable list is not evidence of being up to date.
 - **`checkQuality` is stored.** A bounded walk can only prove "at least N new exist"; the UI must not
   claim a definitive count from a partial check. This is the honest answer to "update checks that
   return incomplete results".
@@ -819,7 +867,8 @@ offsets break when device width or image scaling changes. Revisit if it feels im
 | Reader closed / popped | Immediate |
 | App lifecycle → `inactive` / `paused` / `detached` | Immediate, synchronous |
 | Chapter changed | Immediate, before the new chapter loads |
-| Mark read / unread | Immediate |
+| Mark read / unread | Immediate; any pending throttled write is cancelled first, so it cannot land afterwards and undo the choice |
+| Right-swipe out of the reader | Immediate, before the route changes |
 
 Worst case loss on a force-quit is a couple of seconds of scrolling. Each write is a single-row UPDATE
 against a WAL-mode SQLite database — microseconds. Writing on every scroll frame would be pointless
@@ -837,6 +886,14 @@ A chapter becomes `completed` when **any** of:
 **Opening never completes.** *Mark as unread* sets `readStatus = unread` and **keeps the anchor** so
 the user can still resume; if `lastCompletedChapterId` pointed at this chapter, it is recomputed to
 the newest still-completed chapter.
+
+**Completed means 100%.** Once a chapter is `completed`, `fraction` is pinned at 1 — by the dwell
+completion, by *Mark as read*, and by every progress write afterwards. Re-reading a finished chapter
+moves the anchor (resuming still lands where the reader is) but never the fraction, so a finished
+chapter can never report itself 40% read. *Mark as unread* resets the fraction to 0 in the same move,
+because completion had forced it to 1 and an unread chapter must not show a full bar. The rule is
+applied on write and again on display (`readProgressFor`), and `repairCompletedProgress()` brings
+older rows into line at boot.
 
 ### 12.4 Pointer maintenance
 

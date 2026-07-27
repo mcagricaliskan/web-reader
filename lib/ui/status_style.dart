@@ -41,6 +41,11 @@ CaptureLook captureLook(Chapter chapter, {bool filesMissing = false}) {
       dimTitle: true,
     );
   }
+  // A chapter whose files the USER removed is not an error and not a
+  // discovery — it is a known chapter that simply is not downloaded.
+  if (chapter.contentPath == null && chapter.offlineRemovedAt != null) {
+    return const CaptureLook(Icons.cloud, _muted, 'Not downloaded');
+  }
   return switch (chapter.captureStatus) {
     'knownRemote' => const CaptureLook(Icons.cloud, _muted, 'On source only'),
     'complete' => const CaptureLook(
@@ -78,7 +83,13 @@ class ReadGlyph extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = readStatusFromName(chapter.readStatus);
-    final pct = (chapter.progressFraction * 100).clamp(0, 100).round();
+    final pct =
+        (readProgressFor(
+                  readStatus: chapter.readStatus,
+                  stored: chapter.progressFraction,
+                ) *
+                100)
+            .round();
 
     return Row(
       mainAxisSize: MainAxisSize.min,

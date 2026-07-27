@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../capture/capture_job.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../storage/database.dart';
@@ -18,6 +19,7 @@ class ActivityScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final queue = ref.watch(taskQueueProvider);
     final tasks = ref.watch(queueTasksProvider);
+    final job = ref.watch(captureJobProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -80,7 +82,8 @@ class ActivityScreen extends ConsumerWidget {
                       style: monoStyle(color: const Color(0xFFA39D93)),
                     ),
                   ),
-                  for (final task in group) _TaskRow(task: task, queue: queue),
+                  for (final task in group)
+                    _TaskRow(task: task, queue: queue, job: job),
                 ],
             ],
           );
@@ -144,18 +147,30 @@ class _ResumeOffer extends StatelessWidget {
   );
 }
 
-class _TaskRow extends StatelessWidget {
-  const _TaskRow({required this.task, required this.queue});
+class _TaskRow extends ConsumerWidget {
+  const _TaskRow({required this.task, required this.queue, this.job});
 
   final QueueTask task;
   final TaskQueueController queue;
+  final CaptureJobController? job;
+
+  /// A running capture that is holding for the Browser is not "downloading" —
+  /// it needs the user, and says so with the way back.
+  bool get _browserRequired =>
+      task.state == QueueTaskState.running.name &&
+      job != null &&
+      job!.pauseReason == kPauseBrowserHidden;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final state = queueTaskStateFromName(task.state);
     final type = queueTaskTypeFromName(task.taskType);
+    if (_browserRequired) return _browserRequiredRow(context, ref);
     final (icon, color) = switch (state) {
-      QueueTaskState.running => (Icons.downloading, const Color(0xFF35606F)),
+      QueueTaskState.running =>
+        type == QueueTaskType.removeOfflineFiles
+            ? (Icons.delete_sweep, const Color(0xFF5F5B54))
+            : (Icons.downloading, const Color(0xFF35606F)),
       QueueTaskState.queued => (Icons.schedule, const Color(0xFF5F5B54)),
       QueueTaskState.failed => (
         type == QueueTaskType.seriesCheck ||
@@ -169,10 +184,12 @@ class _TaskRow extends StatelessWidget {
         const Color(0xFF8C877E),
       ),
       QueueTaskState.completed => (
-        type == QueueTaskType.seriesCheck ||
-                type == QueueTaskType.checkAllSeries
-            ? Icons.update
-            : Icons.download_for_offline,
+        switch (type) {
+          QueueTaskType.seriesCheck ||
+          QueueTaskType.checkAllSeries => Icons.update,
+          QueueTaskType.removeOfflineFiles => Icons.cleaning_services,
+          _ => Icons.download_for_offline,
+        },
         const Color(0xFF35606F),
       ),
     };
@@ -234,7 +251,67 @@ class _TaskRow extends StatelessWidget {
       'Capture · ${task.chapterLimit ?? '?'} chapters',
     QueueTaskType.seriesCheck => 'Check for updates',
     QueueTaskType.checkAllSeries => 'Check all series',
+    QueueTaskType.removeOfflineFiles => 'Removing offline files',
   };
+
+  /// The design's "paused — Browser required" row: grey, no progress bar,
+  /// and one action that actually solves it.
+  Widget _browserRequiredRow(BuildContext context, WidgetRef ref) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.public, size: 21, color: Color(0xFF5F5B54)),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _title(queueTaskTypeFromName(task.taskType), task),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontVariations: wght(500),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                'paused — Browser required',
+                style: TextStyle(fontSize: 12, color: Color(0xFF5F5B54)),
+              ),
+              if (job != null && job!.progressSummary.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  job!.progressSummary,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: monoStyle(size: 11, color: const Color(0xFF8C877E)),
+                ),
+              ],
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: () {
+                  ref.read(shellTabRequestProvider).value = 1;
+                  Navigator.of(context).maybePop();
+                },
+                icon: const Icon(Icons.open_in_browser, size: 18),
+                label: const Text('Open Browser to resume'),
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          tooltip: 'Stop',
+          icon: const Icon(Icons.close, size: 20),
+          color: const Color(0xFF5F5B54),
+          onPressed: () => queue.cancelTask(task.id),
+        ),
+      ],
+    ),
+  );
 
   String _subtitle(QueueTaskState state, QueueTask task) {
     final when = switch (state) {
