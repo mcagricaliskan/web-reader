@@ -202,6 +202,12 @@ class _ShellState extends ConsumerState<_Shell> {
 
   /// A widget inside a tab asked for a tab switch (e.g. "Open Browser" on a
   /// capture that is holding on a hidden WebView).
+  ///
+  /// Deliberately does **not** call [_onEnteredBrowser]. "Open in Browser"
+  /// arrives here having just paused a capture on purpose, and auto-resuming
+  /// it on the way in would restart the run one frame before the page is
+  /// navigated out from under it. Only a *user-initiated* tab tap ([_select])
+  /// lifts a leave-pause.
   void _onTabRequested() {
     final requested = _tabRequest.value;
     if (requested == null) return;

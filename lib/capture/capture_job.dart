@@ -26,6 +26,57 @@ const _uuid = Uuid();
 /// The persisted pause reason for "the user left the Browser mid-capture".
 const kPauseBrowserHidden = 'browserHidden';
 
+/// How a capture run was launched (D58).
+///
+/// The distinction is not cosmetic: a `direct` run holds the Browser the user
+/// is looking at right now and was never a pending queue entry, so it must not
+/// become one — not when it is interrupted, and not when it finishes.
+enum CaptureOrigin {
+  /// Started straight from the Browser's capture sheet ("Start Capture").
+  direct,
+
+  /// Released from the capture queue by an explicit Start.
+  queue,
+}
+
+CaptureOrigin captureOriginFromName(String? name) => CaptureOrigin.values
+    .firstWhere((o) => o.name == name, orElse: () => CaptureOrigin.queue);
+
+/// What a finished run *was*, kept after the run so the Browser can show a
+/// result without the run's live progress standing in as the current state.
+///
+/// Page-scoped by construction: [pageSession] is the Browser page identity the
+/// run ended on, and the Browser shows this only while that page is still the
+/// page on screen (D59). Durable history lives in Activity, not here.
+class CaptureRunRecord {
+  const CaptureRunRecord({
+    required this.jobId,
+    required this.origin,
+    required this.state,
+    required this.urlKey,
+    required this.pageSession,
+    required this.storedChapters,
+    required this.skippedChapters,
+    required this.message,
+    this.error,
+  });
+
+  final String jobId;
+  final CaptureOrigin origin;
+  final CaptureState state;
+
+  /// Canonical identity of the page the run ended on.
+  final String urlKey;
+  final int pageSession;
+  final int storedChapters;
+  final int skippedChapters;
+  final String message;
+  final String? error;
+
+  bool get succeeded =>
+      state == CaptureState.complete || state == CaptureState.partial;
+}
+
 /// Drives a bounded multi-chapter run: capture, find next, validate, navigate,
 /// repeat. Only one job runs at a time.
 ///
@@ -61,6 +112,35 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
   CaptureEngine? _engine;
   String? _jobId;
   bool _running = false;
+
+  /// How the run in progress (or the last one) was launched.
+  CaptureOrigin origin = CaptureOrigin.queue;
+
+  CaptureRunRecord? _lastRun;
+
+  /// The finished run's result, or null when nothing has finished since the
+  /// last start. Transient by design: the Browser presents it only for the
+  /// page it belongs to, and Activity holds the durable copy (D59).
+  CaptureRunRecord? get lastRun => _lastRun;
+
+  /// Drop the finished-run result — the user acknowledged it, or the Browser
+  /// moved to another page.
+  void clearLastRun() {
+    if (_lastRun == null) return;
+    _lastRun = null;
+    notifyListeners();
+  }
+
+  /// Canonical identity of the page this run is working on, or empty when
+  /// nothing is running. What "is this page capturing?" is answered with.
+  String get activePageKey =>
+      _running || isPaused ? pageIdentityKey(_progress.currentUrl) : '';
+
+  /// True while a run exists that owns the WebView or is holding mid-run —
+  /// which includes a paused one. A finished run is not active, however
+  /// recently it finished.
+  bool get hasActiveRun => _running || isPaused;
+
   bool _skipRequested = false;
   bool _retryRequested = false;
   bool _stopRequested = false;
@@ -428,6 +508,7 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
     SessionDuplicateDecision sessionDuplicate = SessionDuplicateDecision.ask,
     SessionPartialDecision sessionPartial = SessionPartialDecision.ask,
     CaptureRangeMode range = CaptureRangeMode.fixedCount,
+    CaptureOrigin origin = CaptureOrigin.direct,
   }) async {
     if (_running) return;
     if (browser.automationOwner != null) {
@@ -438,6 +519,13 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
     // the moment start() is called, or a caller can observe a started job
     // that claims to be idle.
     _running = true;
+    this.origin = origin;
+    // A new run replaces the previous run's result — never accumulates with
+    // it, and never leaves it to be read as this run's outcome.
+    _lastRun = null;
+    // Identity from the first moment, not from the first chapter: a run that
+    // refuses to start is still a run, and it still has a result to report.
+    _jobId = _uuid.v4();
 
     // Disk preflight: starting a capture that cannot write is worse than
     // refusing one. Unknown free space is allowed through (the rolling
@@ -460,6 +548,7 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
               'affected.',
         ),
       );
+      _publishRunRecord(startUrl ?? browser.currentUrl);
       return;
     }
 
@@ -486,7 +575,6 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
       CaptureRangeMode.untilEnd => config.untilEndSafetyLimit,
     };
     final beginUrl = startUrl ?? browser.currentUrl;
-    _jobId = _uuid.v4();
 
     _setProgress(
       (_) => CaptureProgress(
@@ -535,8 +623,34 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
       _engine = null;
       _pendingDuplicate = null;
       _duplicateCompleter = null;
+      pauseReason = null;
+      _publishRunRecord(_progress.currentUrl);
       notifyListeners();
     }
+  }
+
+  /// Turn the run that just ended into a page-scoped result.
+  ///
+  /// [progress] is deliberately left alone: it is the run's own record, which
+  /// Activity, the copy-log and the integration suites all read after the fact.
+  /// What changes is that the Browser no longer *derives page state from it* —
+  /// it reads this record, and only while its page is still on screen (D59).
+  void _publishRunRecord(String endedAtUrl) {
+    final id = _jobId;
+    if (id == null) return;
+    _lastRun = CaptureRunRecord(
+      jobId: id,
+      origin: origin,
+      state: _progress.state,
+      urlKey: pageIdentityKey(
+        endedAtUrl.isEmpty ? _progress.currentUrl : endedAtUrl,
+      ),
+      pageSession: browser.pageSession,
+      storedChapters: _progress.storedChapters,
+      skippedChapters: _progress.skippedChapters,
+      message: _progress.message,
+      error: _progress.lastError,
+    );
   }
 
   Future<void> _runLoop({required int limit, required String startUrl}) async {
@@ -1172,6 +1286,9 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
         sessionPartialDecision: sessionPartialDecision.name,
         rangeMode: rangeMode.name,
         pauseReason: pauseReason,
+        // Carried so an interrupted direct capture is resumed as one, rather
+        // than being folded into the pending queue (D58).
+        origin: origin.name,
         createdAt: now,
         updatedAt: now,
       ),
@@ -1206,6 +1323,9 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
         job.sessionPartialDecision,
       ),
       range: mode,
+      // A resumed run keeps the launch it was interrupted mid-way through: a
+      // direct capture resumes directly and never joins the pending queue.
+      origin: captureOriginFromName(job.origin),
     );
   }
 

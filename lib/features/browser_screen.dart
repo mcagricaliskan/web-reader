@@ -8,14 +8,18 @@ import 'package:go_router/go_router.dart';
 
 import '../app.dart';
 import '../browser/browser_controller.dart';
+import '../browser/browser_navigator.dart';
 import '../browser/browser_presentation.dart';
 import '../browser/browser_url.dart';
+import '../capture/capture_job.dart';
 import '../capture/capture_preflight.dart';
 import '../core/config.dart';
 import '../core/connectivity.dart';
+import '../library/update_checker.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../ui/palette.dart';
+import 'browser_capture_state.dart';
 import 'browser_home.dart';
 import 'browser_page_actions.dart';
 import 'browser_states.dart';
@@ -52,7 +56,27 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
   bool _findOpen = false;
   BrowserController? _browser;
   BrowserPresentation? _presentation;
+  BrowserNavigator? _navigator;
   late final String _initialUrl;
+
+  /// True while a post-frame drain is already scheduled, so the three things
+  /// that can trigger one (a new request, a WebView attach, a rebuild) do not
+  /// schedule three.
+  bool _drainScheduled = false;
+
+  /// The page identity everything transient on this screen is scoped to (D59).
+  ///
+  /// Not a convenience copy of the URL: it is what distinguishes "the page
+  /// changed" from "the same page said something again". When it moves, every
+  /// transient thing the Browser was showing about the previous page goes with
+  /// it — result banners, the panel, the offline lookup, the log drawer.
+  int _pageSession = -1;
+  String _pageKey = '';
+
+  /// What this page already holds locally, looked up once per page session.
+  /// Null while unknown — which is also the honest answer for a page nobody
+  /// has ever captured.
+  ChapterLocalState? _pageChapterState;
 
   @override
   void initState() {
@@ -65,6 +89,10 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final presentation = ref.read(browserPresentationProvider);
+        // ...unless something is already on its way here. Opening Home over
+        // a page the user explicitly asked for is the bug this whole flow
+        // exists to fix.
+        if (ref.read(browserNavigatorProvider).hasPending) return;
         if (presentation.surface == BrowserSurface.website &&
             !_hasRealPage(ref.read(browserProvider).currentUrl)) {
           presentation.openHome();
@@ -89,6 +117,14 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       _presentation?.removeListener(_onPresentationChanged);
       _presentation = presentation..addListener(_onPresentationChanged);
     }
+    final navigator = ref.read(browserNavigatorProvider);
+    if (!identical(navigator, _navigator)) {
+      _navigator?.removeListener(_scheduleDrain);
+      _navigator = navigator..addListener(_scheduleDrain);
+    }
+    // A request may already be waiting — this screen can be built *because*
+    // of one.
+    _scheduleDrain();
   }
 
   /// Keep the preserved-page snapshot current so Browser Home can offer a way
@@ -97,19 +133,95 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
   void _onBrowserChanged() {
     final browser = _browser;
     if (browser == null) return;
+    // An attach is one of the two things a pending request waits for.
+    _scheduleDrain();
+    _syncPageSession(browser);
     final url = browser.currentUrl;
     if (url.isEmpty) return;
     _presentation?.rememberPage(PreservedPage(url: url, title: browser.title));
+  }
+
+  /// The Browser moved to another page: re-scope everything transient to it.
+  ///
+  /// This is the whole of "reset on navigation" (D59). It does not reach into
+  /// the capture job — a running job is not this screen's to reset, and an
+  /// automation hop between chapters lands here exactly like a manual one:
+  /// the *presentation* follows the page, the *run* is untouched.
+  void _syncPageSession(BrowserController browser) {
+    if (browser.pageSession == _pageSession) return;
+    _pageSession = browser.pageSession;
+    _pageKey = browser.pageSessionKey;
+    _pageChapterState = null;
+    _panelOpen = false;
+    // A result the user never dismissed belongs to the page they have now
+    // left; it is in Activity, which is where history lives.
+    final job = _browser == null ? null : ref.read(captureJobProvider);
+    final stale = job?.lastRun;
+    if (stale != null && stale.pageSession != _pageSession) job!.clearLastRun();
+    unawaited(_loadPageChapterState(_pageSession, _pageKey));
+    if (mounted) setState(() {});
+  }
+
+  /// Read this page's own captured/offline metadata — separately from any job,
+  /// and discarded if the page moves on while the read is in flight.
+  Future<void> _loadPageChapterState(int session, String pageKey) async {
+    if (pageKey.isEmpty) return;
+    final preflight = CapturePreflight(
+      db: ref.read(databaseProvider),
+      fileStore: ref.read(fileStoreProvider),
+    );
+    final result = await preflight.inspect(pageKey);
+    if (!mounted || session != _pageSession) return;
+    setState(() => _pageChapterState = result.state);
   }
 
   void _onPresentationChanged() {
     if (mounted) setState(() {});
   }
 
+  /// Drain after the current frame.
+  ///
+  /// Deferred, not delayed: draining calls `showWebsite()`, which notifies
+  /// listeners and calls `setState` — illegal during a build, and
+  /// `didChangeDependencies` is part of one. The wait is for the frame to
+  /// end, never for a duration.
+  void _scheduleDrain() {
+    if (_drainScheduled || !mounted) return;
+    final navigator = _navigator;
+    if (navigator == null || !navigator.hasPending) return;
+    _drainScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _drainScheduled = false;
+      _drainPendingOpen();
+    });
+  }
+
+  /// Hand a waiting request to the WebView, exactly once.
+  ///
+  /// Held back until the WebView is attached: a load into an unattached
+  /// controller is silently dropped, which is precisely how the old flow lost
+  /// the URL. Nothing polls — [_onBrowserChanged] fires on attach and brings
+  /// us straight back here.
+  void _drainPendingOpen() {
+    if (!mounted) return;
+    final navigator = _navigator;
+    final browser = _browser;
+    if (navigator == null || browser == null) return;
+
+    PendingOpenDrainer(
+      navigator: navigator,
+      presentation: ref.read(browserPresentationProvider),
+      isAttached: () => browser.isAttached,
+      reveal: ref.read(browserPresentationProvider).showWebsite,
+      load: (url) => unawaited(browser.load(url)),
+    ).drain();
+  }
+
   @override
   void dispose() {
     _browser?.removeListener(_onBrowserChanged);
     _presentation?.removeListener(_onPresentationChanged);
+    _navigator?.removeListener(_scheduleDrain);
     super.dispose();
   }
 
@@ -244,6 +356,20 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
         if (mounted) _onPresentationChanged();
       });
     }
+    // A page can arrive before any listener fires (first build, a restored
+    // session): keep the scope in step without waiting for a notification.
+    if (browser.pageSession != _pageSession) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncPageSession(browser);
+      });
+    }
+
+    // Read once, here, in the build that owns this ref — the pieces below
+    // rebuild from Listenables, and a `watch` from inside one of those
+    // callbacks is a dependency registered outside its widget's build.
+    final tasks = ref.watch(queueTasksProvider).value ?? const [];
+    final pageIsQueued = pageHasQueuedCapture(tasks, _pageKey);
+    final waitingCaptures = QueueSummary.of(tasks).queuedCaptures;
 
     return Scaffold(
       backgroundColor: palette.surfaceMuted,
@@ -299,11 +425,18 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                           )
                         : const SizedBox.shrink(),
                   ),
-                  _IdleActions(
+                  _CaptureActions(
                     job: job,
                     checker: checker,
+                    pageKey: _pageKey,
+                    pageSession: _pageSession,
+                    pageChapterState: _pageChapterState,
+                    pageIsQueued: pageIsQueued,
+                    waitingCaptures: waitingCaptures,
                     onCapture: () => _showCaptureSheet(context),
                     onPageActions: _openPageActions,
+                    onViewActivity: () =>
+                        LeaveBrowserGuard.push(context, '/activity'),
                   ),
                   if (presentation.isHome)
                     Positioned.fill(
@@ -365,11 +498,27 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                 if (duplicate != null) {
                   return DuplicateDecisionPanel(job: job, request: duplicate);
                 }
-                return CapturePanel(
-                  job: job,
-                  expanded: _panelOpen || job.isRunning,
-                  onToggle: () => setState(() => _panelOpen = !_panelOpen),
-                );
+                // Page-scoped from here down (D59): the run panel belongs to
+                // the page being captured, and a finished run's banner belongs
+                // to the page it finished on. Neither survives navigating away.
+                final ui = _captureUi(job, checker, pageIsQueued);
+                if (ui.showsRunPanel) {
+                  return CapturePanel(
+                    job: job,
+                    expanded: _panelOpen || job.isRunning,
+                    onToggle: () => setState(() => _panelOpen = !_panelOpen),
+                  );
+                }
+                final result = ui.result;
+                if (result != null) {
+                  return CaptureResultBanner(
+                    result: result,
+                    onDismiss: job.clearLastRun,
+                    onViewActivity: () =>
+                        LeaveBrowserGuard.push(context, '/activity'),
+                  );
+                }
+                return const SizedBox.shrink();
               },
             ),
           ],
@@ -378,24 +527,112 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     );
   }
 
+  /// The capture control's state for the page on screen.
+  BrowserCaptureState _captureUi(
+    CaptureJobController job,
+    UpdateChecker checker,
+    bool pageIsQueued,
+  ) {
+    return resolveBrowserCaptureState(
+      pageKey: _pageKey,
+      pageSession: _pageSession,
+      hasActiveRun: job.hasActiveRun,
+      activePageKey: job.activePageKey,
+      activeState: job.progress.state,
+      needsRenderedBrowser: job.needsRenderedBrowser,
+      awaitingUser:
+          job.pendingSelection != null || job.pendingDuplicate != null,
+      pausedForBrowser: job.pauseReason == kPauseBrowserHidden,
+      checkerRunning: checker.isRunning,
+      lastRun: job.lastRun,
+      pageChapterState: _pageChapterState,
+      pageIsQueued: pageIsQueued,
+    );
+  }
+
   Future<void> _showCaptureSheet(BuildContext context) async {
+    final queue = ref.read(taskQueueProvider);
+    final job = ref.read(captureJobProvider);
+    // Asked before the sheet opens, so it can offer what is actually possible
+    // rather than failing after the choice (§3). Queueing is always on offer;
+    // only the direct start can conflict.
+    final owner = queue.browserOwner;
     final choice = await showCaptureRangeSheet(
       context: context,
-      config: ref.read(captureJobProvider).config,
-      deviceStorage: ref.read(captureJobProvider).deviceStorage,
+      config: job.config,
+      deviceStorage: job.deviceStorage,
       currentTitle: ref.read(browserProvider).title,
+      busyLabel: owner?.label,
     );
     if (choice == null || !context.mounted) return;
+    if (choice.action == CaptureSheetAction.viewActiveTask) {
+      await LeaveBrowserGuard.push(context, '/activity');
+      return;
+    }
     await _startCapture(context, choice);
+  }
+
+  /// Carry out [action] for a resolved request. The single place the two
+  /// launches diverge — everything before it (range, preflight, policy) is
+  /// shared, which is what makes the intent survive the preflight (D58).
+  Future<void> _launch(
+    BuildContext context,
+    CaptureSheetAction action, {
+    required String startUrl,
+    required int chapterLimit,
+    required DuplicatePolicy policy,
+    required CaptureRangeMode range,
+  }) async {
+    final queue = ref.read(taskQueueProvider);
+    if (action == CaptureSheetAction.addToQueue) {
+      final result = await queue.enqueueCapture(
+        startUrl: startUrl,
+        chapterLimit: chapterLimit,
+        policy: policy,
+        range: range,
+      );
+      if (!context.mounted) return;
+      // Queued, not started (D46). The user stays exactly where they are.
+      showQueuedConfirmation(context, result);
+      return;
+    }
+
+    final started = await queue.startDirectCapture(
+      startUrl: startUrl,
+      chapterLimit: chapterLimit,
+      policy: policy,
+      range: range,
+    );
+    if (!context.mounted) return;
+    switch (started) {
+      case DirectStartResult.started:
+        // Nothing to say: the panel is now the answer, on this page.
+        break;
+      case DirectStartResult.browserBusy:
+        showDirectStartRefusal(
+          context,
+          'Another capture is already using the Browser. This one can wait '
+          'in the queue instead.',
+        );
+      case DirectStartResult.browserUnavailable:
+        showDirectStartRefusal(
+          context,
+          'The Browser is not ready yet. Nothing was started, and nothing '
+          'was queued.',
+        );
+      case DirectStartResult.noPage:
+        showDirectStartRefusal(context, 'There is no page to capture.');
+    }
   }
 
   /// Preflight before anything downloads: if this chapter already exists, say
   /// so and ask, rather than starting a job that silently does nothing.
   ///
-  /// Every start goes through the activity queue (M14): the decision-making
-  /// stays here — the sheet resolves duplicates/conflicts *before* anything
-  /// is enqueued — but the run itself is a queue task, so it appears in
-  /// Activity history and serializes with checks on the shared WebView.
+  /// The decision-making stays here — the sheet resolves duplicates and
+  /// conflicts *before* anything runs — and the launch the user chose is
+  /// carried through it unchanged (D58). "Start Capture" that turns into
+  /// "Re-download this chapter" still starts here and now; "Add to Queue" that
+  /// turns into the same thing still waits. The question is never asked twice.
   Future<void> _startCapture(
     BuildContext context,
     CaptureRangeChoice choice,
@@ -404,6 +641,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     final queue = ref.read(taskQueueProvider);
     final url = ref.read(browserProvider).currentUrl;
     if (url.isEmpty) return;
+    final action = choice.action;
     final limit = switch (choice.mode) {
       CaptureRangeMode.currentChapter => 1,
       CaptureRangeMode.fixedCount => choice.count,
@@ -418,18 +656,17 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     final current = await preflight.inspect(url);
 
     if (!current.needsUserDecision) {
+      if (!context.mounted) return;
       // `ask` here means: if the run later walks onto a chapter that is
       // already saved, hold and ask — never silently skip or re-download.
-      final result = await queue.enqueueCapture(
+      await _launch(
+        context,
+        action,
         startUrl: url,
         chapterLimit: limit,
         policy: DuplicatePolicy.ask,
         range: choice.mode,
       );
-      if (!context.mounted) return;
-      // Queued, not started — even here, in the Browser (D46). The panel
-      // opens when the run does, and the user stays on the page.
-      showQueuedConfirmation(context, result);
       return;
     }
 
@@ -466,19 +703,23 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
         }
 
       case PreflightChoice.resumeJob:
+        // Resuming is always immediate — it is one job the user pointed at,
+        // and it keeps the launch it was interrupted under (D58).
         final existing = current.blockingJob;
-        if (existing != null) await job.resumeJob(existing);
+        if (existing != null) await queue.resumeInterruptedCapture(existing);
 
       case PreflightChoice.discardJobAndRestart:
         final existing = current.blockingJob;
         if (existing != null) await job.discardJob(existing);
-        final restarted = await queue.enqueueCapture(
+        if (!context.mounted) return;
+        await _launch(
+          context,
+          action,
           startUrl: url,
           chapterLimit: limit,
           policy: decision.policy ?? DuplicatePolicy.skipComplete,
           range: choice.mode,
         );
-        if (context.mounted) showQueuedConfirmation(context, restarted);
 
       case PreflightChoice.captureFollowing:
       case PreflightChoice.redownload:
@@ -494,13 +735,15 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
             decision.choice == PreflightChoice.retryMissing ||
             decision.choice == PreflightChoice.restartCapture ||
             decision.choice == PreflightChoice.repair;
-        final queued = await queue.enqueueCapture(
+        if (!context.mounted) return;
+        await _launch(
+          context,
+          action,
           startUrl: url,
           chapterLimit: isSingle ? 1 : limit,
           policy: decision.policy ?? DuplicatePolicy.skipComplete,
           range: isSingle ? CaptureRangeMode.currentChapter : choice.mode,
         );
-        if (context.mounted) showQueuedConfirmation(context, queued);
 
       case PreflightChoice.cancel:
         break;
@@ -508,34 +751,68 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
   }
 }
 
-/// The floating Capture button, the page-actions button, and the queued
-/// chip — all of which only make sense when nothing is running.
-class _IdleActions extends ConsumerWidget {
-  const _IdleActions({
+/// The capture control, the page-actions button, and the queued chip.
+///
+/// The control says what is true **of this page** (D59): idle, already
+/// available offline, queued, or the phase of the run that is working on it.
+/// A run that finished, or one that is working somewhere else, never presents
+/// itself as this page's state — and never disables its Capture button.
+class _CaptureActions extends StatelessWidget {
+  const _CaptureActions({
     required this.job,
     required this.checker,
+    required this.pageKey,
+    required this.pageSession,
+    required this.pageChapterState,
+    required this.pageIsQueued,
+    required this.waitingCaptures,
     required this.onCapture,
     required this.onPageActions,
+    required this.onViewActivity,
   });
 
-  final Listenable job;
-  final Listenable checker;
+  final CaptureJobController job;
+  final UpdateChecker checker;
+  final String pageKey;
+  final int pageSession;
+  final ChapterLocalState? pageChapterState;
+  final bool pageIsQueued;
+  final int waitingCaptures;
   final VoidCallback onCapture;
   final VoidCallback onPageActions;
+  final VoidCallback onViewActivity;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final jobController = ref.watch(captureJobProvider);
-    final checkerController = ref.watch(updateCheckerProvider);
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
 
     return AnimatedBuilder(
       animation: Listenable.merge([job, checker]),
       builder: (context, _) {
-        if (jobController.isRunning || checkerController.isRunning) {
+        final ui = resolveBrowserCaptureState(
+          pageKey: pageKey,
+          pageSession: pageSession,
+          hasActiveRun: job.hasActiveRun,
+          activePageKey: job.activePageKey,
+          activeState: job.progress.state,
+          needsRenderedBrowser: job.needsRenderedBrowser,
+          awaitingUser:
+              job.pendingSelection != null || job.pendingDuplicate != null,
+          pausedForBrowser: job.pauseReason == kPauseBrowserHidden,
+          checkerRunning: checker.isRunning,
+          lastRun: job.lastRun,
+          pageChapterState: pageChapterState,
+          pageIsQueued: pageIsQueued,
+        );
+
+        // While the user is being asked something, the overlay owns the
+        // screen; a floating button over it is noise.
+        if (ui.status == BrowserCaptureStatus.needsInput) {
           return const SizedBox.shrink();
         }
-        final tasks = ref.watch(queueTasksProvider).value ?? const [];
-        final waiting = QueueSummary.of(tasks).queuedCaptures;
+
+        final waiting = waitingCaptures;
+        final running = ui.showsRunPanel;
 
         return Positioned(
           left: 14,
@@ -545,31 +822,45 @@ class _IdleActions extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (waiting > 0) ...[
+              if (waiting > 0 && !running) ...[
                 QueuedCapturesChip(
                   count: waiting,
-                  onViewActivity: () =>
-                      LeaveBrowserGuard.push(context, '/activity'),
+                  onViewActivity: onViewActivity,
                 ),
                 const SizedBox(height: 12),
               ],
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  _RoundAction(
-                    icon: Icons.more_horiz,
-                    tooltip: 'Page actions',
-                    onPressed: onPageActions,
-                  ),
-                  const SizedBox(width: 8),
+                  if (!running) ...[
+                    _RoundAction(
+                      icon: Icons.more_horiz,
+                      tooltip: 'Page actions',
+                      onPressed: onPageActions,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   FloatingActionButton.extended(
+                    key: const ValueKey('browserCaptureAction'),
                     heroTag: 'browserCapture',
-                    onPressed: onCapture,
-                    tooltip: 'Capture chapters',
-                    backgroundColor: AppPalette.of(context).primary,
-                    foregroundColor: Colors.white,
-                    icon: const Icon(Icons.download, size: 20),
-                    label: const Text('Capture'),
+                    onPressed: ui.opensCaptureSheet
+                        ? onCapture
+                        : onViewActivity,
+                    tooltip: ui.detail ?? 'Capture chapters',
+                    backgroundColor: running
+                        ? palette.surface
+                        : palette.primary,
+                    foregroundColor: running ? palette.inkStrong : Colors.white,
+                    icon: Icon(switch (ui.status) {
+                      BrowserCaptureStatus.queued => Icons.schedule,
+                      BrowserCaptureStatus.capturing => Icons.swipe_vertical,
+                      BrowserCaptureStatus.downloading => Icons.downloading,
+                      BrowserCaptureStatus.waitingForBrowser => Icons.public,
+                      BrowserCaptureStatus.availableOffline =>
+                        Icons.download_for_offline,
+                      _ => Icons.download,
+                    }, size: 20),
+                    label: Text(ui.label),
                   ),
                 ],
               ),

@@ -89,6 +89,16 @@ class ActivityScreen extends ConsumerWidget {
                     ? _ResumeOffer(queue: queue)
                     : const SizedBox.shrink(),
               ),
+              // A capture started from the Browser has no pending row to
+              // show — it was never queued (D58) — so it is presented from
+              // the job itself, as what it is: an active direct capture.
+              ListenableBuilder(
+                listenable: Listenable.merge([queue, job]),
+                builder: (context, _) =>
+                    job.hasActiveRun && queue.runningTaskId == null
+                    ? _DirectCaptureRow(job: job, queue: queue)
+                    : const SizedBox.shrink(),
+              ),
               _BatchSummary(tasks: list),
               if (waitingToStart.isNotEmpty) ...[
                 SectionLabel(
@@ -180,6 +190,95 @@ class _ResumeOffer extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// The capture the user started from the Browser, while it runs.
+///
+/// Classified as a **direct** capture, never as a queued task: it holds no
+/// place in the queue, releases nothing behind it, and the pending rows below
+/// it are untouched by how it ends (D58).
+class _DirectCaptureRow extends ConsumerWidget {
+  const _DirectCaptureRow({required this.job, required this.queue});
+
+  final CaptureJobController job;
+  final TaskQueueController queue;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = job.progress;
+    final browserRequired = job.pauseReason == kPauseBrowserHidden;
+    return Container(
+      key: const ValueKey('directCaptureRow'),
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF1F4),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD2E2E8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.download_for_offline,
+                size: 20,
+                color: Color(0xFF133845),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  job.origin == CaptureOrigin.direct
+                      ? 'Capturing now · started from the Browser'
+                      : 'Capturing now',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontVariations: wght(600),
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF133845),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            browserRequired
+                ? 'paused — Browser required'
+                : '${p.state.label} · ${job.progressSummary}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1.5,
+              color: Color(0xFF3F5A63),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              FilledButton.icon(
+                key: const ValueKey('directCaptureOpenBrowser'),
+                onPressed: () {
+                  ref.read(shellTabRequestProvider).value = 1;
+                  Navigator.of(context).maybePop();
+                },
+                icon: const Icon(Icons.open_in_browser, size: 18),
+                label: const Text('Open Browser'),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                key: const ValueKey('directCaptureStop'),
+                onPressed: job.stop,
+                child: const Text('Stop'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _TaskRow extends ConsumerWidget {
@@ -355,7 +454,12 @@ class _TaskRow extends ConsumerWidget {
       _ => formatRelative(task.finishedAt ?? task.queuedAt),
     };
     final detail = task.lastError ?? task.outcome;
-    return detail == null ? when : '$detail · $when';
+    // Where the run came from is part of reading its history: a direct
+    // capture never waited in the queue, so "queued 2h ago" would be a lie.
+    final source = isDirectOriginTask(task)
+        ? 'started from the Browser · '
+        : '';
+    return detail == null ? '$source$when' : '$source$detail · $when';
   }
 
   List<(IconData, String, VoidCallback)> _controls(QueueTaskState state) =>

@@ -1241,3 +1241,155 @@ afterwards, which is exactly the kind of state that leaks.
 
 The last page is one tap away under Recently visited, where tapping it is a
 real visit because the user really did visit it.
+
+### D58 — Browser Capture offers Add to Queue **and** Start Capture, in one sheet
+
+**Decision.** The capture range sheet ends in two actions, side by side:
+**Add to Queue** (secondary) and **Start Capture** (primary). There is no
+second drawer asking which one — the range and what to do with it are one
+decision, and splitting them across two modals is how a two-tap action became
+a four-tap one.
+
+*What each does.*
+
+| | Add to Queue | Start Capture |
+|---|---|---|
+| Creates | a `queued` `queue_tasks` row | a `capture_jobs` row, and **no** pending queue row |
+| Browser | untouched; the user stays on the page | used immediately, after the same `ensureBrowserVisible` check queued work gets (D47) |
+| Starts | nothing (D46) | this request, now |
+| Ends in Activity | as a queued task released by Start | as a **terminal** `direct`-origin row: history, never a plan |
+
+*Why a direct start does not become a queue row.* D46 is about **batching**:
+preparing a list and then running it. A capture the user is watching happen on
+the page in front of them is not a batch — putting it in the queue and
+immediately releasing it would mean the queue's authorisation flag
+(`_captureStartAuthorised`) is set, which releases *every other pending
+capture behind it*. That is the isolation this decision exists to protect:
+
+> Chapters 200–202 are queued. The user is reading chapter 350 and presses
+> Start Capture. Chapter 350 runs. 200–202 are still waiting when it finishes,
+> in the same order, and they start when — and only when — the user presses
+> **Start queued captures**.
+
+*Corollaries.*
+
+- **The direct claim is its own flag.** `_directCaptureClaimed` is taken before
+  the first await, so two taps cannot both start, and the pump cannot slip a
+  queued check into the gap before `automationOwner` is set. It is cleared when
+  the run ends, and the pump is then invited to drain the work that drains on
+  its own — checks and cleanup, never pending captures.
+- **Ownership is asked before the sheet offers.** `browserOwner` names whatever
+  holds the WebView; when it is non-null the sheet replaces Start Capture with
+  **View active task** and keeps Add to Queue, because queueing starts nothing
+  and so cannot conflict with anything. One capture controller means one run:
+  a genuinely parallel second capture is not something the current
+  architecture can do safely, and pretending otherwise would race two jobs over
+  the same files.
+- **The launch survives the duplicate preflight.** The intent is carried into
+  `_launch`, so "Start Capture" → "this chapter is already saved" →
+  "Re-download" still starts here and now, and the same path chosen from Add to
+  Queue still waits. The question is never asked twice.
+- **Recovery keeps its launch.** `capture_jobs.origin` persists `direct` /
+  `queue`, so an interrupted direct capture is offered as Resume/Discard and
+  resumes *directly* — it is never silently converted into a pending queue
+  task. A row from before v11 has no origin and reads as `queue`, which is what
+  it was.
+- **Retrying a direct history row queues it.** A record of something that ran
+  must not become a plan that runs itself; the retry copy carries
+  `origin = queue` and waits like everything else.
+
+### D59 — The Browser's capture state is page state
+
+**Decision.** Everything the Browser shows about capturing is scoped to the
+page on screen: its **page session** (a counter on `BrowserController`, bumped
+on a main-frame page change) and its canonical identity (`pageIdentityKey` —
+the normalised URL without the fragment). A finished run is a **result**
+belonging to the page it finished on, not a state.
+
+*The bug this replaces.* `CaptureJobController.progress` is an app-lifetime
+snapshot that is never reset, and the Browser rendered it directly. So a
+capture that completed left `COMPLETE` on screen — on that page, on the next
+page, on every page for the rest of the session — and the capture control
+looked stuck. Hiding the widget would have left the same wrong model
+underneath: *job state was being read as page state*.
+
+*What is derived, and from what.* `resolveBrowserCaptureState` takes the page
+key and session, the genuinely active run (and **which page** it is on), what
+this page already holds locally, and whether a *waiting* queue row covers it.
+Its output is one of: `capture` · `availableOffline` · `queued` · `capturing` ·
+`downloading` · `waitingForBrowser` · `needsInput` · `busyElsewhere`.
+
+*Rules that fall out of it.*
+
+- A completed, failed or cancelled run **never** carries to another page: the
+  result matches only while its own page session is on screen.
+- A historical job never disables Capture. "Already available offline" is page
+  metadata — it changes the label to *Capture again*, and offers both launches.
+- `queued` shows only on a page an actually-waiting task points at. Running and
+  terminal rows are not "queued"; history must not make a page look busy.
+- An active run **elsewhere** presents as `busyElsewhere` — Add to Queue stays,
+  Start Capture does not — rather than as this page capturing.
+- **Manual and automation navigation take the same presentation path and
+  different job paths.** A chapter hop re-scopes what the Browser *shows* (the
+  page really did change) and does nothing to the run, which is not the
+  screen's to reset. Redirects resolve to the landing page; hash-only jumps,
+  sub-frames and asset loads never reach the session at all; `about:blank` and
+  app schemes start no session.
+- On completion the durable outcome goes to Activity, the Browser shows a
+  dismissible result banner for that page, and the control returns to idle.
+
+### D60 — "Open in Browser" is one coordinator, and it pops before it switches
+
+**Decision.** Every source-page action — the episode row, the long-press
+details sheet, the unavailable-episode sheet, a History row — calls one
+function, [`openInBrowser`](../lib/features/open_in_browser.dart). No call
+site does part of it.
+
+*The bug this replaces.* The old action did two of the six necessary things:
+it handed the URL to `BrowserController` and set the shell's tab index to the
+Browser. Both worked. Neither was visible — because every call site is
+reached from a route **pushed above the shell** (`/series/:id`, and the sheets
+shown from it). Changing the index of an `IndexedStack` underneath a
+full-screen pushed route changes nothing the user can see. The page loaded
+into a Browser nobody was looking at.
+
+*The six steps, in order:*
+
+1. validate the URL — no usable `source_url` means no navigation at all
+   (D42), and the message says so: *This episode does not have a source page.*
+2. confirm with a running capture, if one owns the rendered Browser;
+3. store the request on `BrowserNavigator`;
+4. **pop back to the shell** — the step that was missing;
+5. select the Browser tab;
+6. let the Browser drain the request when it is mounted and attached.
+
+*Why pop rather than `go('/')`.* Popping leaves the shell route untouched, and
+with it the WebView, its cookies, its back/forward list and any running
+capture. `go` would rebuild the shell — a new WebView and a lost session,
+which is the opposite of what this action is for. Nothing is pushed, so there
+is no duplicate Browser, Library or Series Detail route.
+
+*Why a stored request rather than a load.* Between the ask and the load there
+is a route pop, a tab switch and possibly a WebView attach. A load issued into
+an unattached controller is silently dropped. The request waits on
+`BrowserNavigator` and is consumed **exactly once** by `PendingOpenDrainer` —
+so a provider rebuild after the drain finds nothing and cannot fetch the page
+twice. The wait is on the attach, never on a duration.
+
+*Local surfaces yield.* A request arriving while Browser Home or the URL
+editor is up calls `showWebsite()` first. A page the user explicitly asked for
+must not load behind an overlay — and on a cold start Browser Home is the
+default surface (D57), so this is the normal case, not the edge case.
+
+*Taking the page from a capture.* A WebView-dependent phase is asked about
+with its own dialog — *Stay with capture* / *Pause and open episode* — worded
+as taking the page rather than leaving the Browser, because the user is not
+walking away. Choosing to proceed pauses with `browserHidden` (D36: a hold,
+never a stop) and the engine's own page-validation handles the rest. Download
+and save phases are **not** asked about: they read bytes over HTTP and touch
+no layout, so moving the page costs them nothing.
+
+*Corollary.* `_onTabRequested` in the shell must not lift a leave-pause. It is
+the path this action uses, and auto-resuming there would restart the run one
+frame before the page is navigated out from under it. Only a user tapping the
+Browser tab (`_select`) resumes.

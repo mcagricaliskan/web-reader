@@ -194,6 +194,12 @@ class CaptureJobs extends Table {
   /// "paused", and survives a restart.
   TextColumn get pauseReason => text().nullable()();
 
+  /// `direct` | `queue` — how this run was launched (D58). Persisted so an
+  /// interrupted **direct** capture resumes as a direct capture rather than
+  /// being quietly turned into a pending queue task. Null on rows written
+  /// before v11, which read as `queue` because that was the only way then.
+  TextColumn get origin => text().nullable()();
+
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
@@ -237,6 +243,14 @@ class QueueTasks extends Table {
 
   /// queued | running | completed | failed | cancelled
   TextColumn get state => text().withDefault(const Constant('queued'))();
+
+  /// `queue` | `direct` — whether this row is queued work or the record of a
+  /// capture the user started straight from the Browser (D58).
+  ///
+  /// A `direct` row is **only ever terminal**: a direct capture creates no
+  /// pending entry, so nothing here can be released by the queue pump. It
+  /// exists for Activity history and error reporting.
+  TextColumn get origin => text().nullable()();
 
   /// Short human summary of how it ended ("3 captured, 1 skipped").
   TextColumn get outcome => text().nullable()();
@@ -395,7 +409,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -475,6 +489,13 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(browsingHistory);
         await m.createTable(savedSites);
         await m.createTable(faviconCache);
+      }
+      if (from < 11) {
+        // How a capture was launched (D58): direct from the Browser, or from
+        // the queue. Additive; a null reads as `queue`, which is what every
+        // existing row was.
+        await m.addColumn(captureJobs, captureJobs.origin);
+        await m.addColumn(queueTasks, queueTasks.origin);
       }
     },
     beforeOpen: (details) async {

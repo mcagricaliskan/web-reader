@@ -781,6 +781,48 @@ below, which is now scoped down to exactly that.
 
 ---
 
+## M19 — Direct capture, and page-scoped Browser state ✅ *(done 2026-07-28, schema v11)*
+
+**Goal.** Make the Browser's capture button honest: it should start a capture
+when the user wants one now, queue one when they want it later, and describe
+the page they are actually looking at. **User-facing outcome:** two clearly
+different actions in one sheet, and a capture control that resets when the
+page does.
+
+**Shipped.**
+
+- **Two launches, one sheet** (D58). The range sheet ends in *Add to Queue*
+  (secondary) and *Start Capture* (primary), with one line of supporting copy
+  and no second drawer. Both fit at 320 pt; validation errors keep the sheet
+  open; the first tap disables the second.
+- **A direct capture lifecycle** — `TaskQueueController.startDirectCapture`:
+  ownership check → `ensureBrowserVisible` (the same D47 gate queued work
+  passes) → `capture_jobs` row with `origin = direct` → run → terminal
+  `origin = direct` Activity row. **No pending `queue_task` at any point.**
+- **Queue isolation.** Pending captures are not started, released, reordered
+  or consumed by a direct run, and finishing one does not authorise the batch;
+  an explicitly started batch still survives. `_directCaptureClaimed` closes
+  the window between claiming the Browser and taking `automationOwner`.
+- **Ownership conflicts.** `browserOwner` names the holder; the sheet then
+  offers *View active task* + *Add to Queue* instead of *Start Capture*, and a
+  download-only phase is named as such rather than as "using the Browser".
+- **The launch survives the duplicate preflight** — re-download from *Start
+  Capture* starts; re-download from *Add to Queue* waits.
+- **Page-scoped Browser state** (D59) — the stale-completed-state fix.
+  `BrowserController.pageSession` + `pageIdentityKey`;
+  `resolveBrowserCaptureState` derives the control from the page on screen;
+  a finished run becomes a dismissible, page-scoped result banner and the
+  control returns to idle.
+- **Recovery keeps its launch** — schema v11 (`capture_jobs.origin`,
+  `queue_tasks.origin`); Resume/Discard on an interrupted direct capture
+  resumes it directly, never as queued work.
+
+**Deliberately out.** Parallel captures. One `CaptureJobController` means one
+run at a time, so "start a second capture while the first is downloading" is
+still refused — with an honest reason rather than a silent failure.
+
+---
+
 # Stage 1c — Remaining MVP (deferred, unchanged in substance)
 
 ## M9 — Pinned, favorite, dormant *(archive moved to M16)*

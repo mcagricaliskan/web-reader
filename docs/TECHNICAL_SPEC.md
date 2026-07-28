@@ -739,6 +739,51 @@ returned in `missingSource` rather than dropped. Deduplication is by
 normalised start URL over queued and running rows only — history never blocks
 an intentional re-fetch.
 
+## 8b. Direct capture from the Browser (as built, 2026-07-28)
+
+Queue-first is about **batching** (§8a). A capture the user is watching happen
+on the page in front of them is not a batch, so it does not go through the
+queue at all (D58).
+
+```mermaid
+flowchart TD
+    A[Capture range sheet] -->|Add to Queue| B[queued — waiting to start]
+    A -->|Start Capture| C{browserOwner?}
+    C -->|held| D[View active task · Add to Queue]
+    C -->|free| E[claim · ensureBrowserVisible]
+    E -->|not ready| F[refused: nothing started, nothing queued]
+    E -->|attached| G[capture_jobs row · origin=direct]
+    G --> H[run]
+    H --> I[terminal queue_tasks row · origin=direct]
+    I --> J[queue still waiting for its own Start]
+```
+
+**What a direct run must not do.** Create a pending row; release, reorder or
+consume pending rows; set `_captureStartAuthorised`. The last one is the
+load-bearing constraint: routing a direct start through the queue would have
+to authorise the queue, which releases *every* pending capture behind it.
+
+**The claim.** `_directCaptureClaimed` is taken before the first await and
+respected by `_maybePump` and the pump loop, because `captureJob.start` only
+takes `automationOwner` after its disk check — a window a queued check could
+otherwise slip through. It is released when the run ends, and the pump is then
+invited to drain the work that drains on its own.
+
+**Ownership.** `browserOwner` reports the holder and whether it still needs the
+rendered surface. A download-only phase is reported as such — the user may
+browse and queue — but a *second* run is still refused: one
+`CaptureJobController` means one run, and two jobs racing over the same
+chapter files is not a trade worth making.
+
+**Page-scoped presentation.** The Browser's capture control is derived, per
+page, by `resolveBrowserCaptureState` from: the page session and key
+(`BrowserController.pageSession` / `pageIdentityKey`), the active run **and
+which page it is on**, this page's own preflight state, and matching *queued*
+rows. A finished run is a `CaptureRunRecord` stamped with the page session it
+ended on and shown only there (D59). Automation navigating to the next chapter
+re-scopes the presentation and leaves the run alone; hash-only changes,
+sub-frames and asset loads never reach the session.
+
 ## 9. Manual source-update checking
 
 ```mermaid

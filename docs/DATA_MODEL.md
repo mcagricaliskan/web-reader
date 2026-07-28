@@ -249,6 +249,16 @@ failed}`. A retry starts a **new** attempt from `notCaptured` with a fresh stagi
   offline files, and a re-download reuses the existing chapter row by URL
   (D46, D48). `state` stays `queued` until the user starts the queue; the
   start authorisation itself is deliberately **not** a column (D46).
+- **A direct capture is a job, not a plan (v11, D58).** *Start Capture* in the
+  Browser writes a `capture_jobs` row and **no pending `queue_tasks` row** — so
+  it cannot be released by, reordered into, or release, the pending queue.
+  `capture_jobs.origin` (`direct` | `queue`, null on pre-v11 rows = `queue`)
+  is what makes an interrupted direct capture resume *directly* instead of
+  becoming queued work. When the run ends, one **terminal** `queue_tasks` row
+  with `origin = 'direct'` is written for Activity history and error
+  reporting; because it is terminal it can never be picked up by the pump, and
+  retrying it deliberately writes `origin = 'queue'` — a record of something
+  that ran must not become a plan that runs itself.
 - **`source_url` is durable.** Removing offline files, archiving, restoring,
   re-downloading and every reading-state write preserve it, along with the
   chapter label and number, the series relationship, the reading progress and
@@ -763,3 +773,39 @@ this table costs nothing but a re-fetch (D55).
 `from < 10` creates the three tables. Nothing existing is read or rewritten.
 The default saved site is seeded afterwards in Dart, so it can check for an
 equivalent entry first.
+
+---
+
+## 15. As-built capture launch origin (schema v11, 2026-07-28)
+
+Two nullable TEXT columns, added together, additive only. They record **how a
+capture was launched** (D58) — a fact neither table could previously express,
+which is why a direct start had to be faked as a queue entry.
+
+### 15.1 `capture_jobs.origin`
+
+| Value | Meaning |
+|---|---|
+| `direct` | Started from the Browser's capture sheet, on the page the user was looking at |
+| `queue` | Released from the capture queue by an explicit Start |
+| null | Written before v11 — reads as `queue`, which is what it was |
+
+Read on resume (`captureOriginFromName`), so an interrupted **direct** capture
+comes back as a direct capture. This is the column that stops recovery from
+quietly turning one into pending queue work.
+
+### 15.2 `queue_tasks.origin`
+
+Same two values. A `direct` row is **only ever terminal** (`completed` /
+`failed` / `cancelled`): a direct capture creates no pending entry, so there is
+nothing here for the pump to pick up. It exists so Activity can show the run's
+history and its error, labelled honestly ("started from the Browser" — it
+never waited in a queue, so a "queued 2h ago" line would be a lie).
+
+`retryTask` overwrites it with `queue`: retrying the *record* of a run creates
+a fresh request that waits for a Start like everything else.
+
+### 15.3 Migration
+
+`from < 11` adds both columns. No existing row is read or rewritten; the null
+default carries the honest historical answer.

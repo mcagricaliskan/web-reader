@@ -71,6 +71,19 @@ String normalizeUrl(String raw) {
 bool _isDefaultPort(String scheme, int port) =>
     (scheme == 'http' && port == 80) || (scheme == 'https' && port == 443);
 
+/// Identity of a *page as presented*, for matching UI state to what is on
+/// screen (D58). The normalised URL with the fragment removed: `#comments` is
+/// the same page, so a hash-only jump is not a new page.
+///
+/// Empty for anything that is not a renderable web page — `about:blank`, app
+/// schemes, junk. Empty means "no page", which is why nothing can match it.
+String pageIdentityKey(String url) {
+  final uri = Uri.tryParse(url.trim());
+  if (uri == null || !uri.hasScheme || uri.host.isEmpty) return '';
+  if (uri.scheme != 'http' && uri.scheme != 'https') return '';
+  return normalizeUrl(uri.removeFragment().toString());
+}
+
 /// Resolve [href] (possibly relative) against [base].
 String? resolveUrl(String base, String href) {
   if (href.trim().isEmpty) return null;

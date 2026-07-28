@@ -1118,7 +1118,11 @@ class _ResumeCard extends ConsumerWidget {
           Row(
             children: [
               FilledButton(
-                onPressed: () => controller.resumeJob(job),
+                // Through the queue, which brings the Browser forward first
+                // (D47) and records the outcome — but as a *direct* run: a
+                // resumed capture never becomes a pending queue task (D58).
+                onPressed: () =>
+                    ref.read(taskQueueProvider).resumeInterruptedCapture(job),
                 child: const Text('Resume'),
               ),
               const SizedBox(width: 8),

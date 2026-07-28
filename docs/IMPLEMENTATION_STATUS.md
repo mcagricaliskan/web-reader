@@ -902,7 +902,65 @@ New deps (user-approved 2026-07-28): `share_plus`, `url_launcher`.
 **Not converted to the palette yet:** Library, Series Detail, Reader, Storage,
 Activity, Archived, Rules and the capture sheets still use literal light
 colours, so dark mode is correct on the Browser surfaces, the shell and
-Settings, and light-locked elsewhere. See §8.
+Settings, and light-locked elsewhere. See §8. *(The capture range sheet was
+converted with M19.)*
+
+---
+
+### Direct capture and page-scoped Browser state — M19 *(2026-07-28, schema v11)*
+
+Schema **v11** adds `capture_jobs.origin` and `queue_tasks.origin` — two
+nullable TEXT columns, additive, null reading as `queue`.
+
+**The capture sheet ends in two actions.** `showCaptureRangeSheet` returns a
+`CaptureRangeChoice(mode, count, action)` where the action is `addToQueue`,
+`startNow` or `viewActiveTask`. Range selection no longer pops the sheet: the
+three options are selectable rows, the count field is inline, and the two
+launches sit at the bottom (`captureAddToQueue`, `captureStartNow`). A
+`busyLabel` — supplied from `TaskQueueController.browserOwner` before the
+sheet opens — replaces *Start Capture* with *View active task* and explains
+why, leaving *Add to Queue* untouched.
+
+**Direct start.** `startDirectCapture` claims the Browser
+(`_directCaptureClaimed`, taken before the first await), asks the shell's
+`ensureBrowserVisible` hook, runs `captureJob.start(origin: direct)`, and
+writes one **terminal** `queue_tasks` row when it ends. It creates no pending
+row at any point, so it cannot release, reorder or consume the queue, and it
+never sets `_captureStartAuthorised`. `DirectStartResult` reports
+`started` / `browserBusy` / `browserUnavailable` / `noPage`; the Browser shows
+a refusal line rather than failing silently.
+
+**Page-scoped state.** `BrowserController` now carries `pageSession` (bumped
+on a main-frame page change, from `onLoadStart` / `onLoadStop` /
+`onUrlChanged`), `pageSessionKey` (`pageIdentityKey` — normalised URL without
+the fragment) and `pageSessionSource`. `BrowserScreen._syncPageSession`
+re-scopes everything transient when it moves: the result banner, the panel
+toggle, and this page's own offline lookup (`CapturePreflight.inspect`, guarded
+against a late answer arriving after the page changed).
+`resolveBrowserCaptureState` (`lib/features/browser_capture_state.dart`) is a
+pure function over page identity, the active run *and which page it is on*,
+this page's local state and matching queued rows — the one place the control's
+label, its actions and whether the run panel belongs here are decided.
+
+**Finished runs.** `CaptureJobController` publishes a `CaptureRunRecord`
+(job id, origin, terminal state, page key, **page session**, counts, message)
+and keeps `progress` exactly as it was for Activity, the copy-log and the
+integration suites. The Browser shows the record only while its own page
+session is on screen, as a dismissible `CaptureResultBanner`; the control
+returns to idle. This is the stale-completed-state fix: not hiding the widget,
+but ending the practice of reading job state as page state.
+
+**Activity.** A running direct capture is presented from the job itself
+(`directCaptureRow`) — "Capturing now · started from the Browser", with *Open
+Browser* and *Stop* — because it has no pending row to show. Terminal direct
+rows are labelled "started from the Browser · …"; retrying one enqueues it as
+ordinary queue work.
+
+**Recovery.** `capture_jobs.origin` is written on every persist and read by
+`resumeJob`, so an interrupted direct capture resumes directly. The Library's
+Unfinished-capture card and the preflight's *Resume existing capture* both go
+through `TaskQueueController.resumeInterruptedCapture`, which applies the same
+ownership and visibility checks and records the outcome.
 
 ---
 

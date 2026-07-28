@@ -45,6 +45,32 @@ const kCleanupScopeFinished = 'cleanup:finishedEverywhere';
 
 enum QueueTaskState { queued, running, completed, failed, cancelled }
 
+/// `queue_tasks.origin` values (D58). Ordinary queued work carries
+/// [kQueueOriginQueue]; a row written for a capture the user started straight
+/// from the Browser carries [kQueueOriginDirect] and is always terminal.
+const kQueueOriginQueue = 'queue';
+const kQueueOriginDirect = 'direct';
+
+bool isDirectOriginTask(QueueTask task) => task.origin == kQueueOriginDirect;
+
+/// Is there a capture request still *waiting* for this exact page?
+///
+/// Queued rows only. A running one is the job's business (the Browser reads
+/// that from the job itself), and a terminal one is history — a chapter
+/// captured last week must not make today's page look "queued" (D59).
+bool pageHasQueuedCapture(List<QueueTask> tasks, String pageKey) {
+  if (pageKey.isEmpty) return false;
+  for (final task in tasks) {
+    if (task.state != QueueTaskState.queued.name) continue;
+    if (!taskWaitsForExplicitStart(queueTaskTypeFromName(task.taskType))) {
+      continue;
+    }
+    final url = task.startUrl;
+    if (url != null && pageIdentityKey(url) == pageKey) return true;
+  }
+  return false;
+}
+
 /// Whether a capture task is Browser-dependent from the queue's point of
 /// view. Checks drive the WebView too; cleanup never does.
 bool taskNeedsBrowser(QueueTaskType type) => switch (type) {
@@ -65,6 +91,40 @@ bool taskNeedsBrowser(QueueTaskType type) => switch (type) {
 bool taskWaitsForExplicitStart(QueueTaskType type) =>
     type == QueueTaskType.chapterCapture ||
     type == QueueTaskType.multiChapterCapture;
+
+/// Why a direct start did not begin. `started` is the only success.
+enum DirectStartResult {
+  started,
+
+  /// Something else already owns the WebView (a capture, an update check).
+  /// Not an error — the queue is still open to the same request.
+  browserBusy,
+
+  /// The Browser could not be brought forward / has no attached WebView.
+  browserUnavailable,
+
+  /// No page to capture.
+  noPage,
+}
+
+/// Whatever is holding the shared WebView right now, named for the UI.
+class BrowserOwnerState {
+  const BrowserOwnerState({
+    required this.label,
+    required this.pageKey,
+    required this.needsBrowser,
+  });
+
+  /// "A capture is running", "An update check is running".
+  final String label;
+
+  /// Canonical identity of the page it is working on; empty when unknown.
+  final String pageKey;
+
+  /// True while it genuinely needs the rendered surface. False during a
+  /// download/save phase, when it is only moving bytes.
+  final bool needsBrowser;
+}
 
 /// What [TaskQueueController.enqueueCapture] did.
 ///
@@ -191,6 +251,11 @@ class TaskQueueController extends ChangeNotifier {
 
   void _maybePump() {
     if (_pumping || _resumeOffered) return;
+    // A direct capture has claimed the Browser but may not have taken
+    // `automationOwner` yet (start() does a disk check first). Without this the
+    // pump could slip a queued check in through that window and the direct
+    // start would then refuse itself.
+    if (_directCaptureClaimed) return;
     if (browser.automationOwner != null) return;
     unawaited(_pump());
   }
@@ -250,6 +315,16 @@ class TaskQueueController extends ChangeNotifier {
   bool _captureStartAuthorised = false;
   bool get captureStartAuthorised => _captureStartAuthorised;
 
+  /// True from "the user pressed Start Capture in the Browser" until that one
+  /// run ends.
+  ///
+  /// Deliberately **not** [_captureStartAuthorised]: a direct capture is one
+  /// run the user pointed at, not permission to drain the queue behind it
+  /// (D58). Pending captures stay pending, in their existing order, and are
+  /// released only by [startQueuedCaptures] / [startQueuedTask].
+  bool _directCaptureClaimed = false;
+  bool get directCaptureRunning => _directCaptureClaimed;
+
   /// Asked before a Browser-dependent task runs: bring the Browser forward
   /// and tell us whether its WebView is actually there.
   ///
@@ -293,6 +368,214 @@ class TaskQueueController extends ChangeNotifier {
     notifyListeners();
     unawaited(_pump());
     return true;
+  }
+
+  // --- direct capture (D58) --------------------------------------------------
+
+  /// Who owns the shared WebView right now, or null when it is free.
+  ///
+  /// One driver at a time is structural — there is one WebView and one
+  /// [CaptureJobController] — so this is what the capture sheet consults before
+  /// offering **Start Capture** at all.
+  BrowserOwnerState? get browserOwner {
+    if (captureJob.hasActiveRun) {
+      return BrowserOwnerState(
+        label: captureJob.isPaused
+            ? 'A capture is paused'
+            : (captureJob.needsRenderedBrowser
+                  ? 'A capture is using the Browser'
+                  : 'A capture is finishing its downloads'),
+        pageKey: captureJob.activePageKey,
+        needsBrowser: captureJob.needsRenderedBrowser,
+      );
+    }
+    if (checker.isRunning) {
+      return const BrowserOwnerState(
+        label: 'An update check is using the Browser',
+        pageKey: '',
+        needsBrowser: true,
+      );
+    }
+    // Something took the WebView without going through either controller.
+    final owner = browser.automationOwner;
+    if (owner != null) {
+      return BrowserOwnerState(
+        label: 'The Browser is busy with $owner',
+        pageKey: '',
+        needsBrowser: true,
+      );
+    }
+    return null;
+  }
+
+  /// Capture [startUrl] **now**, in the Browser the user is looking at.
+  ///
+  /// Creates no queue row: nothing is added to the pending queue, nothing
+  /// already queued is released, reordered or consumed, and the batch
+  /// authorisation is untouched (D58). The persistent `capture_jobs` record is
+  /// still written — that is what progress, pause, recovery and resume stand
+  /// on — and a **terminal** queue row is written when the run ends, so the
+  /// result appears in Activity history like any other work.
+  ///
+  /// Returns as soon as the run has begun; the run itself is observable on
+  /// [captureJob], never awaited by the caller.
+  Future<DirectStartResult> startDirectCapture({
+    required String startUrl,
+    required int chapterLimit,
+    DuplicatePolicy policy = DuplicatePolicy.ask,
+    CaptureRangeMode range = CaptureRangeMode.fixedCount,
+    String? libraryItemId,
+  }) async {
+    if (startUrl.trim().isEmpty) return DirectStartResult.noPage;
+    if (_directCaptureClaimed || browserOwner != null) {
+      return DirectStartResult.browserBusy;
+    }
+    // Claimed before the first await: two taps in the same frame must not both
+    // get through, and the pump must not take the WebView in between.
+    _directCaptureClaimed = true;
+    notifyListeners();
+
+    // Rendered-Browser validation before anything starts (D47): the same hook
+    // the queue uses, so a direct start cannot skip the step queued work takes.
+    final ready = await ensureBrowserVisible?.call() ?? browser.isAttached;
+    if (!ready) {
+      _directCaptureClaimed = false;
+      notifyListeners();
+      return DirectStartResult.browserUnavailable;
+    }
+
+    unawaited(
+      _runDirect(
+        libraryItemId: libraryItemId,
+        startUrl: startUrl,
+        chapterLimit: chapterLimit,
+        range: range,
+        run: () => captureJob.start(
+          chapterLimit: chapterLimit,
+          startUrl: startUrl,
+          policy: policy,
+          range: range,
+          origin: CaptureOrigin.direct,
+        ),
+      ),
+    );
+    return DirectStartResult.started;
+  }
+
+  /// Resume an interrupted run. A direct capture resumes **directly**; it is
+  /// never converted into a pending queue task (D58).
+  Future<DirectStartResult> resumeInterruptedCapture(CaptureJob job) async {
+    if (_directCaptureClaimed || browserOwner != null) {
+      return DirectStartResult.browserBusy;
+    }
+    _directCaptureClaimed = true;
+    notifyListeners();
+    final ready = await ensureBrowserVisible?.call() ?? browser.isAttached;
+    if (!ready) {
+      _directCaptureClaimed = false;
+      notifyListeners();
+      return DirectStartResult.browserUnavailable;
+    }
+    unawaited(
+      _runDirect(
+        libraryItemId: job.libraryItemId,
+        startUrl: job.currentUrl ?? job.startUrl,
+        chapterLimit: job.requestedChapters,
+        range: captureRangeModeFromName(job.rangeMode),
+        resumed: true,
+        run: () => captureJob.resumeJob(job),
+      ),
+    );
+    return DirectStartResult.started;
+  }
+
+  /// Run a direct capture and record how it ended.
+  Future<void> _runDirect({
+    required String startUrl,
+    required int chapterLimit,
+    required CaptureRangeMode range,
+    required Future<void> Function() run,
+    String? libraryItemId,
+    bool resumed = false,
+  }) async {
+    try {
+      await run();
+    } catch (e) {
+      await _recordDirectOutcome(
+        startUrl: startUrl,
+        chapterLimit: chapterLimit,
+        range: range,
+        libraryItemId: libraryItemId,
+        resumed: resumed,
+        outcome: QueueOutcome.failure(e.toString()),
+      );
+      return;
+    } finally {
+      _directCaptureClaimed = false;
+      notifyListeners();
+      // The Browser is free again. Work that drains on its own (checks,
+      // cleanup) may now run; pending *captures* still may not — they are
+      // released by an explicit Start and by nothing else (D46, D58).
+      _maybePump();
+    }
+    final p = captureJob.progress;
+    final summary =
+        '${p.storedChapters} captured'
+        '${p.skippedChapters > 0 ? ', ${p.skippedChapters} skipped' : ''}';
+    await _recordDirectOutcome(
+      startUrl: startUrl,
+      chapterLimit: chapterLimit,
+      range: range,
+      libraryItemId: libraryItemId,
+      resumed: resumed,
+      outcome: p.state == CaptureState.failed
+          ? QueueOutcome.failure(p.lastError ?? summary)
+          : QueueOutcome.success(
+              p.state == CaptureState.cancelled
+                  ? 'stopped · $summary'
+                  : summary,
+            ),
+      cancelled: p.state == CaptureState.cancelled,
+    );
+  }
+
+  /// One **terminal** row for a direct run — history, never a plan.
+  Future<void> _recordDirectOutcome({
+    required String startUrl,
+    required int chapterLimit,
+    required CaptureRangeMode range,
+    required QueueOutcome outcome,
+    String? libraryItemId,
+    bool resumed = false,
+    bool cancelled = false,
+  }) async {
+    final now = DateTime.now();
+    await db.upsertQueueTask(
+      QueueTask(
+        id: _uuid.v4(),
+        taskType: range != CaptureRangeMode.currentChapter && chapterLimit > 1
+            ? QueueTaskType.multiChapterCapture.name
+            : QueueTaskType.chapterCapture.name,
+        libraryItemId: libraryItemId,
+        startUrl: startUrl,
+        chapterLimit: chapterLimit,
+        rangeMode: range.name,
+        origin: kQueueOriginDirect,
+        state: cancelled
+            ? QueueTaskState.cancelled.name
+            : (outcome.failed
+                  ? QueueTaskState.failed.name
+                  : QueueTaskState.completed.name),
+        outcome: resumed ? 'resumed · ${outcome.summary}' : outcome.summary,
+        lastError: outcome.failed ? outcome.summary : null,
+        orderIndex: await db.nextQueueOrderIndex(),
+        queuedAt: now,
+        startedAt: now,
+        finishedAt: DateTime.now(),
+      ),
+    );
+    await db.pruneQueueHistory(keep: historyLimit);
+    notifyListeners();
   }
 
   /// Stop the batch: the running task is asked to stop and the remaining
@@ -357,6 +640,7 @@ class TaskQueueController extends ChangeNotifier {
         chapterLimit: chapterLimit,
         duplicatePolicy: policy.name,
         rangeMode: range.name,
+        origin: kQueueOriginQueue,
         state: QueueTaskState.queued.name,
         orderIndex: 0, // assigned in _enqueue
         queuedAt: DateTime.now(),
@@ -630,6 +914,10 @@ class TaskQueueController extends ChangeNotifier {
     return _enqueue(
       task.copyWith(
         id: _uuid.v4(),
+        // Retrying the record of a direct capture puts a fresh request in the
+        // *queue*, where it waits for a Start like everything else — a history
+        // row must not become a plan that runs itself.
+        origin: const Value(kQueueOriginQueue),
         state: QueueTaskState.queued.name,
         outcome: const Value(null),
         lastError: const Value(null),
@@ -674,7 +962,7 @@ class TaskQueueController extends ChangeNotifier {
         // One driver on the shared WebView. Someone else (a directly-started
         // capture, a manual check) owning it is not an error — wait our turn
         // by stopping the pump; the next enqueue or resume pumps again.
-        if (browser.automationOwner != null) break;
+        if (_directCaptureClaimed || browser.automationOwner != null) break;
 
         // The Browser comes forward BEFORE any WebView automation, never as
         // a side effect of it (D47). A queue task must not begin scrolling
@@ -736,6 +1024,7 @@ class TaskQueueController extends ChangeNotifier {
           startUrl: task.startUrl,
           policy: duplicatePolicyFromName(task.duplicatePolicy),
           range: captureRangeModeFromName(task.rangeMode),
+          origin: CaptureOrigin.queue,
         );
         final p = captureJob.progress;
         final summary =

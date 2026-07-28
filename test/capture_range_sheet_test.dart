@@ -5,11 +5,13 @@ import 'package:web_reader/core/device_storage.dart';
 import 'package:web_reader/features/capture_range_sheet.dart';
 
 /// The three-choice range sheet: exactly three options, typed counts with
-/// validation, and the disk refusal in front of everything.
+/// validation, the disk refusal in front of everything — and the two launches
+/// the range can be given to, in the sheet itself (D58).
 void main() {
   Widget host({
     required void Function(CaptureRangeChoice?) onResult,
     int? free = 8 * 1024 * 1024 * 1024,
+    String? busyLabel,
   }) => MaterialApp(
     home: Builder(
       builder: (context) => Center(
@@ -20,6 +22,7 @@ void main() {
               config: const CaptureConfig(),
               deviceStorage: _FixedStorage(free),
               currentTitle: 'Foo Chapter 137',
+              busyLabel: busyLabel,
             );
             onResult(r);
           },
@@ -32,6 +35,13 @@ void main() {
   Future<void> open(WidgetTester tester) async {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
+  }
+
+  /// The narrowest phone the design supports: both actions must fit here.
+  void narrow(WidgetTester tester) {
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
   }
 
   testWidgets('exactly the three choices, no count presets', (tester) async {
@@ -47,51 +57,162 @@ void main() {
     expect(find.textContaining('Next 5'), findsNothing);
   });
 
-  testWidgets('current chapter returns its mode', (tester) async {
-    CaptureRangeChoice? result;
-    await tester.pumpWidget(host(onResult: (r) => result = r));
-    await open(tester);
-    await tester.tap(find.text('Current chapter'));
-    await tester.pumpAndSettle();
+  group('the two launches', () {
+    testWidgets('both are offered, in the sheet, with no second drawer', (
+      tester,
+    ) async {
+      narrow(tester);
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await open(tester);
 
-    expect(result?.mode, CaptureRangeMode.currentChapter);
+      expect(find.byKey(const ValueKey('captureAddToQueue')), findsOneWidget);
+      expect(find.byKey(const ValueKey('captureStartNow')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('captureLaunchExplainer')),
+        findsOneWidget,
+      );
+      // Both fit, side by side, at 320pt.
+      final queue = tester.getRect(
+        find.byKey(const ValueKey('captureAddToQueue')),
+      );
+      final start = tester.getRect(
+        find.byKey(const ValueKey('captureStartNow')),
+      );
+      expect(queue.right, lessThanOrEqualTo(start.left));
+      expect(start.right, lessThanOrEqualTo(320));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('picking a range does not close the sheet or ask again', (
+      tester,
+    ) async {
+      CaptureRangeChoice? result;
+      await tester.pumpWidget(host(onResult: (r) => result = r));
+      await open(tester);
+
+      await tester.tap(find.text('Until the end'));
+      await tester.pumpAndSettle();
+
+      expect(result, isNull, reason: 'choosing a range decides nothing yet');
+      expect(find.text('Until the end'), findsOneWidget);
+      expect(find.byKey(const ValueKey('captureStartNow')), findsOneWidget);
+      // No queue/start question anywhere but here.
+      expect(find.text('Start queued captures?'), findsNothing);
+    });
+
+    testWidgets('Add to Queue returns the range with the queue intent', (
+      tester,
+    ) async {
+      CaptureRangeChoice? result;
+      await tester.pumpWidget(host(onResult: (r) => result = r));
+      await open(tester);
+
+      await tester.tap(find.byKey(const ValueKey('captureAddToQueue')));
+      await tester.pumpAndSettle();
+
+      expect(result?.mode, CaptureRangeMode.currentChapter);
+      expect(result?.action, CaptureSheetAction.addToQueue);
+    });
+
+    testWidgets('Start Capture returns the range with the direct intent', (
+      tester,
+    ) async {
+      CaptureRangeChoice? result;
+      await tester.pumpWidget(host(onResult: (r) => result = r));
+      await open(tester);
+
+      await tester.tap(find.text('Until the end'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('captureStartNow')));
+      await tester.pumpAndSettle();
+
+      expect(result?.mode, CaptureRangeMode.untilEnd);
+      expect(result?.action, CaptureSheetAction.startNow);
+    });
+
+    testWidgets('until the end names its safety limit', (tester) async {
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await open(tester);
+      expect(
+        find.textContaining(
+          'safety limit: ${const CaptureConfig().untilEndSafetyLimit}',
+        ),
+        findsOneWidget,
+      );
+    });
   });
 
-  testWidgets('until the end returns its mode and names the limit', (
-    tester,
-  ) async {
-    CaptureRangeChoice? result;
-    await tester.pumpWidget(host(onResult: (r) => result = r));
-    await open(tester);
+  group('when the Browser is already busy', () {
+    testWidgets('direct start is replaced, queueing is not', (tester) async {
+      narrow(tester);
+      CaptureRangeChoice? result;
+      await tester.pumpWidget(
+        host(
+          onResult: (r) => result = r,
+          busyLabel: 'A capture is using the Browser',
+        ),
+      );
+      await open(tester);
 
-    expect(
-      find.textContaining(
-        'safety limit: ${const CaptureConfig().untilEndSafetyLimit}',
-      ),
-      findsOneWidget,
-    );
-    await tester.tap(find.text('Until the end'));
-    await tester.pumpAndSettle();
-    expect(result?.mode, CaptureRangeMode.untilEnd);
+      expect(find.byKey(const ValueKey('captureStartNow')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('captureViewActiveTask')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('captureBusyNote')), findsOneWidget);
+      expect(
+        find.textContaining('A capture is using the Browser'),
+        findsOneWidget,
+      );
+
+      // Queueing is still a real option — it starts nothing.
+      await tester.tap(find.byKey(const ValueKey('captureAddToQueue')));
+      await tester.pumpAndSettle();
+      expect(result?.action, CaptureSheetAction.addToQueue);
+    });
+
+    testWidgets('View active task is its own outcome', (tester) async {
+      CaptureRangeChoice? result;
+      await tester.pumpWidget(
+        host(onResult: (r) => result = r, busyLabel: 'An update check'),
+      );
+      await open(tester);
+      await tester.tap(find.byKey(const ValueKey('captureViewActiveTask')));
+      await tester.pumpAndSettle();
+
+      expect(result?.action, CaptureSheetAction.viewActiveTask);
+    });
   });
 
-  testWidgets('typed count is validated and summarised', (tester) async {
+  testWidgets('typed count is validated for both actions', (tester) async {
+    // A phone-sized surface: with the count field open the sheet is taller
+    // than the test default, and the actions live below it.
+    tester.view.physicalSize = const Size(390, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     CaptureRangeChoice? result;
     await tester.pumpWidget(host(onResult: (r) => result = r));
     await open(tester);
     await tester.tap(find.text('Number of chapters'));
     await tester.pumpAndSettle();
 
-    // Zero refuses.
+    // Zero refuses — and the sheet stays open, error visible.
     await tester.enterText(find.byType(TextField), '0');
-    await tester.tap(find.text('Start capture'));
+    await tester.tap(find.byKey(const ValueKey('captureStartNow')));
     await tester.pump();
     expect(find.textContaining('1 or more'), findsOneWidget);
+    expect(result, isNull);
+    expect(find.byKey(const ValueKey('captureAddToQueue')), findsOneWidget);
+
+    // The same validation guards the queue action.
+    await tester.tap(find.byKey(const ValueKey('captureAddToQueue')));
+    await tester.pump();
     expect(result, isNull);
 
     // Excessive refuses, naming the bound.
     await tester.enterText(find.byType(TextField), '9999');
-    await tester.tap(find.text('Start capture'));
+    await tester.tap(find.byKey(const ValueKey('captureStartNow')));
     await tester.pump();
     expect(
       find.textContaining('${const CaptureConfig().maxChaptersPerJob}'),
@@ -106,15 +227,16 @@ void main() {
       '35',
     );
 
-    // A valid number shows the summary and returns.
+    // A valid number shows the summary and returns with the chosen launch.
     await tester.enterText(find.byType(TextField), '8');
     await tester.pump();
     expect(find.textContaining('Capture 8 new chapters'), findsOneWidget);
     expect(find.textContaining('Foo Chapter 137'), findsWidgets);
-    await tester.tap(find.text('Start capture'));
+    await tester.tap(find.byKey(const ValueKey('captureStartNow')));
     await tester.pumpAndSettle();
     expect(result?.mode, CaptureRangeMode.fixedCount);
     expect(result?.count, 8);
+    expect(result?.action, CaptureSheetAction.startNow);
   });
 
   testWidgets('insufficient space refuses before any choice', (tester) async {

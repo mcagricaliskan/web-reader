@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:web_reader/browser/browser_controller.dart';
+import 'package:web_reader/capture/capture_job.dart';
 import 'package:web_reader/core/connectivity.dart';
 import 'package:web_reader/features/chapter_actions.dart';
 import 'package:web_reader/features/series_detail_screen.dart';
@@ -130,6 +131,12 @@ void main() {
         fileStoreProvider.overrideWithValue(store),
         browserProvider.overrideWithValue(browser),
         connectivityProvider.overrideWithValue(connectivity),
+        // "Open on website" now goes through the shared coordinator, which
+        // asks the capture job whether anything owns the rendered Browser
+        // before it moves the user (D60).
+        captureJobProvider.overrideWithValue(
+          CaptureJobController(browser: browser, db: db, fileStore: store),
+        ),
         updateCheckerProvider.overrideWithValue(
           UpdateChecker(browser: browser, db: db),
         ),

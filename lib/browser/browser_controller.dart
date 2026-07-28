@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../core/url_utils.dart';
 import 'bridge_script.dart';
 import 'browser_presentation.dart';
 import 'browser_url.dart';
@@ -70,6 +71,53 @@ class BrowserController extends ChangeNotifier {
   /// wired to this at bootstrap; the controller itself knows nothing about
   /// storage.
   void Function(BrowserVisit visit)? onVisitCompleted;
+
+  // --- page session identity (D58) ----------------------------------------
+
+  int _pageSession = 0;
+
+  /// Identity of the page currently on screen, as a monotonically increasing
+  /// counter.
+  ///
+  /// Everything the Browser shows *about a page* — a capture result, a
+  /// preflight summary, an offline badge — is scoped to this number, so a
+  /// completed job cannot go on being the state of the next page the user
+  /// opens. It changes only for a main-frame page change: asset loads,
+  /// sub-frames and hash-only jumps do not reach it (they never produce a
+  /// different [pageIdentityKey]), and an address that is not a renderable
+  /// page (`about:blank`, `mailto:`) starts no session at all.
+  int get pageSession => _pageSession;
+
+  String _pageSessionKey = '';
+
+  /// Canonical identity of the page this session is showing; empty before the
+  /// first real page.
+  String get pageSessionKey => _pageSessionKey;
+
+  NavigationSource _pageSessionSource = NavigationSource.manual;
+
+  /// Who moved the Browser onto this page. Automation moving the page forward
+  /// is a page change like any other for *presentation* — but it is not the
+  /// user browsing, and the running job it belongs to is untouched by it.
+  NavigationSource get pageSessionSource => _pageSessionSource;
+
+  /// True when the user is what put this page on screen.
+  bool get pageSessionIsManual =>
+      _pageSessionSource == NavigationSource.manual && !isAutomating;
+
+  /// Note that the main frame is showing [url]. Idempotent per page.
+  void _notePageIdentity(String? url) {
+    if (url == null) return;
+    final key = pageIdentityKey(url);
+    if (key.isEmpty || key == _pageSessionKey) return;
+    _pageSessionKey = key;
+    _pageSession++;
+    _pageSessionSource = effectiveNavigationSource;
+  }
+
+  /// Test seam: drive a page change without a WebView.
+  @visibleForTesting
+  void debugEnterPage(String url) => _notePageIdentity(url);
 
   /// Hosts the user has explicitly allowed this session to leave for.
   final Set<String> _allowedHostChanges = {};
@@ -253,6 +301,9 @@ class BrowserController extends ChangeNotifier {
     // to a different address is visible as one.
     _requestedUrl = url ?? _requestedUrl;
     if (url != null) _currentUrl = url;
+    // The main frame is committing to a different document: whatever the
+    // Browser was saying about the previous page stops being true here (D58).
+    _notePageIdentity(url);
     notifyListeners();
   }
 
@@ -261,6 +312,8 @@ class BrowserController extends ChangeNotifier {
     _isLoading = false;
     _progress = 1;
     if (url != null) _currentUrl = url;
+    // A redirect chain resolves here; the landing page is the page.
+    _notePageIdentity(url);
     String? iconUrl;
     try {
       _title = await _webView?.getTitle() ?? _title;
@@ -393,8 +446,12 @@ class BrowserController extends ChangeNotifier {
     }
   }
 
+  /// A main-frame address change with no document load — `history.pushState`,
+  /// a hash jump. Only the first of those is a new page, and
+  /// [pageIdentityKey] is what tells them apart.
   void onUrlChanged(String? url) {
     if (url != null) _currentUrl = url;
+    _notePageIdentity(url);
     notifyListeners();
   }
 

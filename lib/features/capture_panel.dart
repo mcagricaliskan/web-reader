@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../capture/capture_job.dart';
 import '../capture/capture_state.dart';
+import '../ui/palette.dart';
 import '../ui/theme.dart';
 
 /// Status and controls for the running capture job, docked under the WebView.
@@ -251,6 +252,109 @@ class CapturePanel extends StatelessWidget {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// What a finished run did, for the page it happened on.
+///
+/// Deliberately a *result*, not a state (D59): it is dismissible, it never
+/// disables anything, and it goes away the moment the Browser shows another
+/// page. The durable copy of this outcome is the Activity row.
+class CaptureResultBanner extends StatelessWidget {
+  const CaptureResultBanner({
+    super.key,
+    required this.result,
+    required this.onDismiss,
+    required this.onViewActivity,
+  });
+
+  final CaptureRunRecord result;
+  final VoidCallback onDismiss;
+  final VoidCallback onViewActivity;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final ok = result.succeeded;
+    final (bg, border, ink, icon) = ok
+        ? (
+            palette.primaryContainer,
+            palette.primaryBorder,
+            palette.onPrimaryContainer,
+            Icons.download_for_offline,
+          )
+        : result.state == CaptureState.cancelled
+        ? (
+            palette.surfaceHigh,
+            palette.borderInset,
+            palette.inkMuted,
+            Icons.do_not_disturb_on,
+          )
+        : (
+            palette.dangerContainer,
+            palette.dangerBorder,
+            palette.onDangerContainer,
+            Icons.error,
+          );
+
+    return Container(
+      key: const ValueKey('captureResultBanner'),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border(top: BorderSide(color: border)),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: ink),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  switch (result.state) {
+                    CaptureState.complete => 'Capture finished',
+                    CaptureState.partial => 'Captured, with gaps',
+                    CaptureState.cancelled => 'Capture stopped',
+                    _ => 'Capture failed',
+                  },
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontVariations: wght(600),
+                    fontWeight: FontWeight.w600,
+                    color: ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  result.error ??
+                      (result.message.isEmpty
+                          ? '${result.storedChapters} chapter(s) captured'
+                          : result.message),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11.5, height: 1.4, color: ink),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onViewActivity,
+            child: const Text('Activity', style: TextStyle(fontSize: 12.5)),
+          ),
+          IconButton(
+            key: const ValueKey('captureResultDismiss'),
+            tooltip: 'Dismiss',
+            iconSize: 18,
+            color: ink,
+            onPressed: onDismiss,
+            icon: const Icon(Icons.close),
+          ),
         ],
       ),
     );

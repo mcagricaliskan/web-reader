@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'browser/browser_controller.dart';
+import 'browser/browser_navigator.dart';
 import 'browser/browser_presentation.dart';
 import 'browser/favicon_service.dart';
 import 'browser/history_repository.dart';
@@ -381,6 +382,17 @@ final browserPresentationProvider = Provider<BrowserPresentation>((ref) {
   final presentation = BrowserPresentation();
   ref.onDispose(presentation.dispose);
   return presentation;
+});
+
+/// The hand-off for "open this page in the Browser", from anywhere.
+///
+/// Long-lived and outside the widget tree on purpose: the request has to
+/// survive the route pop and tab switch that happen between asking and the
+/// Browser being on screen.
+final browserNavigatorProvider = Provider<BrowserNavigator>((ref) {
+  final navigator = BrowserNavigator();
+  ref.onDispose(navigator.dispose);
+  return navigator;
 });
 
 /// The saved-site grid, hand-ordered.

@@ -119,6 +119,27 @@ flutter test integration_test/live_browser_test.dart     -d <udid>  # browser UX
   task stays queued — not failed, not cancelled. Downloading and saving do
   **not** need the Browser: `needsRenderedBrowser` is the line, and leaving
   during a download must not warn or pause.
+- **Browser Capture offers Add to Queue and Start Capture, in the range
+  sheet** (D58) — never a second drawer asking which. **Start Capture** runs
+  the request now via `TaskQueueController.startDirectCapture`: a
+  `capture_jobs` row, **no pending `queue_task`**, and the batch authorisation
+  untouched, so chapters queued earlier are still waiting afterwards and start
+  only on **Start queued captures**. A direct run's outcome is written as a
+  *terminal* `origin = 'direct'` queue row — history, never a plan. The chosen
+  launch is carried through the duplicate preflight (`_launch`), so a
+  re-download stays direct or stays queued as the user asked; the question is
+  never asked twice. `browserOwner != null` replaces Start Capture with **View
+  active task**, and leaves Add to Queue alone.
+- **The Browser's capture state is page state** (D59). `BrowserController`
+  carries a `pageSession` counter and `pageSessionKey` (`pageIdentityKey` —
+  normalised URL, no fragment); `resolveBrowserCaptureState` derives the
+  control from the page on screen, the run that matches it, and this page's own
+  offline metadata. A completed/failed/cancelled run is a **result** scoped to
+  the page session it ended on, shown as a dismissible banner and never as the
+  standing state of a later page — and a historical job never disables
+  Capture. Automation hops re-scope the *presentation* and never touch the
+  running job; hash-only changes, sub-frames, asset loads and `about:blank`
+  start no session.
 - **Removed episodes can be batch-queued for re-download** (D48), oldest
   first regardless of the display sort, reusing the existing chapter row.
   Chapters with no usable `source_url` are reported separately, never
@@ -200,6 +221,13 @@ flutter test integration_test/live_browser_test.dart     -d <udid>  # browser UX
 - **`AppPalette` is the one token layer** (D56) — a narrow amendment to D28,
   because a literal colour cannot be "the quiet surface" in both appearances.
   Dark values are *derived*, not designed: the design artifact is light-only.
+- **"Open in Browser" goes through one coordinator** (D60): `openInBrowser`.
+  Validate → confirm with a running capture → store the request → **pop back
+  to the shell** → select the Browser tab → drain when mounted and attached.
+  The pop is the step that makes it visible: every episode action is reached
+  from a route pushed *above* the shell, so switching the tab underneath one
+  changes nothing the user can see. Never `go('/')` — that rebuilds the shell
+  and the WebView with it.
 - **drift trap:** `insertOnConflictUpdate` treats a null field on a data
   class as *absent*, so nullable columns survive an upsert. Anything that
   must be cleared needs its own narrow writer (`clearOfflineRemovedMark`,

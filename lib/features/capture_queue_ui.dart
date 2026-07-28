@@ -45,6 +45,27 @@ void showQueuedConfirmation(
     );
 }
 
+/// A direct start that could not begin, said plainly.
+///
+/// Nothing was queued and nothing was started — the request is simply not
+/// under way, and the user is still where they were, so this is a line of text
+/// rather than a dialog they have to dismiss.
+void showDirectStartRefusal(BuildContext context, String message) {
+  ScaffoldMessenger.maybeOf(context)
+    ?..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        key: const ValueKey('directStartRefused'),
+        content: Text(message),
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'View Activity',
+          onPressed: () => LeaveBrowserGuard.push(context, '/activity'),
+        ),
+      ),
+    );
+}
+
 /// The same confirmation for a multi-select batch, which has more to say:
 /// how many went in, how many were already there, and how many could not go
 /// because the chapter has no source page.

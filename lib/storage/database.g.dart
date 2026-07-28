@@ -3071,6 +3071,15 @@ class $CaptureJobsTable extends CaptureJobs
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _originMeta = const VerificationMeta('origin');
+  @override
+  late final GeneratedColumn<String> origin = GeneratedColumn<String>(
+    'origin',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -3109,6 +3118,7 @@ class $CaptureJobsTable extends CaptureJobs
     sessionPartialDecision,
     rangeMode,
     pauseReason,
+    origin,
     createdAt,
     updatedAt,
   ];
@@ -3237,6 +3247,12 @@ class $CaptureJobsTable extends CaptureJobs
         ),
       );
     }
+    if (data.containsKey('origin')) {
+      context.handle(
+        _originMeta,
+        origin.isAcceptableOrUnknown(data['origin']!, _originMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -3318,6 +3334,10 @@ class $CaptureJobsTable extends CaptureJobs
         DriftSqlType.string,
         data['${effectivePrefix}pause_reason'],
       ),
+      origin: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}origin'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -3367,6 +3387,12 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
   /// Lets Activity say "paused — Browser required" instead of a bare
   /// "paused", and survives a restart.
   final String? pauseReason;
+
+  /// `direct` | `queue` — how this run was launched (D58). Persisted so an
+  /// interrupted **direct** capture resumes as a direct capture rather than
+  /// being quietly turned into a pending queue task. Null on rows written
+  /// before v11, which read as `queue` because that was the only way then.
+  final String? origin;
   final DateTime createdAt;
   final DateTime updatedAt;
   const CaptureJob({
@@ -3384,6 +3410,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
     this.sessionPartialDecision,
     required this.rangeMode,
     this.pauseReason,
+    this.origin,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -3422,6 +3449,9 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
     if (!nullToAbsent || pauseReason != null) {
       map['pause_reason'] = Variable<String>(pauseReason);
     }
+    if (!nullToAbsent || origin != null) {
+      map['origin'] = Variable<String>(origin);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -3457,6 +3487,9 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
       pauseReason: pauseReason == null && nullToAbsent
           ? const Value.absent()
           : Value(pauseReason),
+      origin: origin == null && nullToAbsent
+          ? const Value.absent()
+          : Value(origin),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -3486,6 +3519,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
       ),
       rangeMode: serializer.fromJson<String>(json['rangeMode']),
       pauseReason: serializer.fromJson<String?>(json['pauseReason']),
+      origin: serializer.fromJson<String?>(json['origin']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -3512,6 +3546,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
       ),
       'rangeMode': serializer.toJson<String>(rangeMode),
       'pauseReason': serializer.toJson<String?>(pauseReason),
+      'origin': serializer.toJson<String?>(origin),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -3532,6 +3567,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
     Value<String?> sessionPartialDecision = const Value.absent(),
     String? rangeMode,
     Value<String?> pauseReason = const Value.absent(),
+    Value<String?> origin = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => CaptureJob(
@@ -3557,6 +3593,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
         : this.sessionPartialDecision,
     rangeMode: rangeMode ?? this.rangeMode,
     pauseReason: pauseReason.present ? pauseReason.value : this.pauseReason,
+    origin: origin.present ? origin.value : this.origin,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -3594,6 +3631,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
       pauseReason: data.pauseReason.present
           ? data.pauseReason.value
           : this.pauseReason,
+      origin: data.origin.present ? data.origin.value : this.origin,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -3616,6 +3654,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
           ..write('sessionPartialDecision: $sessionPartialDecision, ')
           ..write('rangeMode: $rangeMode, ')
           ..write('pauseReason: $pauseReason, ')
+          ..write('origin: $origin, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -3638,6 +3677,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
     sessionPartialDecision,
     rangeMode,
     pauseReason,
+    origin,
     createdAt,
     updatedAt,
   );
@@ -3659,6 +3699,7 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
           other.sessionPartialDecision == this.sessionPartialDecision &&
           other.rangeMode == this.rangeMode &&
           other.pauseReason == this.pauseReason &&
+          other.origin == this.origin &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -3678,6 +3719,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
   final Value<String?> sessionPartialDecision;
   final Value<String> rangeMode;
   final Value<String?> pauseReason;
+  final Value<String?> origin;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -3696,6 +3738,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     this.sessionPartialDecision = const Value.absent(),
     this.rangeMode = const Value.absent(),
     this.pauseReason = const Value.absent(),
+    this.origin = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -3715,6 +3758,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     this.sessionPartialDecision = const Value.absent(),
     this.rangeMode = const Value.absent(),
     this.pauseReason = const Value.absent(),
+    this.origin = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -3739,6 +3783,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     Expression<String>? sessionPartialDecision,
     Expression<String>? rangeMode,
     Expression<String>? pauseReason,
+    Expression<String>? origin,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -3760,6 +3805,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
         'session_partial_decision': sessionPartialDecision,
       if (rangeMode != null) 'range_mode': rangeMode,
       if (pauseReason != null) 'pause_reason': pauseReason,
+      if (origin != null) 'origin': origin,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -3781,6 +3827,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     Value<String?>? sessionPartialDecision,
     Value<String>? rangeMode,
     Value<String?>? pauseReason,
+    Value<String?>? origin,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -3802,6 +3849,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
           sessionPartialDecision ?? this.sessionPartialDecision,
       rangeMode: rangeMode ?? this.rangeMode,
       pauseReason: pauseReason ?? this.pauseReason,
+      origin: origin ?? this.origin,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -3857,6 +3905,9 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     if (pauseReason.present) {
       map['pause_reason'] = Variable<String>(pauseReason.value);
     }
+    if (origin.present) {
+      map['origin'] = Variable<String>(origin.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -3886,6 +3937,7 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
           ..write('sessionPartialDecision: $sessionPartialDecision, ')
           ..write('rangeMode: $rangeMode, ')
           ..write('pauseReason: $pauseReason, ')
+          ..write('origin: $origin, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -4983,6 +5035,15 @@ class $QueueTasksTable extends QueueTasks
     requiredDuringInsert: false,
     defaultValue: const Constant('queued'),
   );
+  static const VerificationMeta _originMeta = const VerificationMeta('origin');
+  @override
+  late final GeneratedColumn<String> origin = GeneratedColumn<String>(
+    'origin',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _outcomeMeta = const VerificationMeta(
     'outcome',
   );
@@ -5060,6 +5121,7 @@ class $QueueTasksTable extends QueueTasks
     duplicatePolicy,
     rangeMode,
     state,
+    origin,
     outcome,
     lastError,
     orderIndex,
@@ -5135,6 +5197,12 @@ class $QueueTasksTable extends QueueTasks
       context.handle(
         _stateMeta,
         state.isAcceptableOrUnknown(data['state']!, _stateMeta),
+      );
+    }
+    if (data.containsKey('origin')) {
+      context.handle(
+        _originMeta,
+        origin.isAcceptableOrUnknown(data['origin']!, _originMeta),
       );
     }
     if (data.containsKey('outcome')) {
@@ -5216,6 +5284,10 @@ class $QueueTasksTable extends QueueTasks
         DriftSqlType.string,
         data['${effectivePrefix}state'],
       )!,
+      origin: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}origin'],
+      ),
       outcome: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}outcome'],
@@ -5266,6 +5338,14 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
   /// queued | running | completed | failed | cancelled
   final String state;
 
+  /// `queue` | `direct` — whether this row is queued work or the record of a
+  /// capture the user started straight from the Browser (D58).
+  ///
+  /// A `direct` row is **only ever terminal**: a direct capture creates no
+  /// pending entry, so nothing here can be released by the queue pump. It
+  /// exists for Activity history and error reporting.
+  final String? origin;
+
   /// Short human summary of how it ended ("3 captured, 1 skipped").
   final String? outcome;
   final String? lastError;
@@ -5284,6 +5364,7 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     this.duplicatePolicy,
     this.rangeMode,
     required this.state,
+    this.origin,
     this.outcome,
     this.lastError,
     required this.orderIndex,
@@ -5312,6 +5393,9 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
       map['range_mode'] = Variable<String>(rangeMode);
     }
     map['state'] = Variable<String>(state);
+    if (!nullToAbsent || origin != null) {
+      map['origin'] = Variable<String>(origin);
+    }
     if (!nullToAbsent || outcome != null) {
       map['outcome'] = Variable<String>(outcome);
     }
@@ -5349,6 +5433,9 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
           ? const Value.absent()
           : Value(rangeMode),
       state: Value(state),
+      origin: origin == null && nullToAbsent
+          ? const Value.absent()
+          : Value(origin),
       outcome: outcome == null && nullToAbsent
           ? const Value.absent()
           : Value(outcome),
@@ -5380,6 +5467,7 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
       duplicatePolicy: serializer.fromJson<String?>(json['duplicatePolicy']),
       rangeMode: serializer.fromJson<String?>(json['rangeMode']),
       state: serializer.fromJson<String>(json['state']),
+      origin: serializer.fromJson<String?>(json['origin']),
       outcome: serializer.fromJson<String?>(json['outcome']),
       lastError: serializer.fromJson<String?>(json['lastError']),
       orderIndex: serializer.fromJson<int>(json['orderIndex']),
@@ -5400,6 +5488,7 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
       'duplicatePolicy': serializer.toJson<String?>(duplicatePolicy),
       'rangeMode': serializer.toJson<String?>(rangeMode),
       'state': serializer.toJson<String>(state),
+      'origin': serializer.toJson<String?>(origin),
       'outcome': serializer.toJson<String?>(outcome),
       'lastError': serializer.toJson<String?>(lastError),
       'orderIndex': serializer.toJson<int>(orderIndex),
@@ -5418,6 +5507,7 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     Value<String?> duplicatePolicy = const Value.absent(),
     Value<String?> rangeMode = const Value.absent(),
     String? state,
+    Value<String?> origin = const Value.absent(),
     Value<String?> outcome = const Value.absent(),
     Value<String?> lastError = const Value.absent(),
     int? orderIndex,
@@ -5437,6 +5527,7 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
         : this.duplicatePolicy,
     rangeMode: rangeMode.present ? rangeMode.value : this.rangeMode,
     state: state ?? this.state,
+    origin: origin.present ? origin.value : this.origin,
     outcome: outcome.present ? outcome.value : this.outcome,
     lastError: lastError.present ? lastError.value : this.lastError,
     orderIndex: orderIndex ?? this.orderIndex,
@@ -5460,6 +5551,7 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
           : this.duplicatePolicy,
       rangeMode: data.rangeMode.present ? data.rangeMode.value : this.rangeMode,
       state: data.state.present ? data.state.value : this.state,
+      origin: data.origin.present ? data.origin.value : this.origin,
       outcome: data.outcome.present ? data.outcome.value : this.outcome,
       lastError: data.lastError.present ? data.lastError.value : this.lastError,
       orderIndex: data.orderIndex.present
@@ -5484,6 +5576,7 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
           ..write('duplicatePolicy: $duplicatePolicy, ')
           ..write('rangeMode: $rangeMode, ')
           ..write('state: $state, ')
+          ..write('origin: $origin, ')
           ..write('outcome: $outcome, ')
           ..write('lastError: $lastError, ')
           ..write('orderIndex: $orderIndex, ')
@@ -5504,6 +5597,7 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     duplicatePolicy,
     rangeMode,
     state,
+    origin,
     outcome,
     lastError,
     orderIndex,
@@ -5523,6 +5617,7 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
           other.duplicatePolicy == this.duplicatePolicy &&
           other.rangeMode == this.rangeMode &&
           other.state == this.state &&
+          other.origin == this.origin &&
           other.outcome == this.outcome &&
           other.lastError == this.lastError &&
           other.orderIndex == this.orderIndex &&
@@ -5540,6 +5635,7 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
   final Value<String?> duplicatePolicy;
   final Value<String?> rangeMode;
   final Value<String> state;
+  final Value<String?> origin;
   final Value<String?> outcome;
   final Value<String?> lastError;
   final Value<int> orderIndex;
@@ -5556,6 +5652,7 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     this.duplicatePolicy = const Value.absent(),
     this.rangeMode = const Value.absent(),
     this.state = const Value.absent(),
+    this.origin = const Value.absent(),
     this.outcome = const Value.absent(),
     this.lastError = const Value.absent(),
     this.orderIndex = const Value.absent(),
@@ -5573,6 +5670,7 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     this.duplicatePolicy = const Value.absent(),
     this.rangeMode = const Value.absent(),
     this.state = const Value.absent(),
+    this.origin = const Value.absent(),
     this.outcome = const Value.absent(),
     this.lastError = const Value.absent(),
     this.orderIndex = const Value.absent(),
@@ -5592,6 +5690,7 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     Expression<String>? duplicatePolicy,
     Expression<String>? rangeMode,
     Expression<String>? state,
+    Expression<String>? origin,
     Expression<String>? outcome,
     Expression<String>? lastError,
     Expression<int>? orderIndex,
@@ -5609,6 +5708,7 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
       if (duplicatePolicy != null) 'duplicate_policy': duplicatePolicy,
       if (rangeMode != null) 'range_mode': rangeMode,
       if (state != null) 'state': state,
+      if (origin != null) 'origin': origin,
       if (outcome != null) 'outcome': outcome,
       if (lastError != null) 'last_error': lastError,
       if (orderIndex != null) 'order_index': orderIndex,
@@ -5628,6 +5728,7 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     Value<String?>? duplicatePolicy,
     Value<String?>? rangeMode,
     Value<String>? state,
+    Value<String?>? origin,
     Value<String?>? outcome,
     Value<String?>? lastError,
     Value<int>? orderIndex,
@@ -5645,6 +5746,7 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
       duplicatePolicy: duplicatePolicy ?? this.duplicatePolicy,
       rangeMode: rangeMode ?? this.rangeMode,
       state: state ?? this.state,
+      origin: origin ?? this.origin,
       outcome: outcome ?? this.outcome,
       lastError: lastError ?? this.lastError,
       orderIndex: orderIndex ?? this.orderIndex,
@@ -5682,6 +5784,9 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     if (state.present) {
       map['state'] = Variable<String>(state.value);
     }
+    if (origin.present) {
+      map['origin'] = Variable<String>(origin.value);
+    }
     if (outcome.present) {
       map['outcome'] = Variable<String>(outcome.value);
     }
@@ -5717,6 +5822,7 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
           ..write('duplicatePolicy: $duplicatePolicy, ')
           ..write('rangeMode: $rangeMode, ')
           ..write('state: $state, ')
+          ..write('origin: $origin, ')
           ..write('outcome: $outcome, ')
           ..write('lastError: $lastError, ')
           ..write('orderIndex: $orderIndex, ')
@@ -8765,6 +8871,7 @@ typedef $$CaptureJobsTableCreateCompanionBuilder =
       Value<String?> sessionPartialDecision,
       Value<String> rangeMode,
       Value<String?> pauseReason,
+      Value<String?> origin,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -8785,6 +8892,7 @@ typedef $$CaptureJobsTableUpdateCompanionBuilder =
       Value<String?> sessionPartialDecision,
       Value<String> rangeMode,
       Value<String?> pauseReason,
+      Value<String?> origin,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
@@ -8866,6 +8974,11 @@ class $$CaptureJobsTableFilterComposer
 
   ColumnFilters<String> get pauseReason => $composableBuilder(
     column: $table.pauseReason,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get origin => $composableBuilder(
+    column: $table.origin,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8959,6 +9072,11 @@ class $$CaptureJobsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get origin => $composableBuilder(
+    column: $table.origin,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -9039,6 +9157,9 @@ class $$CaptureJobsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get origin =>
+      $composableBuilder(column: $table.origin, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -9091,6 +9212,7 @@ class $$CaptureJobsTableTableManager
                 Value<String?> sessionPartialDecision = const Value.absent(),
                 Value<String> rangeMode = const Value.absent(),
                 Value<String?> pauseReason = const Value.absent(),
+                Value<String?> origin = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -9109,6 +9231,7 @@ class $$CaptureJobsTableTableManager
                 sessionPartialDecision: sessionPartialDecision,
                 rangeMode: rangeMode,
                 pauseReason: pauseReason,
+                origin: origin,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -9129,6 +9252,7 @@ class $$CaptureJobsTableTableManager
                 Value<String?> sessionPartialDecision = const Value.absent(),
                 Value<String> rangeMode = const Value.absent(),
                 Value<String?> pauseReason = const Value.absent(),
+                Value<String?> origin = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -9147,6 +9271,7 @@ class $$CaptureJobsTableTableManager
                 sessionPartialDecision: sessionPartialDecision,
                 rangeMode: rangeMode,
                 pauseReason: pauseReason,
+                origin: origin,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -9687,6 +9812,7 @@ typedef $$QueueTasksTableCreateCompanionBuilder =
       Value<String?> duplicatePolicy,
       Value<String?> rangeMode,
       Value<String> state,
+      Value<String?> origin,
       Value<String?> outcome,
       Value<String?> lastError,
       Value<int> orderIndex,
@@ -9705,6 +9831,7 @@ typedef $$QueueTasksTableUpdateCompanionBuilder =
       Value<String?> duplicatePolicy,
       Value<String?> rangeMode,
       Value<String> state,
+      Value<String?> origin,
       Value<String?> outcome,
       Value<String?> lastError,
       Value<int> orderIndex,
@@ -9760,6 +9887,11 @@ class $$QueueTasksTableFilterComposer
 
   ColumnFilters<String> get state => $composableBuilder(
     column: $table.state,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get origin => $composableBuilder(
+    column: $table.origin,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9843,6 +9975,11 @@ class $$QueueTasksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get origin => $composableBuilder(
+    column: $table.origin,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get outcome => $composableBuilder(
     column: $table.outcome,
     builder: (column) => ColumnOrderings(column),
@@ -9913,6 +10050,9 @@ class $$QueueTasksTableAnnotationComposer
   GeneratedColumn<String> get state =>
       $composableBuilder(column: $table.state, builder: (column) => column);
 
+  GeneratedColumn<String> get origin =>
+      $composableBuilder(column: $table.origin, builder: (column) => column);
+
   GeneratedColumn<String> get outcome =>
       $composableBuilder(column: $table.outcome, builder: (column) => column);
 
@@ -9975,6 +10115,7 @@ class $$QueueTasksTableTableManager
                 Value<String?> duplicatePolicy = const Value.absent(),
                 Value<String?> rangeMode = const Value.absent(),
                 Value<String> state = const Value.absent(),
+                Value<String?> origin = const Value.absent(),
                 Value<String?> outcome = const Value.absent(),
                 Value<String?> lastError = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),
@@ -9991,6 +10132,7 @@ class $$QueueTasksTableTableManager
                 duplicatePolicy: duplicatePolicy,
                 rangeMode: rangeMode,
                 state: state,
+                origin: origin,
                 outcome: outcome,
                 lastError: lastError,
                 orderIndex: orderIndex,
@@ -10009,6 +10151,7 @@ class $$QueueTasksTableTableManager
                 Value<String?> duplicatePolicy = const Value.absent(),
                 Value<String?> rangeMode = const Value.absent(),
                 Value<String> state = const Value.absent(),
+                Value<String?> origin = const Value.absent(),
                 Value<String?> outcome = const Value.absent(),
                 Value<String?> lastError = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),
@@ -10025,6 +10168,7 @@ class $$QueueTasksTableTableManager
                 duplicatePolicy: duplicatePolicy,
                 rangeMode: rangeMode,
                 state: state,
+                origin: origin,
                 outcome: outcome,
                 lastError: lastError,
                 orderIndex: orderIndex,

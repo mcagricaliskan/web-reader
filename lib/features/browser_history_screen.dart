@@ -13,6 +13,7 @@ import '../ui/status_style.dart';
 import '../ui/theme.dart';
 import 'browser_data_dialogs.dart';
 import 'browser_ui.dart';
+import 'open_in_browser.dart';
 import 'saved_site_sheets.dart';
 
 /// The full History screen: date-grouped pages, hostname-grouped sites,
@@ -260,14 +261,18 @@ class _BrowserHistoryScreenState extends ConsumerState<BrowserHistoryScreen> {
     );
   }
 
-  /// Opening from History hands the page to the existing Browser WebView —
-  /// this screen never creates one, and the shell keeps the tab it switches
-  /// to.
+  /// Opening from History goes through the same coordinator as every other
+  /// source-page action.
+  ///
+  /// It used to pop one route and switch the tab, which is right only when
+  /// History was reached directly from the Browser — reached from
+  /// Settings it landed the user back on Settings, with the page loaded
+  /// somewhere they could not see.
   void _open(BrowsingHistoryData visit) {
-    ref.read(browserProvider).requestOpen(visit.url);
-    ref.read(browserPresentationProvider).showWebsite();
-    ref.read(shellTabRequestProvider).value = 1;
-    Navigator.of(context).pop();
+    // No reachability probe: a history row is a page the user has already
+    // been to, and the Browser's own offline state explains it better than a
+    // snackbar that refuses to move.
+    openInBrowser(context, ref, visit.url, checkConnectivity: false);
   }
 
   Future<void> _removeHost(String host) async {

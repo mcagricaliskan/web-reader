@@ -43,6 +43,19 @@ class FakeBrowser extends BrowserController {
     notifyListeners();
   }
 
+  /// The real controller pushes the URL into an attached WebView and reports
+  /// it back through `onLoadStart`/`onUrlChanged`. There is no WebView here,
+  /// so the observable effect is applied directly — otherwise a plain `load`
+  /// looks like a no-op and a test asserting "the page was handed over" can
+  /// never see it.
+  @override
+  Future<void> load(String url) async {
+    if (url.trim().isEmpty) return;
+    navigations.add(url);
+    _url = redirects[url] ?? url;
+    notifyListeners();
+  }
+
   @override
   Future<PageProbe> probe({bool withLinks = false}) async {
     final page = pages[normalizeUrl(_url)];
