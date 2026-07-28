@@ -16,6 +16,7 @@ import '../storage/database.dart';
 import '../storage/file_store.dart';
 import '../storage/manifest.dart';
 import '../storage/manifest_repair.dart';
+import 'capture_queue_ui.dart';
 import 'cleanup_dialogs.dart';
 import 'library_screen.dart' show formatBytes, formatRelative;
 import 'series_detail_screen.dart' show sortChaptersForReading;
@@ -531,7 +532,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// Bring a chapter back that has no local files — the same queued capture
   /// as anywhere else, so it shows up in Activity like any other run.
   Future<void> _captureAgain(Chapter chapter) async {
-    await ref
+    final result = await ref
         .read(taskQueueProvider)
         .enqueueCapture(
           startUrl: chapter.sourceUrl,
@@ -541,11 +542,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           range: CaptureRangeMode.currentChapter,
         );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Capturing this chapter — progress in Activity'),
-      ),
-    );
+    showQueuedConfirmation(context, result);
   }
 
   /// Re-capture this chapter to fill in the panels a partial capture missed.
@@ -553,7 +550,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   Future<void> _retryMissing(_ReaderData data) async {
     final chapter = data.chapter;
     if (chapter == null) return;
-    await ref
+    final result = await ref
         .read(taskQueueProvider)
         .enqueueCapture(
           startUrl: chapter.sourceUrl,
@@ -563,11 +560,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           range: CaptureRangeMode.currentChapter,
         );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Re-capturing the missing panels — progress in Activity'),
-      ),
-    );
+    showQueuedConfirmation(context, result, what: 'missing panels');
   }
 
   @override

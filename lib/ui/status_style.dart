@@ -77,6 +77,52 @@ class CaptureGlyph extends StatelessWidget {
 
 /// Read-state indicator. Unread is a small filled dot, in-progress a partial
 /// ring with its percentage beside it, finished a hollow check.
+// ─── screen header ──────────────────────────────────────────────────────────
+
+/// Every action in a screen header is exactly this box, with exactly this
+/// glyph inside it, in exactly this colour.
+///
+/// One definition, because the alternative was what the Library header had:
+/// three 48pt `IconButton`s with 22pt glyphs beside a 40pt pill with a 15pt
+/// glyph, bottom-aligned — so the pill's centre sat 4pt below every icon's
+/// centre and its glyph read as a different family. Anything that joins this
+/// row must be [kHeaderActionSize] tall and use [kHeaderIconSize].
+const double kHeaderActionSize = 40;
+const double kHeaderIconSize = 22;
+const Color kHeaderIconColor = Color(0xFF5F5B54);
+
+/// A header action. Deliberately tighter than a stock [IconButton] (48pt):
+/// four actions plus a 28pt serif title do not fit across a 320pt screen at
+/// the default size, and the title is what loses — it wrapped to three lines.
+class HeaderIconButton extends StatelessWidget {
+  const HeaderIconButton({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: SizedBox.square(
+      dimension: kHeaderActionSize,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const CircleBorder(),
+          child: Icon(icon, size: kHeaderIconSize, color: kHeaderIconColor),
+        ),
+      ),
+    ),
+  );
+}
+
 /// The episode list's progress pie, driven by the real reading fraction.
 ///
 /// A painter rather than a set of range icons: the design's pie is a

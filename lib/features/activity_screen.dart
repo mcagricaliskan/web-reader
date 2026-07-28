@@ -7,6 +7,7 @@ import '../queue/task_queue.dart';
 import '../storage/database.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'capture_queue_ui.dart';
 import 'library_screen.dart' show formatRelative;
 
 /// Everything the app is doing on the user's behalf, grouped by what the user
@@ -46,9 +47,24 @@ class ActivityScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Activity error: $e')),
         data: (list) {
+          final queuedAll = _of(list, QueueTaskState.queued);
+          // Two different kinds of "queued": captures that are waiting for
+          // the user to press Start, and checks/cleanup that will drain on
+          // their own. Showing them together makes the first look stuck.
+          final waitingToStart = [
+            for (final t in queuedAll)
+              if (taskWaitsForExplicitStart(queueTaskTypeFromName(t.taskType)))
+                t,
+          ];
+          final autoQueued = [
+            for (final t in queuedAll)
+              if (!taskWaitsForExplicitStart(queueTaskTypeFromName(t.taskType)))
+                t,
+          ];
+
           final groups = <(String, String, List<QueueTask>)>[
             ('RUNNING', 'active', _of(list, QueueTaskState.running)),
-            ('QUEUED', 'waiting', _of(list, QueueTaskState.queued)),
+            ('QUEUED', 'starting on their own', autoQueued),
             ('FAILED', 'needs you', _of(list, QueueTaskState.failed)),
             (
               'COMPLETED',
@@ -73,6 +89,25 @@ class ActivityScreen extends ConsumerWidget {
                     ? _ResumeOffer(queue: queue)
                     : const SizedBox.shrink(),
               ),
+              _BatchSummary(tasks: list),
+              if (waitingToStart.isNotEmpty) ...[
+                SectionLabel(
+                  'WAITING TO START',
+                  trailing: Text(
+                    '${waitingToStart.length} capture'
+                    '${waitingToStart.length == 1 ? '' : 's'}',
+                    style: monoStyle(color: const Color(0xFFA39D93)),
+                  ),
+                ),
+                _QueueControls(count: waitingToStart.length),
+                for (final (i, task) in waitingToStart.indexed)
+                  _QueuedCaptureRow(
+                    task: task,
+                    queue: queue,
+                    position: i + 1,
+                    total: waitingToStart.length,
+                  ),
+              ],
               for (final (label, note, group) in groups)
                 if (group.isNotEmpty) ...[
                   SectionLabel(
@@ -336,6 +371,262 @@ class _TaskRow extends ConsumerWidget {
         ],
         QueueTaskState.completed => const [],
       };
+}
+
+/// The counts a batch is actually made of.
+///
+/// Counts, never a percentage: an until-end run does not know how many
+/// chapters it will find, and a progress bar that invents a denominator is a
+/// lie the user cannot check.
+class _BatchSummary extends StatelessWidget {
+  const _BatchSummary({required this.tasks});
+
+  final List<QueueTask> tasks;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = QueueSummary.of(tasks);
+    if (s.remaining == 0 && s.failed == 0) return const SizedBox.shrink();
+    final facts = <(String, int)>[
+      ('waiting', s.queuedCaptures),
+      ('queued', s.queuedOther),
+      ('running', s.running),
+      ('done', s.completed),
+      ('failed', s.failed),
+      ('skipped', s.cancelled),
+    ].where((f) => f.$2 > 0).toList();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F5F1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE7E3DC)),
+      ),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 6,
+        children: [
+          for (final (label, count) in facts)
+            Text(
+              '$count $label',
+              style: monoStyle(size: 12, color: const Color(0xFF3E3A34)),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Start-all / clear-all for the waiting captures.
+class _QueueControls extends ConsumerWidget {
+  const _QueueControls({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+    child: Row(
+      children: [
+        Expanded(
+          child: FilledButton.icon(
+            key: const ValueKey('startAllQueued'),
+            onPressed: () => confirmAndStartCaptures(context, ref),
+            icon: const Icon(Icons.play_arrow, size: 19),
+            label: Text('Start $count capture${count == 1 ? '' : 's'}'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          key: const ValueKey('clearQueued'),
+          onPressed: () => _confirmClear(context, ref),
+          child: const Text('Clear'),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _confirmClear(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear the capture queue?'),
+        content: const Text(
+          'The waiting capture requests are dropped. Nothing already saved '
+          'is affected — no chapter, no file and no reading history is '
+          'touched.',
+          style: TextStyle(fontSize: 13.5, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep them'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Clear queue'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final removed = await ref.read(taskQueueProvider).clearQueuedCaptures();
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(
+          '$removed capture request${removed == 1 ? '' : 's'} removed · '
+          'nothing downloaded was deleted',
+        ),
+      ),
+    );
+  }
+}
+
+/// A capture that has not started: its place in line, what it will do, and
+/// the three things that can be done to it — move, start, remove.
+class _QueuedCaptureRow extends ConsumerWidget {
+  const _QueuedCaptureRow({
+    required this.task,
+    required this.queue,
+    required this.position,
+    required this.total,
+  });
+
+  final QueueTask task;
+  final TaskQueueController queue;
+  final int position;
+  final int total;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final url = task.startUrl?.trim() ?? '';
+    final uri = Uri.tryParse(url);
+    final knowsSource = url.isNotEmpty && (uri?.host.isNotEmpty ?? false);
+    final mode = switch (task.rangeMode) {
+      'untilEnd' => 'until the end',
+      'currentChapter' => 'this chapter',
+      _ =>
+        '${task.chapterLimit ?? 1} chapter'
+            '${(task.chapterLimit ?? 1) == 1 ? '' : 's'}',
+    };
+    // `replaceAll` is what a re-fetch/re-download enqueues; anything else is
+    // new material.
+    final isRedownload = task.duplicatePolicy == 'replaceAll';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 26,
+            child: Text(
+              '$position',
+              textAlign: TextAlign.center,
+              style: monoStyle(size: 12, color: const Color(0xFF8C877E)),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  knowsSource ? (uri?.pathSegments.lastOrNull ?? url) : url,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontVariations: wght(500),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${isRedownload ? 'Re-download' : 'Capture'} · $mode'
+                  '${knowsSource ? ' · ${uri!.host}' : ''}'
+                  ' · added ${formatRelative(task.queuedAt)}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: Color(0xFF5F5B54),
+                  ),
+                ),
+                if (!knowsSource) ...[
+                  const SizedBox(height: 3),
+                  const Text(
+                    'No source page — this cannot be captured automatically',
+                    style: TextStyle(fontSize: 11.5, color: Color(0xFF8A5A1F)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          _MiniAction(
+            icon: Icons.arrow_upward,
+            tooltip: 'Move up',
+            onPressed: position == 1
+                ? null
+                : () => queue.moveQueued(task.id, -1),
+          ),
+          _MiniAction(
+            icon: Icons.arrow_downward,
+            tooltip: 'Move down',
+            onPressed: position == total
+                ? null
+                : () => queue.moveQueued(task.id, 1),
+          ),
+          _MiniAction(
+            icon: Icons.play_arrow,
+            tooltip: 'Start this one',
+            onPressed: !knowsSource ? null : () => _startOne(context, ref),
+          ),
+          _MiniAction(
+            icon: Icons.close,
+            tooltip: 'Remove from queue',
+            onPressed: () => queue.cancelTask(task.id),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _startOne(BuildContext context, WidgetRef ref) async {
+    // Starting one is still starting the Browser, so it earns the same
+    // confirmation as Start All — just aimed at this row.
+    await queue.moveQueuedToFront(task.id);
+    if (!context.mounted) return;
+    await confirmAndStartCaptures(context, ref);
+  }
+}
+
+class _MiniAction extends StatelessWidget {
+  const _MiniAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: tooltip,
+    icon: Icon(icon, size: 18),
+    visualDensity: VisualDensity.compact,
+    constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+    padding: EdgeInsets.zero,
+    color: const Color(0xFF5F5B54),
+    disabledColor: const Color(0xFFC4BFB5),
+    onPressed: onPressed,
+  );
 }
 
 class _NothingHappening extends StatelessWidget {

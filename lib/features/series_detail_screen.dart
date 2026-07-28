@@ -8,11 +8,13 @@ import '../capture/capture_preflight.dart';
 import '../library/series_identity.dart';
 import '../library/update_checker.dart';
 import '../providers.dart';
+import '../queue/task_queue.dart';
 import '../reading/reading_repository.dart';
 import '../storage/database.dart';
 import '../storage/manifest.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'capture_queue_ui.dart';
 import 'chapter_actions.dart';
 import 'chapter_details_sheet.dart';
 import 'cleanup_dialogs.dart';
@@ -135,6 +137,65 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
     );
     if (!mounted) return;
     setState(() => _selection = removable.map((c) => c.id).toSet());
+  }
+
+  /// Everything this device does not currently hold — the selection a
+  /// re-download batch starts from. Includes chapters whose files the user
+  /// removed AND chapters only ever seen on the source (D48).
+  void _selectMissing(List<Chapter> chapters) {
+    setState(
+      () => _selection = {
+        for (final c in chapters)
+          if (!isReadableOffline(c)) c.id,
+      },
+    );
+  }
+
+  /// Finished chapters whose files are gone: the "I read it, I freed the
+  /// space, now I want it back" selection.
+  void _selectRemovedFinished(List<Chapter> chapters) {
+    setState(
+      () => _selection = {
+        for (final c in chapters)
+          if (!isReadableOffline(c) && c.readStatus == 'completed') c.id,
+      },
+    );
+  }
+
+  /// Queue the selection for re-download, oldest first.
+  ///
+  /// Nothing starts here: the batch joins the capture queue and waits for an
+  /// explicit start like every other capture request (D46).
+  Future<void> _confirmQueueSelection(List<Chapter> all) async {
+    final ids = _selection!;
+    if (ids.isEmpty) return;
+    final chosen = all.where((c) => ids.contains(c.id)).toList();
+    final capturable = chosen.where(chapterHasCapturableUrl).toList();
+    final missing = chosen.where((c) => !chapterHasCapturableUrl(c)).toList();
+
+    // Estimate from what this series has actually cost so far, not from a
+    // constant. Null when nothing has been captured yet.
+    final known = all.where((c) => c.byteSize > 0).toList();
+    final estimate = known.isEmpty
+        ? null
+        : (known.fold<int>(0, (sum, c) => sum + c.byteSize) ~/ known.length) *
+              capturable.length;
+
+    final ok = await showBatchQueueConfirm(
+      context: context,
+      plan: BatchQueuePlan(
+        seriesName: widget.group.displayName,
+        capturable: capturable,
+        missingSource: missing,
+        estimatedBytes: estimate,
+      ),
+    );
+    if (!ok || !mounted) return;
+
+    final result = await ref.read(taskQueueProvider).enqueueChapters(chosen);
+    if (!mounted) return;
+    _exitSelection();
+    showBatchQueuedConfirmation(context, result);
   }
 
   /// Remove the current selection, with the design's confirmation and an
@@ -273,13 +334,32 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
               ),
               title: Text('${_selection!.length} selected'),
               actions: [
-                TextButton(
-                  onPressed: () => _selectAllOffline(readingOrder),
-                  child: const Text('All offline'),
-                ),
-                TextButton(
-                  onPressed: () => _selectFinished(readingOrder),
-                  child: const Text('Finished'),
+                // A menu, not four buttons: the quick-selects outgrew the
+                // width of a 320pt app bar the moment re-download joined
+                // removal.
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.checklist, size: 22),
+                  tooltip: 'Select…',
+                  onSelected: (choice) => switch (choice) {
+                    'offline' => _selectAllOffline(readingOrder),
+                    'finished' => _selectFinished(readingOrder),
+                    'missing' => _selectMissing(readingOrder),
+                    'removedFinished' => _selectRemovedFinished(readingOrder),
+                    _ => setState(() => _selection = <String>{}),
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'offline', child: Text('All offline')),
+                    PopupMenuItem(value: 'finished', child: Text('Finished')),
+                    PopupMenuItem(
+                      value: 'missing',
+                      child: Text('Not downloaded'),
+                    ),
+                    PopupMenuItem(
+                      value: 'removedFinished',
+                      child: Text('Finished · files removed'),
+                    ),
+                    PopupMenuItem(value: 'none', child: Text('Clear')),
+                  ],
                 ),
               ],
             )
@@ -299,6 +379,7 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
               chapters: chapters,
               onCancel: _exitSelection,
               onRemove: () => _confirmRemoveSelection(chapters),
+              onQueue: () => _confirmQueueSelection(chapters),
             )
           : null,
       body: ListView(
@@ -512,25 +593,22 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
     List<Chapter> knownRemote,
   ) async {
     final queue = ref.read(taskQueueProvider);
-    final busy =
-        ref.read(captureJobProvider).isRunning ||
-        ref.read(updateCheckerProvider).isRunning;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          busy
-              ? 'Queued ${knownRemote.length} chapter(s) — starts when the '
-                    'current run finishes. Progress is in Activity.'
-              : 'Capturing ${knownRemote.length} chapter(s) — progress is in '
-                    'the Browser tab and Activity.',
-        ),
-      ),
-    );
-    await queue.enqueueCapture(
+    final result = await queue.enqueueCapture(
       startUrl: knownRemote.first.sourceUrl,
       chapterLimit: knownRemote.length,
       libraryItemId: group.item.id,
       policy: DuplicatePolicy.skipComplete,
+    );
+    if (!context.mounted) return;
+    // One walk over the chain, queued. It waits like everything else — the
+    // Browser opens when the user starts the queue, not because they tapped
+    // "capture new" (D46).
+    showQueuedConfirmation(
+      context,
+      result,
+      what:
+          '${knownRemote.length} new chapter'
+          '${knownRemote.length == 1 ? '' : 's'}',
     );
   }
 
@@ -587,25 +665,36 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
 
 /// The docked selection bar: how many, roughly how much space, and the two
 /// ways out. Disabled-looking until something is selected.
+/// One bar, two opposite actions, each live only when the selection actually
+/// contains something it can act on — so "Remove files" cannot be pressed on
+/// a selection of chapters that have none, and vice versa.
 class _SelectionBar extends StatelessWidget {
   const _SelectionBar({
     required this.selected,
     required this.chapters,
     required this.onCancel,
     required this.onRemove,
+    required this.onQueue,
   });
 
   final Set<String> selected;
   final List<Chapter> chapters;
   final VoidCallback onCancel;
   final VoidCallback onRemove;
+  final VoidCallback onQueue;
 
   @override
   Widget build(BuildContext context) {
-    final bytes = chapters
-        .where((c) => selected.contains(c.id))
-        .fold<int>(0, (sum, c) => sum + c.byteSize);
+    final chosen = chapters.where((c) => selected.contains(c.id)).toList();
+    final bytes = chosen.fold<int>(0, (sum, c) => sum + c.byteSize);
     final any = selected.isNotEmpty;
+    final withFiles = chosen.where(isReadableOffline).length;
+    final queueable = chosen
+        .where((c) => !isReadableOffline(c) && chapterHasCapturableUrl(c))
+        .length;
+    final noSource = chosen
+        .where((c) => !isReadableOffline(c) && !chapterHasCapturableUrl(c))
+        .length;
 
     return Container(
       decoration: const BoxDecoration(
@@ -635,9 +724,15 @@ class _SelectionBar extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  any
-                      ? '~${formatBytes(bytes)} will be freed'
-                      : 'select chapters below',
+                  !any
+                      ? 'select chapters below'
+                      : [
+                          if (withFiles > 0)
+                            '$withFiles offline · ~${formatBytes(bytes)}',
+                          if (queueable > 0) '$queueable can be queued',
+                          if (noSource > 0) '$noSource have no source page',
+                        ].join(' · '),
+                  maxLines: 2,
                   style: monoStyle(size: 11.5, color: const Color(0xFF5F5B54)),
                 ),
               ],
@@ -645,10 +740,18 @@ class _SelectionBar extends StatelessWidget {
           ),
           TextButton(onPressed: onCancel, child: const Text('Cancel')),
           const SizedBox(width: 4),
-          FilledButton(
-            onPressed: any ? onRemove : null,
-            child: const Text('Remove offline files'),
-          ),
+          if (queueable > 0)
+            FilledButton(
+              key: const ValueKey('queueSelectionButton'),
+              onPressed: onQueue,
+              child: const Text('Add to capture queue'),
+            )
+          else
+            FilledButton(
+              key: const ValueKey('removeSelectionButton'),
+              onPressed: withFiles > 0 ? onRemove : null,
+              child: const Text('Remove offline files'),
+            ),
         ],
       ),
     );
@@ -1075,9 +1178,12 @@ class _ChapterRow extends ConsumerWidget {
       rawLabel: chapter.chapterLabel,
       title: chapter.title,
     );
-    // Selectable = offline and not in use. Everything else stays visible but
-    // dimmed with a lock, so "why can't I pick that one" answers itself.
-    final selectable = selecting && offline && lockReason == null;
+    // Selectable = not locked. Offline chapters can be removed; chapters
+    // without files can be queued for re-download — both are selection work,
+    // so both are pickable, and the bar decides what applies (D48). A locked
+    // chapter stays visible but dimmed, so "why can't I pick that one"
+    // answers itself.
+    final selectable = selecting && lockReason == null;
 
     return Opacity(
       opacity: selecting && !selectable ? 0.45 : 1,
@@ -1109,7 +1215,7 @@ class _ChapterRow extends ConsumerWidget {
                   width: 24,
                   child: selecting
                       ? Icon(
-                          !offline || lockReason != null
+                          lockReason != null
                               ? Icons.lock
                               : (selected
                                     ? Icons.check_box

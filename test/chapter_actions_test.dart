@@ -187,7 +187,7 @@ void main() {
       reason: 'there is nothing to read; the reader must not be opened',
     );
     expect(find.text('Open on website'), findsOneWidget);
-    expect(find.text('Capture again'), findsOneWidget);
+    expect(find.text('Add to capture queue'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
     expect(find.textContaining('you removed its files'), findsOneWidget);
     await drain(tester);

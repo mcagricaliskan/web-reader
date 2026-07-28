@@ -69,13 +69,22 @@ void main() {
 
     final idA = await queue.enqueueSeriesCheck('series-a');
     final idB = await queue.enqueueSeriesCheck('series-b');
-    final idC = await queue.enqueueCapture(
+    final capture = await queue.enqueueCapture(
       startUrl: 'https://x.example/manga/foo/1',
       chapterLimit: 3,
     );
     await settle();
 
-    expect(executed, [idA, idB, idC], reason: 'strict FIFO');
+    expect(
+      executed,
+      [idA, idB],
+      reason: 'checks drain on their own; the capture waits for Start (D46)',
+    );
+
+    await queue.startQueuedCaptures();
+    await settle();
+
+    expect(executed, [idA, idB, capture.id], reason: 'strict FIFO');
     final rows = await db.watchQueueTasks().first;
     expect(
       rows.map((t) => t.state).toSet(),

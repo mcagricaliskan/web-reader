@@ -6,6 +6,7 @@ import '../core/config.dart';
 import '../core/connectivity.dart';
 import '../core/url_utils.dart';
 import '../providers.dart';
+import 'capture_queue_ui.dart';
 import '../storage/database.dart';
 import '../ui/status_style.dart';
 
@@ -165,8 +166,8 @@ Future<void> showUnavailableChapterSheet(
           ),
           ListTile(
             leading: const Icon(Icons.download),
-            title: const Text('Capture again'),
-            subtitle: const Text('Download it for offline reading'),
+            title: const Text('Add to capture queue'),
+            subtitle: const Text('Waits until you start the queue'),
             onTap: () {
               Navigator.of(sheetContext).pop();
               _captureAgain(context, ref, chapter);
@@ -206,7 +207,7 @@ Future<void> _captureAgain(
     );
     return;
   }
-  await ref
+  final result = await ref
       .read(taskQueueProvider)
       .enqueueCapture(
         startUrl: chapter.sourceUrl,
@@ -216,11 +217,8 @@ Future<void> _captureAgain(
         range: CaptureRangeMode.currentChapter,
       );
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('Capturing this chapter — progress in Activity'),
-    ),
-  );
+  // Queued, not started: the user stays exactly where they are (D46).
+  showQueuedConfirmation(context, result);
 }
 
 /// "Open on website" as a row for an *available* chapter's overflow sheet.

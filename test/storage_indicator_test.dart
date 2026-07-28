@@ -9,6 +9,7 @@ import 'package:web_reader/core/device_capacity_provider.dart';
 import 'package:web_reader/core/device_storage.dart';
 import 'package:web_reader/features/storage_screen.dart';
 import 'package:web_reader/providers.dart';
+import 'package:web_reader/ui/status_style.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
 
@@ -108,16 +109,18 @@ void main() {
               body: Row(
                 children: [
                   const Expanded(child: Text('Library')),
-                  IconButton(
+                  HeaderIconButton(
                     key: const ValueKey('sync'),
+                    icon: Icons.sync,
+                    tooltip: 'sync',
                     onPressed: () {},
-                    icon: const Icon(Icons.sync),
                   ),
                   const StoragePill(),
-                  IconButton(
+                  HeaderIconButton(
                     key: const ValueKey('archived'),
+                    icon: Icons.inventory_2,
+                    tooltip: 'archived',
                     onPressed: () {},
-                    icon: const Icon(Icons.inventory_2),
                   ),
                 ],
               ),
@@ -186,7 +189,7 @@ void main() {
 
       final pill = tester.getRect(find.byType(StoragePill));
       expect(pill.width, StoragePill.width);
-      expect(pill.width, lessThanOrEqualTo(56));
+      expect(pill.width, lessThanOrEqualTo(60));
 
       // The buttons on either side keep their places, and nothing overflows.
       final sync = tester.getRect(find.byKey(const ValueKey('sync')));

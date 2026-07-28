@@ -11,7 +11,9 @@ import 'package:web_reader/core/connectivity.dart';
 import 'package:web_reader/features/chapter_actions.dart';
 import 'package:web_reader/features/series_detail_screen.dart';
 import 'package:web_reader/library/update_checker.dart';
+import 'package:web_reader/capture/capture_job.dart';
 import 'package:web_reader/providers.dart';
+import 'package:web_reader/queue/task_queue.dart';
 import 'package:web_reader/reading/reading_position.dart';
 import 'package:web_reader/reading/reading_repository.dart';
 import 'package:web_reader/storage/cleanup.dart';
@@ -121,6 +123,19 @@ void main() {
         ),
         cleanupProvider.overrideWithValue(
           CleanupService(db: db, fileStore: store),
+        ),
+        taskQueueProvider.overrideWithValue(
+          TaskQueueController(
+            db: db,
+            browser: browser,
+            captureJob: CaptureJobController(
+              browser: browser,
+              db: db,
+              fileStore: store,
+            ),
+            checker: UpdateChecker(browser: browser, db: db),
+            captureRunner: (_) async => const QueueOutcome.success('x'),
+          ),
         ),
       ],
       child: MaterialApp.router(routerConfig: router),
@@ -251,7 +266,7 @@ void main() {
 
     expect(find.text('Open episode'), findsNothing);
     expect(find.text('Remove offline files'), findsNothing);
-    expect(find.text('Capture again'), findsOneWidget);
+    expect(find.text('Add to capture queue'), findsOneWidget);
     expect(find.text('Not downloaded'), findsOneWidget);
     await drain(tester);
   });
@@ -345,5 +360,106 @@ void main() {
     // The primary action survives it.
     expect(find.textContaining('Read ·'), findsOneWidget);
     await drain(tester);
+  });
+
+  group('batch re-download from selection mode', () {
+    Future<void> seedTwoRemoved(WidgetTester tester) async {
+      await seed(offline: false);
+      // A second removed chapter, plus one with no source page at all.
+      final base = (await db.chapterById('c1'))!;
+      await db.upsertChapter(
+        base.copyWith(
+          id: 'c2',
+          urlKey: 'https://x.example/manga/foo/488',
+          sourceUrl: 'https://x.example/manga/foo/488',
+          chapterNumber: const Value(488),
+          chapterLabel: const Value('488. Bölüm'),
+          sequence: 488,
+        ),
+      );
+      await db.upsertChapter(
+        base.copyWith(
+          id: 'c3',
+          urlKey: 'orphan',
+          sourceUrl: '',
+          chapterNumber: const Value(486),
+          chapterLabel: const Value('486. Bölüm'),
+          sequence: 486,
+        ),
+      );
+    }
+
+    testWidgets('chapters without files can be selected and queued', (
+      tester,
+    ) async {
+      await seedTwoRemoved(tester);
+      await open(tester, width: 430);
+
+      // Enter selection mode through the series menu.
+      await tester.tap(find.byTooltip('Series actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Manage downloads'));
+      await tester.pumpAndSettle();
+
+      // Quick-select everything this device does not hold.
+      await tester.tap(find.byTooltip('Select…'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Not downloaded'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('3 selected'), findsOneWidget);
+      expect(find.textContaining('2 can be queued'), findsOneWidget);
+      expect(find.textContaining('1 have no source page'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('queueSelectionButton')));
+      await tester.pumpAndSettle();
+
+      // The confirmation spells out the split before anything is queued.
+      expect(find.text('Add to capture queue'), findsWidgets);
+      expect(find.text('3 episodes'), findsOneWidget);
+      expect(
+        find.textContaining('cannot be captured automatically'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Queue 2 for re-download'));
+      await tester.pumpAndSettle();
+
+      final rows = await db.watchQueueTasks().first;
+      expect(rows, hasLength(2), reason: 'the orphan is reported, not queued');
+      // Ascending reading order, though the list showed newest first.
+      final ordered = [...rows]
+        ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+      expect(ordered.map((t) => t.startUrl), [
+        'https://x.example/manga/foo/487',
+        'https://x.example/manga/foo/488',
+      ]);
+      expect(ordered.every((t) => t.state == 'queued'), isTrue);
+      await drain(tester);
+    });
+
+    testWidgets('queueing a batch starts nothing', (tester) async {
+      await seedTwoRemoved(tester);
+      await open(tester, width: 430);
+      await tester.tap(find.byTooltip('Series actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Manage downloads'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Select…'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Not downloaded'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('queueSelectionButton')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Queue 2 for re-download'));
+      await tester.pumpAndSettle();
+
+      expect(browser.automationOwner, isNull);
+      final rows = await db.watchQueueTasks().first;
+      expect(rows.every((t) => t.state == 'queued'), isTrue);
+      // And the user is still on the series screen.
+      expect(find.byType(SeriesDetailScreen), findsOneWidget);
+      await drain(tester);
+    });
   });
 }

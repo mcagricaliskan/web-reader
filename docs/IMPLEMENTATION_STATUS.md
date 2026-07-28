@@ -447,6 +447,16 @@ new dependency), and refuses while automation owns the browser.
 the Browser tab builds lazily. Offline chapters still open the reader on tap;
 their source page is on the long-press sheet.
 
+**Header alignment, corrected 2026-07-27.** The row had three different
+geometries in it: 48pt `IconButton`s with 22pt glyphs, a 40pt pill with a 15pt
+glyph, and a bottom-aligned 28pt serif title. Measured, that put the pill's
+centre 4pt below every icon's, and at 320pt "Library" wrapped to **three
+lines** (title box 96×99) and dragged the header down with it. Now one shared
+definition — `HeaderIconButton` / `kHeaderActionSize` (40) / `kHeaderIconSize`
+(22) / `kHeaderIconColor` — with `CrossAxisAlignment.center` and a
+single-line title. All four actions share centre y at both 320 and 430pt;
+locked by `library_ui_test.dart`'s header-alignment group.
+
 **Storage indicator (D41).** The header now shows a disk glyph and the device
 usage percentage, from a new `capacity` platform call (iOS
 `volumeTotalCapacity` + `volumeAvailableCapacityForImportantUsage`, Android
@@ -856,7 +866,7 @@ Fixture paths for manual driving: `/chapter/N` (rel=next), `/tr/N`, `/de/N`,
 
 ### Unit and widget — 314 tests, all passing
 
-`flutter test` → `00:12 +504: All tests passed!`
+`flutter test` → `00:14 +510: All tests passed!`
 
 | File | Tests | Covers |
 |---|---|---|

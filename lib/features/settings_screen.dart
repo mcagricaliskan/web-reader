@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
+import '../core/local_reset.dart';
 import '../providers.dart';
 import '../storage/cleanup.dart';
 import '../ui/status_style.dart';
@@ -83,6 +84,17 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => LeaveBrowserGuard.push(context, '/activity'),
           ),
+          if (developerToolsAvailable) ...[
+            const SectionLabel('DEVELOPER'),
+            ListTile(
+              key: const ValueKey('developerTools'),
+              leading: const Icon(Icons.construction),
+              title: const Text('Developer'),
+              subtitle: const Text('Debug build only · reset local data'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => LeaveBrowserGuard.push(context, '/developer'),
+            ),
+          ],
           const Padding(
             padding: EdgeInsets.fromLTRB(20, 18, 20, 8),
             child: Text(

@@ -13,6 +13,7 @@ import '../providers.dart';
 import '../reading/reading_position.dart';
 import '../storage/database.dart';
 import '../ui/status_style.dart';
+import 'capture_queue_ui.dart';
 import 'chapter_actions.dart';
 import 'cleanup_dialogs.dart';
 import 'library_screen.dart' show formatBytes, formatRelative;
@@ -201,9 +202,11 @@ class _ChapterDetails extends ConsumerWidget {
             if (knowsSource)
               ListTile(
                 leading: const Icon(Icons.refresh),
-                title: Text(offline ? 'Re-fetch' : 'Capture again'),
-                subtitle: const Text(
-                  'Replaces the files · keeps your place and read state',
+                title: Text(offline ? 'Re-fetch' : 'Add to capture queue'),
+                subtitle: Text(
+                  offline
+                      ? 'Queues a replacement · keeps your place and read state'
+                      : 'Waits until you start the queue',
                 ),
                 onTap: () {
                   Navigator.of(context).pop();
@@ -250,7 +253,7 @@ class _ChapterDetails extends ConsumerWidget {
     WidgetRef ref,
     Chapter chapter,
   ) async {
-    await ref
+    final result = await ref
         .read(taskQueueProvider)
         .enqueueCapture(
           startUrl: chapter.sourceUrl,
@@ -260,11 +263,7 @@ class _ChapterDetails extends ConsumerWidget {
           range: CaptureRangeMode.currentChapter,
         );
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Re-fetching this chapter — progress in Activity'),
-      ),
-    );
+    showQueuedConfirmation(context, result);
   }
 
   Future<void> _removeOffline(

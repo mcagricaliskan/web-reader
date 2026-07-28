@@ -14,6 +14,9 @@ import 'package:web_reader/library/series_repository.dart';
 import 'package:web_reader/library/update_checker.dart';
 import 'package:web_reader/reading/reading_position.dart';
 import 'package:web_reader/reading/reading_repository.dart';
+import 'package:web_reader/core/device_capacity_provider.dart';
+import 'package:web_reader/core/device_storage.dart';
+import 'package:web_reader/features/storage_screen.dart';
 import 'package:web_reader/providers.dart';
 import 'package:web_reader/ui/status_style.dart';
 import 'package:web_reader/storage/database.dart';
@@ -133,6 +136,9 @@ void main() {
             fileStore: FileStore(harnessRoot),
           ),
         ),
+        // A known device reading, so the header's storage entry renders a
+        // real number instead of waiting on a platform channel.
+        deviceStorageProvider.overrideWithValue(_FixedDeviceStorage()),
       ],
       child: MaterialApp.router(routerConfig: router),
     );
@@ -200,6 +206,7 @@ void main() {
   });
 
   group('continue reading', _continueReadingTests);
+  group('library header alignment', _headerAlignmentTests);
 
   /// The progress ring for one chapter row, so the read state is asserted on
   /// the real value rather than on which icon happened to be picked.
@@ -298,7 +305,7 @@ void main() {
         reason: 'there is nothing to read, so the reader must not open',
       );
       expect(find.text('Open on website'), findsOneWidget);
-      expect(find.text('Capture again'), findsOneWidget);
+      expect(find.text('Add to capture queue'), findsOneWidget);
     });
   });
 
@@ -527,6 +534,157 @@ void main() {
 /// Drift schedules a zero-duration timer when its query streams are disposed.
 /// Left to the framework's own teardown that lands after the test has ended,
 /// and every test fails with "pending timers" despite passing its assertions.
+/// The Library header is one row: one centre line, one glyph size, and a
+/// title that stays on one line at the narrowest width the app supports.
+///
+/// Written after the header shipped misaligned three ways at once — the
+/// storage entry 4pt below every icon, its glyph at 15pt against their 22pt,
+/// and "Library" wrapping to three lines at 320pt.
+void _headerAlignmentTests() {
+  late AppDatabase db;
+  late Directory harnessRoot;
+
+  setUp(() {
+    db = AppDatabase.forTesting(NativeDatabase.memory());
+    harnessRoot = Directory.systemTemp.createTempSync('webread_header');
+  });
+  tearDown(() async {
+    await db.close();
+    if (harnessRoot.existsSync()) harnessRoot.deleteSync(recursive: true);
+  });
+
+  Widget harness() {
+    final browser = BrowserController();
+    return ProviderScope(
+      overrides: [
+        databaseProvider.overrideWithValue(db),
+        fileStoreProvider.overrideWithValue(FileStore(harnessRoot)),
+        updateCheckerProvider.overrideWithValue(
+          UpdateChecker(browser: browser, db: db),
+        ),
+        captureJobProvider.overrideWithValue(
+          CaptureJobController(
+            browser: browser,
+            db: db,
+            fileStore: FileStore(harnessRoot),
+          ),
+        ),
+        deviceStorageProvider.overrideWithValue(_FixedDeviceStorage()),
+      ],
+      child: MaterialApp.router(
+        routerConfig: GoRouter(
+          routes: [
+            GoRoute(path: '/', builder: (_, _) => const LibraryScreen()),
+            GoRoute(path: '/storage', builder: (_, _) => const SizedBox()),
+            GoRoute(path: '/archived', builder: (_, _) => const SizedBox()),
+            GoRoute(path: '/settings', builder: (_, _) => const SizedBox()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> show(WidgetTester tester, double width) async {
+    tester.view.physicalSize = Size(width, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(harness());
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 30));
+      if (find.text('72%').evaluate().isNotEmpty) break;
+    }
+  }
+
+  Future<void> drain(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 10));
+  }
+
+  for (final width in [320.0, 430.0]) {
+    testWidgets('every header action shares one centre line at $width', (
+      tester,
+    ) async {
+      await show(tester, width);
+
+      final centres = <double>[
+        for (final icon in [Icons.sync, Icons.inventory_2, Icons.settings])
+          tester.getRect(find.byIcon(icon)).center.dy,
+        tester.getRect(find.byType(StoragePill)).center.dy,
+        tester.getRect(find.text('Library')).center.dy,
+      ];
+      for (final c in centres) {
+        expect(
+          c,
+          closeTo(centres.first, 0.51),
+          reason: 'the row must have ONE centre line, not one per widget',
+        );
+      }
+      await drain(tester);
+    });
+
+    testWidgets('the storage glyph matches its neighbours at $width', (
+      tester,
+    ) async {
+      await show(tester, width);
+
+      final storage = tester.getRect(
+        find.descendant(
+          of: find.byType(StoragePill),
+          matching: find.byIcon(Icons.storage),
+        ),
+      );
+      expect(storage.width, kHeaderIconSize);
+      expect(storage.height, kHeaderIconSize);
+      // Same box height as every other action, which is what puts them on
+      // the same centre line in the first place.
+      expect(
+        tester.getRect(find.byType(StoragePill)).height,
+        kHeaderActionSize,
+      );
+      await drain(tester);
+    });
+  }
+
+  testWidgets('the title stays on one line at 320pt', (tester) async {
+    await show(tester, 320);
+
+    final title = tester.getRect(find.text('Library'));
+    expect(
+      title.height,
+      lessThan(40),
+      reason: 'a wrapped title drags the whole header out of shape',
+    );
+    expect(tester.takeException(), isNull, reason: 'nothing overflows');
+    await drain(tester);
+  });
+
+  testWidgets('the actions fit inside the screen at 320pt', (tester) async {
+    await show(tester, 320);
+
+    final settings = tester.getRect(find.byIcon(Icons.settings));
+    expect(settings.right, lessThanOrEqualTo(320.01));
+    // And the title is not squeezed to nothing to achieve it.
+    expect(tester.getRect(find.text('Library')).width, greaterThan(80));
+    await drain(tester);
+  });
+}
+
+/// A device that always reports 72% used, so header layout assertions do not
+/// depend on a platform channel.
+class _FixedDeviceStorage implements DeviceStorage {
+  @override
+  Future<DeviceCapacity> capacity() async => const DeviceCapacity(
+    totalBytes: 100 * 1024 * 1024 * 1024,
+    freeBytes: 28 * 1024 * 1024 * 1024,
+  );
+
+  @override
+  Future<int?> freeBytes() async => 28 * 1024 * 1024 * 1024;
+
+  @override
+  Future<bool> excludeFromBackup(String absolutePath) async => false;
+}
+
 void screenTest(String name, Future<void> Function(WidgetTester) body) {
   testWidgets(name, (tester) async {
     usePhoneSurface(tester);

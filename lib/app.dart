@@ -7,7 +7,9 @@ import 'package:go_router/go_router.dart';
 import 'capture/capture_job.dart';
 import 'features/activity_screen.dart';
 import 'features/archived_screen.dart';
+import 'core/local_reset.dart';
 import 'features/browser_screen.dart';
+import 'features/developer_screen.dart';
 import 'features/library_screen.dart';
 import 'features/reader_screen.dart';
 import 'features/rules_screen.dart';
@@ -18,6 +20,7 @@ import 'features/storage_screen.dart';
 import 'library/update_checker.dart';
 import 'core/device_capacity_provider.dart';
 import 'providers.dart';
+import 'queue/task_queue.dart';
 import 'storage/cleanup.dart';
 import 'ui/theme.dart';
 
@@ -68,6 +71,13 @@ class _WebReaderAppState extends State<WebReaderApp> {
         path: '/storage',
         builder: (context, state) => const StorageScreen(),
       ),
+      // Registered only in debug: in release the route does not exist, so
+      // even a hand-typed deep link cannot reach it (D50).
+      if (developerToolsAvailable)
+        GoRoute(
+          path: '/developer',
+          builder: (context, state) => const DeveloperScreen(),
+        ),
     ],
   );
 
@@ -100,6 +110,7 @@ class _ShellState extends ConsumerState<_Shell> {
 
   late final ValueNotifier<int?> _tabRequest;
   late final CleanupService _cleanup;
+  late final TaskQueueController _queue;
 
   /// Files just went away: the device figure the Library shows is stale by
   /// exactly the amount that was freed.
@@ -118,6 +129,29 @@ class _ShellState extends ConsumerState<_Shell> {
     _tabRequest.addListener(_onTabRequested);
     _cleanup = ref.read(cleanupProvider);
     _cleanup.removals.addListener(_onStorageChanged);
+    // The queue asks the shell to bring the Browser forward before it drives
+    // the WebView. The shell is the only thing that can switch tabs, and the
+    // ordering — navigate, THEN automate — is the whole contract (D47).
+    _queue = ref.read(taskQueueProvider);
+    _queue.ensureBrowserVisible = _ensureBrowserVisible;
+  }
+
+  /// Show the Browser tab and wait for its WebView to attach.
+  ///
+  /// Attachment is not the same as *rendered*: the capture engine still runs
+  /// its own zero-viewport guard (D32). This only guarantees the user is
+  /// looking at the Browser before anything starts, so automation is never a
+  /// surprise happening behind another screen.
+  Future<bool> _ensureBrowserVisible() async {
+    if (!mounted) return false;
+    if (_index != 1) setState(() => _index = 1);
+    final browser = ref.read(browserProvider);
+    for (var i = 0; i < 100; i++) {
+      if (!mounted) return false;
+      if (browser.isAttached) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    return browser.isAttached;
   }
 
   @override
@@ -126,6 +160,7 @@ class _ShellState extends ConsumerState<_Shell> {
     _checker.removeListener(_onAutomationChanged);
     _tabRequest.removeListener(_onTabRequested);
     _cleanup.removals.removeListener(_onStorageChanged);
+    _queue.ensureBrowserVisible = null;
     super.dispose();
   }
 

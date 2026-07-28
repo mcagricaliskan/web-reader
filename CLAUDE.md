@@ -103,6 +103,10 @@ flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only,
 - Update-check chapter-list ordering is **measured from the page**, never
   assumed. Emission is oldest-first; "nothing new" ends a check only when the
   ordering was unambiguous, otherwise the chain walk still runs.
+- **Anything in a screen header uses the shared action geometry**:
+  `HeaderIconButton`, `kHeaderActionSize` (40), `kHeaderIconSize` (22),
+  `kHeaderIconColor`. A widget with its own size or glyph size in that row is
+  how the header ended up with two centre lines and three glyph sizes.
 - **The episode list's progress pie is painted from the real fraction** (D43)
   and is the only read-state indicator. Newest-first by default, with the sort
   persisted in `settings['series.chapterSort']`. Descending is the same

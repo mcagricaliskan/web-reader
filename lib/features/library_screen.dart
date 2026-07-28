@@ -11,6 +11,7 @@ import '../queue/task_queue.dart';
 import '../reading/reading_position.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'capture_queue_ui.dart';
 import 'continue_entry.dart';
 import 'series_detail_screen.dart' show sortChaptersForReading;
 import 'storage_screen.dart' show StoragePill;
@@ -83,28 +84,37 @@ class _LibraryHeader extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 12, 8, 8),
+    padding: const EdgeInsets.fromLTRB(20, 10, 12, 6),
     child: Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      // Centred, not bottom-aligned: the actions are all one height now, and
+      // a serif title's box is taller than its glyphs, so aligning bottoms
+      // pushed the word visibly below the row it belongs to.
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Expanded(child: Text('Library', style: serifStyle())),
-        IconButton(
+        Expanded(
+          child: Text(
+            'Library',
+            style: serifStyle(),
+            // At 320pt this word wrapped to three lines and dragged the whole
+            // header down with it.
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        HeaderIconButton(
+          icon: Icons.sync,
           tooltip: 'Check all series',
-          icon: const Icon(Icons.sync, size: 22),
-          color: const Color(0xFF5F5B54),
           onPressed: () => _checkAll(context, ref),
         ),
         const StoragePill(),
-        IconButton(
+        HeaderIconButton(
+          icon: Icons.inventory_2,
           tooltip: 'Archived',
-          icon: const Icon(Icons.inventory_2, size: 22),
-          color: const Color(0xFF5F5B54),
           onPressed: () => LeaveBrowserGuard.push(context, '/archived'),
         ),
-        IconButton(
+        HeaderIconButton(
+          icon: Icons.settings,
           tooltip: 'Settings',
-          icon: const Icon(Icons.settings, size: 22),
-          color: const Color(0xFF5F5B54),
           onPressed: () => LeaveBrowserGuard.push(context, '/settings'),
         ),
       ],
@@ -129,6 +139,83 @@ class _LibraryHeader extends ConsumerWidget {
 
 /// A live band above the library when the queue has anything to say. It is a
 /// summary, not a control surface — the controls live on the activity screen.
+/// "Capture queue · 6 waiting" — quiet, and honest that nothing is running.
+///
+/// Deliberately not the busy blue of an active run: this is a plan, not
+/// progress, and dressing it up as progress is how a user ends up believing
+/// downloads are happening when they are not.
+class _CaptureQueueStrip extends ConsumerWidget {
+  const _CaptureQueueStrip({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+    child: Material(
+      color: const Color(0xFFF3F1ED),
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: const ValueKey('captureQueueStrip'),
+        onTap: () => LeaveBrowserGuard.push(context, '/activity'),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(13, 10, 10, 10),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.playlist_add_check,
+                size: 20,
+                color: Color(0xFF5F5B54),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Capture queue · $count waiting',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontVariations: wght(500),
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF3E3A34),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Open Browser to start',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF7A756C),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                key: const ValueKey('startCaptureButton'),
+                onPressed: () => confirmAndStartCaptures(context, ref),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('Start'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _ActivityStrip extends ConsumerWidget {
   const _ActivityStrip();
 
@@ -157,6 +244,13 @@ class _ActivityStrip extends ConsumerWidget {
             controller.progress.state == CaptureState.waitingForBrowser;
         if (running.isEmpty && queued == 0 && failed == 0 && !waiting) {
           return const SizedBox.shrink();
+        }
+        // Queued captures that have not been started are their own state:
+        // nothing is happening, and the only thing that matters is the
+        // button that would make it happen (D46).
+        final summary = QueueSummary.of(tasks);
+        if (running.isEmpty && !waiting && summary.hasQueuedCaptures) {
+          return _CaptureQueueStrip(count: summary.queuedCaptures);
         }
         return _stripBody(context, controller.progress, active, queued, failed);
       },

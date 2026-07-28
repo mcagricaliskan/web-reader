@@ -594,9 +594,9 @@ class _CleanupRow extends StatelessWidget {
 class StoragePill extends ConsumerWidget {
   const StoragePill({super.key});
 
-  /// Enough for "100%" at 11pt mono, and never more. Sized so nothing beside
-  /// it can move — the number changing must not nudge the buttons next to it.
-  static const double width = 52;
+  /// Enough for the glyph plus "100%", and never more. Fixed so the number
+  /// changing cannot nudge the buttons beside it.
+  static const double width = 58;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -612,7 +612,9 @@ class StoragePill extends ConsumerWidget {
         ? const Color(0xFF8E3B31)
         : low
         ? const Color(0xFF8A5A1F)
-        : const Color(0xFF7A756C);
+        // Healthy: the same ink as the other header glyphs, so it is quiet
+        // by belonging rather than by being faint.
+        : kHeaderIconColor;
 
     // Unknown capacity shows the glyph alone. Inventing a percentage from a
     // half-known device is the one thing this must not do.
@@ -630,7 +632,9 @@ class StoragePill extends ConsumerWidget {
         message: label,
         child: SizedBox(
           width: width,
-          height: 40,
+          // Same height as every other action in the header, so the row has
+          // one centre line rather than two.
+          height: kHeaderActionSize,
           child: Material(
             color: Colors.transparent,
             child: InkWell(
@@ -643,7 +647,9 @@ class StoragePill extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.storage, size: 15, color: fg),
+                  // The same glyph size as its neighbours: at 15pt against
+                  // their 22pt it read as a different family of thing.
+                  Icon(Icons.storage, size: kHeaderIconSize, color: fg),
                   if (percent != null) ...[
                     const SizedBox(width: 3),
                     Flexible(
@@ -653,7 +659,7 @@ class StoragePill extends ConsumerWidget {
                           '$percent%',
                           maxLines: 1,
                           style: monoStyle(
-                            size: 11,
+                            size: 12,
                             color: fg,
                             weight: critical || low
                                 ? FontWeight.w600
