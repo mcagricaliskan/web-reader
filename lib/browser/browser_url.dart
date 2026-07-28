@@ -21,7 +21,12 @@ enum UrlIntentKind {
 }
 
 class UrlIntent {
-  const UrlIntent._(this.kind, this.url, {this.query = '', this.addedScheme = false});
+  const UrlIntent._(
+    this.kind,
+    this.url, {
+    this.query = '',
+    this.addedScheme = false,
+  });
 
   const UrlIntent.empty() : this._(UrlIntentKind.empty, '');
 
@@ -92,7 +97,8 @@ UrlIntent interpretUrlInput(String raw, {bool? allowLocalhost}) {
   final hostOnly = hostPart.split(':').first.toLowerCase();
 
   final looksLikeHost =
-      _hasLabelledDot(hostOnly) || (localhostOk && _bareHosts.contains(hostOnly));
+      _hasLabelledDot(hostOnly) ||
+      (localhostOk && _bareHosts.contains(hostOnly));
   if (!looksLikeHost) {
     return UrlIntent._(UrlIntentKind.search, searchUrlFor(text), query: text);
   }

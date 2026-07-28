@@ -303,8 +303,7 @@ class BrowsingHistory extends Table {
   /// Where the visit came from. Persisted even though the UI only ever shows
   /// `manual`: a row that says how it got here is debuggable, and a filter is
   /// cheaper to widen than a lost column is to reconstruct.
-  TextColumn get source =>
-      text().withDefault(const Constant('manual'))();
+  TextColumn get source => text().withDefault(const Constant('manual'))();
 
   /// The address the load actually settled on, when a redirect moved it.
   /// Null when nothing redirected.
@@ -881,7 +880,10 @@ class AppDatabase extends _$AppDatabase {
 
   /// How many manual visits fall in `[since, now]`. Drives the counts the
   /// clear-history sheet shows *before* anything is deleted.
-  Future<int> countVisitsSince(DateTime? since, {String source = 'manual'}) async {
+  Future<int> countVisitsSince(
+    DateTime? since, {
+    String source = 'manual',
+  }) async {
     final count = browsingHistory.id.count();
     final query = selectOnly(browsingHistory)..addColumns([count]);
     query.where(
@@ -898,9 +900,9 @@ class AppDatabase extends _$AppDatabase {
       (delete(browsingHistory)..where((t) => t.id.equals(id))).go();
 
   Future<int> deleteVisitsForHost(String host, {String source = 'manual'}) =>
-      (delete(browsingHistory)
-            ..where((t) => t.host.equals(host) & t.source.equals(source)))
-          .go();
+      (delete(
+        browsingHistory,
+      )..where((t) => t.host.equals(host) & t.source.equals(source))).go();
 
   /// Clear a time range. `since == null` means all time. Scoped to [source]
   /// so clearing the user's browsing never touches an automation audit row.
@@ -921,10 +923,13 @@ class AppDatabase extends _$AppDatabase {
     required int keep,
     String source = 'manual',
   }) async {
-    var removed = await (delete(browsingHistory)..where(
-          (t) => t.source.equals(source) & t.visitedAt.isSmallerThanValue(before),
-        ))
-        .go();
+    var removed =
+        await (delete(browsingHistory)..where(
+              (t) =>
+                  t.source.equals(source) &
+                  t.visitedAt.isSmallerThanValue(before),
+            ))
+            .go();
     final surviving =
         await (select(browsingHistory)
               ..where((t) => t.source.equals(source))

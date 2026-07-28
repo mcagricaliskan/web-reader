@@ -376,7 +376,10 @@ Future: scheduled/background checking, batched "check all active", change detect
 
 | Screen | Purpose | Must show |
 |---|---|---|
-| **Browser** | Normal browsing, login, finding the start chapter | URL bar, back/forward/reload, *Capture chapters* action, *Add to library* |
+| **Browser** | Normal browsing, login, finding the start chapter | Toolbar: Back · Forward · address (host + shortened path, tap to expand) · Refresh/Stop · **Home**. *Capture* and a page-actions menu over the page. No permanent Go — it belongs to the expanded editor |
+| **Browser Home** | Start somewhere, or get back to where you were | Search-or-address field · saved sites (reorderable, removable) · recently visited (bounded) · a way back to the still-open page · Full history. A **layer over** the live page, never a reload |
+| **Expanded URL editor** | Read and edit a long chapter address | The whole URL on one scrolling line · Select all / Copy / Paste and go / Clear / Open host / Save site · local suggestions from saved sites and history only · Go, which also fires from the keyboard |
+| **History** | Find a page again, or forget it | Date-grouped pages and hostname-grouped sites · search · per-row open / save / copy / remove visit / remove site · clear by range with the count shown first. **Only pages the user visited** — capture and update checks never appear |
 | **Capture session** | Observe and control one autonomous run | Current chapter/URL · captured count vs. limit · current state · asset progress when known · retry count · last error · Pause / Resume / Retry / Skip / Stop |
 | **Library / Home** | Get back to reading | Continue Reading, New Chapters, Pinned, Recently Read; entry to Active / Dormant / Archive |
 | **Series detail** | Everything about one library item | Title + source · lifecycle · pin/favorite toggles · last read, last completed, latest known · unread count · last check time · *Check for updates* · *Continue reading* · *Capture more* · local chapter list · failed/incomplete captures called out · Archive/Restore · *Delete item* (separated, destructive) |

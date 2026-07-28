@@ -118,8 +118,10 @@ void main() {
     test('is the automation source while something owns it', () {
       browser.automationOwner = 'a capture job';
       browser.navigationSource = NavigationSource.captureAutomation;
-      expect(browser.effectiveNavigationSource,
-          NavigationSource.captureAutomation);
+      expect(
+        browser.effectiveNavigationSource,
+        NavigationSource.captureAutomation,
+      );
     });
 
     test('a forgotten assignment degrades to internal, never to manual', () {

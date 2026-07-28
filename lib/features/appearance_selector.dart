@@ -28,8 +28,7 @@ class AppearanceSelector extends ConsumerWidget {
             key: const ValueKey('appearanceSelector'),
             labels: const ['System', 'Light', 'Dark'],
             selected: AppearanceMode.values.indexOf(mode),
-            onSelect: (i) =>
-                setAppearance(ref, AppearanceMode.values[i]),
+            onSelect: (i) => setAppearance(ref, AppearanceMode.values[i]),
           ),
           const SizedBox(height: 9),
           Text(

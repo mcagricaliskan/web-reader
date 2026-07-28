@@ -160,7 +160,12 @@ class BrowserListRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: EdgeInsets.fromLTRB(16, dense ? 9 : 11, onMenu == null ? 16 : 4, dense ? 9 : 11),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            dense ? 9 : 11,
+            onMenu == null ? 16 : 4,
+            dense ? 9 : 11,
+          ),
           child: Row(
             children: [
               FaviconTile(host: host, size: iconSize),
@@ -240,7 +245,10 @@ class BrowserSectionHeader extends StatelessWidget {
             TextButton(
               onPressed: onAction,
               style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 minimumSize: const Size(0, 32),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
@@ -315,7 +323,10 @@ class BrowserEmptyBlock extends StatelessWidget {
             FilledButton(
               onPressed: onCta,
               style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 15,
+                  vertical: 9,
+                ),
                 textStyle: const TextStyle(fontSize: 12.5),
               ),
               child: Text(ctaLabel!),
@@ -462,8 +473,7 @@ class BrowserSearchField extends StatelessWidget {
               ),
             ),
           ),
-          if (onClear != null &&
-              (controller?.text.isNotEmpty ?? false))
+          if (onClear != null && (controller?.text.isNotEmpty ?? false))
             IconButton(
               onPressed: onClear,
               iconSize: 17,
@@ -552,11 +562,7 @@ String formatVisitTime(DateTime at, {DateTime? now}) {
   if (delta.inMinutes < 1) return 'just now';
   if (delta.inMinutes < 60) return '${delta.inMinutes} min ago';
 
-  final startOfToday = DateTime(
-    reference.year,
-    reference.month,
-    reference.day,
-  );
+  final startOfToday = DateTime(reference.year, reference.month, reference.day);
   final time =
       '${at.hour.toString().padLeft(2, '0')}:'
       '${at.minute.toString().padLeft(2, '0')}';

@@ -382,7 +382,10 @@ class BrowserController extends ChangeNotifier {
   /// anything that matters — a page with no `<link rel="icon">` is normal.
   Future<String?> _readPageIcon() async {
     try {
-      final raw = await _call(kCallPageIcon, timeout: const Duration(seconds: 5));
+      final raw = await _call(
+        kCallPageIcon,
+        timeout: const Duration(seconds: 5),
+      );
       final href = raw?.toString().trim();
       return href == null || href.isEmpty ? null : href;
     } catch (_) {
@@ -777,8 +780,7 @@ class BrowserVisit {
   /// The page's declared icon, when it had one.
   final String? iconUrl;
 
-  bool get wasRedirected =>
-      requestedUrl.isNotEmpty && requestedUrl != url;
+  bool get wasRedirected => requestedUrl.isNotEmpty && requestedUrl != url;
 }
 
 /// What the user tapped in selection mode.

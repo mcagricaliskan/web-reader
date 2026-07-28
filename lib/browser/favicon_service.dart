@@ -16,7 +16,8 @@ import '../storage/database.dart';
 /// would otherwise be re-requested on every rebuild of every list.
 class FaviconService extends ChangeNotifier {
   FaviconService({required this.db, Dio? client, this.allowNetwork = true})
-    : _client = client ?? Dio(BaseOptions(followRedirects: true, maxRedirects: 3));
+    : _client =
+          client ?? Dio(BaseOptions(followRedirects: true, maxRedirects: 3));
 
   final AppDatabase db;
   final Dio _client;
@@ -67,8 +68,11 @@ class FaviconService extends ChangeNotifier {
     if (_memory.containsKey(key) && pageIcon == null) return;
     _inFlight.add(key);
     unawaited(
-      _fetch(key, pageIcon: pageIcon, scheme: scheme ?? 'https')
-          .whenComplete(() => _inFlight.remove(key)),
+      _fetch(
+        key,
+        pageIcon: pageIcon,
+        scheme: scheme ?? 'https',
+      ).whenComplete(() => _inFlight.remove(key)),
     );
   }
 
@@ -98,8 +102,8 @@ class FaviconService extends ChangeNotifier {
       _memory[host] = existing.bytes;
       // A previous miss is honoured for a while; a previous hit stands until
       // the page hands us something better.
-      final stale = DateTime.now().difference(existing.fetchedAt) >
-          retryAfterFailure;
+      final stale =
+          DateTime.now().difference(existing.fetchedAt) > retryAfterFailure;
       if (existing.bytes != null || (!stale && pageIcon == null)) {
         _safeNotify();
         return;
@@ -170,7 +174,9 @@ class FaviconService extends ChangeNotifier {
   static bool _looksLikeImage(Uint8List bytes) {
     if (bytes.length < 4) return false;
     // ICO / CUR
-    if (bytes[0] == 0x00 && bytes[1] == 0x00 && (bytes[2] == 0x01 || bytes[2] == 0x02)) {
+    if (bytes[0] == 0x00 &&
+        bytes[1] == 0x00 &&
+        (bytes[2] == 0x01 || bytes[2] == 0x02)) {
       return true;
     }
     // PNG

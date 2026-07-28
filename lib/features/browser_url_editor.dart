@@ -168,10 +168,9 @@ List<(String, List<UrlSuggestion>)> buildSuggestions({
     ));
   }
 
-  final hosts = HistoryRepository.groupByHost(visits)
-      .where((h) => matchScore(h.host, trimmed) > 0)
-      .take(3)
-      .toList();
+  final hosts = HistoryRepository.groupByHost(
+    visits,
+  ).where((h) => matchScore(h.host, trimmed) > 0).take(3).toList();
   if (hosts.isNotEmpty) {
     groups.add((
       'Visited sites',
@@ -561,9 +560,7 @@ class _ActionRow extends ConsumerWidget {
     final palette = AppPalette.of(context);
     final effective = text.trim().isEmpty ? currentPageUrl : text.trim();
     final saved = ref.watch(savedSitesProvider).value ?? const [];
-    final isSaved = saved.any(
-      (s) => s.urlKey == _normalizedOrEmpty(effective),
-    );
+    final isSaved = saved.any((s) => s.urlKey == _normalizedOrEmpty(effective));
     final hasHost = siteRootFor(effective) != null;
 
     return SizedBox(

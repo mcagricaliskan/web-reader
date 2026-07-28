@@ -136,10 +136,22 @@ void main() {
 
     setUp(() async {
       now = DateTime(2026, 7, 28, 15);
-      await visit('https://a.example/1', at: now.subtract(const Duration(minutes: 20)));
-      await visit('https://a.example/2', at: now.subtract(const Duration(hours: 5)));
-      await visit('https://b.example/3', at: now.subtract(const Duration(days: 3)));
-      await visit('https://c.example/4', at: now.subtract(const Duration(days: 30)));
+      await visit(
+        'https://a.example/1',
+        at: now.subtract(const Duration(minutes: 20)),
+      );
+      await visit(
+        'https://a.example/2',
+        at: now.subtract(const Duration(hours: 5)),
+      );
+      await visit(
+        'https://b.example/3',
+        at: now.subtract(const Duration(days: 3)),
+      );
+      await visit(
+        'https://c.example/4',
+        at: now.subtract(const Duration(days: 30)),
+      );
     });
 
     test('counts are read before anything is deleted', () async {
@@ -218,9 +230,18 @@ void main() {
   group('grouping', () {
     test('by day, in display order, with empty groups dropped', () async {
       final now = DateTime(2026, 7, 28, 15);
-      await visit('https://a.example/1', at: now.subtract(const Duration(hours: 2)));
-      await visit('https://a.example/2', at: now.subtract(const Duration(days: 1)));
-      await visit('https://a.example/3', at: now.subtract(const Duration(days: 9)));
+      await visit(
+        'https://a.example/1',
+        at: now.subtract(const Duration(hours: 2)),
+      );
+      await visit(
+        'https://a.example/2',
+        at: now.subtract(const Duration(days: 1)),
+      );
+      await visit(
+        'https://a.example/3',
+        at: now.subtract(const Duration(days: 9)),
+      );
 
       final groups = groupVisitsByDay(await db.visits(), now: now);
       expect(groups.map((g) => g.$1), [
@@ -242,7 +263,10 @@ void main() {
         title: 'Newest',
         at: now.subtract(const Duration(minutes: 5)),
       );
-      await visit('https://b.example/1', at: now.subtract(const Duration(days: 1)));
+      await visit(
+        'https://b.example/1',
+        at: now.subtract(const Duration(days: 1)),
+      );
 
       final hosts = HistoryRepository.groupByHost(await db.visits());
       expect(hosts.first.host, 'a.example', reason: 'most recently active');
@@ -281,8 +305,14 @@ void main() {
   group('retention', () {
     test('drops rows older than the age bound', () async {
       final now = DateTime(2026, 7, 28);
-      await visit('https://a.example/old', at: now.subtract(const Duration(days: 200)));
-      await visit('https://a.example/new', at: now.subtract(const Duration(days: 2)));
+      await visit(
+        'https://a.example/old',
+        at: now.subtract(const Duration(days: 200)),
+      );
+      await visit(
+        'https://a.example/new',
+        at: now.subtract(const Duration(days: 2)),
+      );
 
       expect(await history.prune(now: now), 1);
       final rows = await db.visits();

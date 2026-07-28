@@ -140,8 +140,9 @@ class _BrowserHistoryScreenState extends ConsumerState<BrowserHistoryScreen> {
                         visits: visits,
                         expandedHost: _expandedHost,
                         onToggleHost: (host) => setState(
-                          () => _expandedHost =
-                              _expandedHost == host ? null : host,
+                          () => _expandedHost = _expandedHost == host
+                              ? null
+                              : host,
                         ),
                         onRemoveHost: _removeHost,
                       );
@@ -167,7 +168,7 @@ class _BrowserHistoryScreenState extends ConsumerState<BrowserHistoryScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+            children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
                 child: Column(
@@ -389,9 +390,7 @@ class _SitesTab extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
                 decoration: BoxDecoration(
                   color: expanded ? palette.surfaceMuted : null,
-                  border: Border(
-                    bottom: BorderSide(color: palette.hairline),
-                  ),
+                  border: Border(bottom: BorderSide(color: palette.hairline)),
                 ),
                 child: Row(
                   children: [
@@ -418,10 +417,7 @@ class _SitesTab extends StatelessWidget {
                             '${host.visitCount} '
                             '${host.visitCount == 1 ? 'visit' : 'visits'} · '
                             'last ${formatVisitTime(host.lastVisitedAt)}',
-                            style: monoStyle(
-                              size: 11,
-                              color: palette.inkMuted,
-                            ),
+                            style: monoStyle(size: 11, color: palette.inkMuted),
                           ),
                         ],
                       ),

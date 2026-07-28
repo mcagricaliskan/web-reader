@@ -105,24 +105,29 @@ void main() {
       expect(find.byKey(const ValueKey('browserHomeButton')), findsOneWidget);
     });
 
-    browserWidgetTest('Forward is disabled until there is somewhere to go forward',
-        (tester) async {
-      await tester.pumpWidget(toolbar());
-      await tester.tap(find.byIcon(Icons.arrow_forward_ios));
-      await tester.pump();
-      expect(taps, isEmpty, reason: 'disabled, so the tap does nothing');
-    });
+    browserWidgetTest(
+      'Forward is disabled until there is somewhere to go forward',
+      (tester) async {
+        await tester.pumpWidget(toolbar());
+        await tester.tap(find.byIcon(Icons.arrow_forward_ios));
+        await tester.pump();
+        expect(taps, isEmpty, reason: 'disabled, so the tap does nothing');
+      },
+    );
 
-    browserWidgetTest('Back is always live — with no page history it means leave',
-        (tester) async {
-      await tester.pumpWidget(toolbar());
-      await tester.tap(find.byIcon(Icons.arrow_back_ios_new));
-      await tester.pump();
-      expect(taps, ['back']);
-    });
+    browserWidgetTest(
+      'Back is always live — with no page history it means leave',
+      (tester) async {
+        await tester.pumpWidget(toolbar());
+        await tester.tap(find.byIcon(Icons.arrow_back_ios_new));
+        await tester.pump();
+        expect(taps, ['back']);
+      },
+    );
 
-    browserWidgetTest('Refresh becomes Stop during a load, and back again',
-        (tester) async {
+    browserWidgetTest('Refresh becomes Stop during a load, and back again', (
+      tester,
+    ) async {
       await tester.pumpWidget(toolbar());
       expect(find.byIcon(Icons.refresh), findsOneWidget);
       expect(find.byIcon(Icons.close), findsNothing);
@@ -137,8 +142,9 @@ void main() {
       expect(find.byIcon(Icons.refresh), findsOneWidget);
     });
 
-    browserWidgetTest('the address field shows host plus a shortened path',
-        (tester) async {
+    browserWidgetTest('the address field shows host plus a shortened path', (
+      tester,
+    ) async {
       browser.onUrlChanged(
         'https://uzaymanga.com/manga/efsanevi-buyu-imparatoru/885-bolum-oku',
       );
@@ -158,22 +164,24 @@ void main() {
       expect(shown.length, lessThan(45));
     });
 
-    browserWidgetTest('tapping the address field opens the editor, not an inline one',
-        (tester) async {
-      browser.onUrlChanged('https://a.example/x');
-      await tester.pumpWidget(toolbar());
-      await tester.tap(find.byKey(const ValueKey('browserAddressField')));
-      await tester.pump();
-      expect(taps, ['address']);
-      // The compact field is not an editor.
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('browserAddressField')),
-          matching: find.byType(TextField),
-        ),
-        findsNothing,
-      );
-    });
+    browserWidgetTest(
+      'tapping the address field opens the editor, not an inline one',
+      (tester) async {
+        browser.onUrlChanged('https://a.example/x');
+        await tester.pumpWidget(toolbar());
+        await tester.tap(find.byKey(const ValueKey('browserAddressField')));
+        await tester.pump();
+        expect(taps, ['address']);
+        // The compact field is not an editor.
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('browserAddressField')),
+            matching: find.byType(TextField),
+          ),
+          findsNothing,
+        );
+      },
+    );
 
     browserWidgetTest('fits at 320pt with no overflow', (tester) async {
       browser.onUrlChanged('https://uzaymanga.com/manga/x/885-bolum-oku');
@@ -199,7 +207,9 @@ void main() {
       }
     });
 
-    browserWidgetTest('survives large text without overflowing', (tester) async {
+    browserWidgetTest('survives large text without overflowing', (
+      tester,
+    ) async {
       browser.onUrlChanged('https://uzaymanga.com/manga/x/885-bolum-oku');
       await tester.pumpWidget(
         ProviderScope(
@@ -247,23 +257,25 @@ void main() {
       ),
     );
 
-    browserWidgetTest('renders saved sites and recently visited from real data',
-        (tester) async {
-      await SavedSitesRepository(db).seedDefaultIfNeeded();
-      await HistoryRepository(db).recordVisit(
-        url: 'https://uzaymanga.com/manga/x/885',
-        title: 'Bölüm 885',
-        source: NavigationSource.manual,
-      );
+    browserWidgetTest(
+      'renders saved sites and recently visited from real data',
+      (tester) async {
+        await SavedSitesRepository(db).seedDefaultIfNeeded();
+        await HistoryRepository(db).recordVisit(
+          url: 'https://uzaymanga.com/manga/x/885',
+          title: 'Bölüm 885',
+          source: NavigationSource.manual,
+        );
 
-      await tester.pumpWidget(home());
-      await tester.pump();
+        await tester.pumpWidget(home());
+        await tester.pump();
 
-      expect(find.text('Saved sites'.toUpperCase()), findsOneWidget);
-      expect(find.text('Google'), findsOneWidget);
-      expect(find.text('Recently visited'.toUpperCase()), findsOneWidget);
-      expect(find.text('Bölüm 885'), findsOneWidget);
-    });
+        expect(find.text('Saved sites'.toUpperCase()), findsOneWidget);
+        expect(find.text('Google'), findsOneWidget);
+        expect(find.text('Recently visited'.toUpperCase()), findsOneWidget);
+        expect(find.text('Bölüm 885'), findsOneWidget);
+      },
+    );
 
     browserWidgetTest('the search field opens the URL editor', (tester) async {
       await tester.pumpWidget(home());
@@ -273,8 +285,9 @@ void main() {
       expect(opened, ['editor']);
     });
 
-    browserWidgetTest('the preserved-page row returns to it, and says so',
-        (tester) async {
+    browserWidgetTest('the preserved-page row returns to it, and says so', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         home(
           preserved: const PreservedPage(
@@ -291,13 +304,18 @@ void main() {
       expect(opened, ['close']);
     });
 
-    browserWidgetTest('with no preserved page there is no way-back affordance',
-        (tester) async {
-      await tester.pumpWidget(home());
-      await tester.pump();
-      expect(find.byKey(const ValueKey('browserHomeBackToPage')), findsNothing);
-      expect(find.text('still open · scroll position kept'), findsNothing);
-    });
+    browserWidgetTest(
+      'with no preserved page there is no way-back affordance',
+      (tester) async {
+        await tester.pumpWidget(home());
+        await tester.pump();
+        expect(
+          find.byKey(const ValueKey('browserHomeBackToPage')),
+          findsNothing,
+        );
+        expect(find.text('still open · scroll position kept'), findsNothing);
+      },
+    );
 
     browserWidgetTest('empty state: no saved sites', (tester) async {
       await tester.pumpWidget(home());
@@ -317,8 +335,9 @@ void main() {
       );
     });
 
-    browserWidgetTest('only the default saved site still renders a grid',
-        (tester) async {
+    browserWidgetTest('only the default saved site still renders a grid', (
+      tester,
+    ) async {
       await SavedSitesRepository(db).seedDefaultIfNeeded();
       await tester.pumpWidget(home());
       await tester.pump();
@@ -326,7 +345,9 @@ void main() {
       expect(find.byKey(const ValueKey('addSavedSiteTile')), findsOneWidget);
     });
 
-    browserWidgetTest('recently visited is bounded to four rows', (tester) async {
+    browserWidgetTest('recently visited is bounded to four rows', (
+      tester,
+    ) async {
       final history = HistoryRepository(db);
       for (var i = 0; i < 12; i++) {
         await history.recordVisit(
@@ -383,7 +404,10 @@ void main() {
       final field = tester.widget<TextField>(
         find.byKey(const ValueKey('urlEditorField')),
       );
-      expect(field.controller!.text, 'https://uzaymanga.com/manga/x/885?lang=tr');
+      expect(
+        field.controller!.text,
+        'https://uzaymanga.com/manga/x/885?lang=tr',
+      );
       expect(field.controller!.selection.baseOffset, 0);
       expect(
         field.controller!.selection.extentOffset,
@@ -410,37 +434,41 @@ void main() {
       expect(field.controller!.text, isEmpty);
     });
 
-    browserWidgetTest('Go submits the raw text; the keyboard action does the same',
-        (tester) async {
-      final submitted = <String>[];
-      await tester.pumpWidget(
-        host(
-          BrowserUrlEditor(
-            initialText: '',
-            selectAll: false,
-            onSubmit: submitted.add,
-            onCancel: () {},
-            onSaveSite: (_, _) {},
+    browserWidgetTest(
+      'Go submits the raw text; the keyboard action does the same',
+      (tester) async {
+        final submitted = <String>[];
+        await tester.pumpWidget(
+          host(
+            BrowserUrlEditor(
+              initialText: '',
+              selectAll: false,
+              onSubmit: submitted.add,
+              onCancel: () {},
+              onSaveSite: (_, _) {},
+            ),
           ),
-        ),
-      );
-      await tester.pump();
+        );
+        await tester.pump();
 
-      await tester.enterText(
-        find.byKey(const ValueKey('urlEditorField')),
-        'uzaymanga.com/manga/x',
-      );
-      await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('urlEditorGo')));
-      await tester.pump();
-      expect(submitted, ['uzaymanga.com/manga/x']);
+        await tester.enterText(
+          find.byKey(const ValueKey('urlEditorField')),
+          'uzaymanga.com/manga/x',
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('urlEditorGo')));
+        await tester.pump();
+        expect(submitted, ['uzaymanga.com/manga/x']);
 
-      await tester.testTextInput.receiveAction(TextInputAction.go);
-      await tester.pump();
-      expect(submitted, hasLength(2));
-    });
+        await tester.testTextInput.receiveAction(TextInputAction.go);
+        await tester.pump();
+        expect(submitted, hasLength(2));
+      },
+    );
 
-    browserWidgetTest('Go reads "Search Google" for non-URL text', (tester) async {
+    browserWidgetTest('Go reads "Search Google" for non-URL text', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         host(
           BrowserUrlEditor(
@@ -490,47 +518,52 @@ void main() {
       expect(field.controller!.text, isEmpty);
     });
 
-    browserWidgetTest('suggestions are debounced, not recomputed per keystroke',
-        (tester) async {
-      await HistoryRepository(db).recordVisit(
-        url: 'https://uzaymanga.com/manga/x',
-        title: 'Uzay chapter',
-        source: NavigationSource.manual,
-      );
-      await tester.pumpWidget(
-        host(
-          BrowserUrlEditor(
-            initialText: '',
-            selectAll: false,
-            onSubmit: (_) {},
-            onCancel: () {},
-            onSaveSite: (_, _) {},
+    browserWidgetTest(
+      'suggestions are debounced, not recomputed per keystroke',
+      (tester) async {
+        await HistoryRepository(db).recordVisit(
+          url: 'https://uzaymanga.com/manga/x',
+          title: 'Uzay chapter',
+          source: NavigationSource.manual,
+        );
+        await tester.pumpWidget(
+          host(
+            BrowserUrlEditor(
+              initialText: '',
+              selectAll: false,
+              onSubmit: (_) {},
+              onCancel: () {},
+              onSaveSite: (_, _) {},
+            ),
           ),
-        ),
-      );
-      await tester.pump();
+        );
+        await tester.pump();
 
-      // An empty query matches everything, so the row is there to begin with.
-      expect(find.text('Uzay chapter'), findsOneWidget);
+        // An empty query matches everything, so the row is there to begin with.
+        expect(find.text('Uzay chapter'), findsOneWidget);
 
-      // Type something that matches nothing, in two quick keystrokes.
-      await tester.enterText(find.byKey(const ValueKey('urlEditorField')), 'z');
-      await tester.pump(const Duration(milliseconds: 40));
-      await tester.enterText(
-        find.byKey(const ValueKey('urlEditorField')),
-        'zzzz',
-      );
-      await tester.pump(const Duration(milliseconds: 40));
-      // Still inside the debounce window: the list is deliberately stale.
-      // This is the assertion that the query is not recomputed per keystroke.
-      expect(find.text('Uzay chapter'), findsOneWidget);
+        // Type something that matches nothing, in two quick keystrokes.
+        await tester.enterText(
+          find.byKey(const ValueKey('urlEditorField')),
+          'z',
+        );
+        await tester.pump(const Duration(milliseconds: 40));
+        await tester.enterText(
+          find.byKey(const ValueKey('urlEditorField')),
+          'zzzz',
+        );
+        await tester.pump(const Duration(milliseconds: 40));
+        // Still inside the debounce window: the list is deliberately stale.
+        // This is the assertion that the query is not recomputed per keystroke.
+        expect(find.text('Uzay chapter'), findsOneWidget);
 
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('Uzay chapter'), findsNothing);
-      // Searching for it is still offered — that is always a real option.
-      expect(find.textContaining('Search Google for'), findsOneWidget);
-      expect(find.text('HISTORY'), findsNothing);
-    });
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text('Uzay chapter'), findsNothing);
+        // Searching for it is still offered — that is always a real option.
+        expect(find.textContaining('Search Google for'), findsOneWidget);
+        expect(find.text('HISTORY'), findsNothing);
+      },
+    );
   });
 
   group('suggestion ranking', () {
@@ -575,7 +608,10 @@ void main() {
         visits: visitFixture(),
       );
       final labels = groups.map((g) => g.$1).toList();
-      expect(labels.indexOf('Saved sites'), lessThan(labels.indexOf('History')));
+      expect(
+        labels.indexOf('Saved sites'),
+        lessThan(labels.indexOf('History')),
+      );
     });
 
     test('typed text is always offered first', () {
@@ -622,8 +658,9 @@ void main() {
   });
 
   group('favicons', () {
-    browserWidgetTest('the fallback is the hostname initial, at a fixed size',
-        (tester) async {
+    browserWidgetTest('the fallback is the hostname initial, at a fixed size', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         host(const Center(child: FaviconTile(host: 'uzaymanga.com', size: 30))),
       );
@@ -634,8 +671,9 @@ void main() {
       expect(box, const Size(30, 30));
     });
 
-    browserWidgetTest('the box does not change size when there is no icon',
-        (tester) async {
+    browserWidgetTest('the box does not change size when there is no icon', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         host(const Center(child: FaviconTile(host: 'nothing.example'))),
       );
@@ -644,7 +682,9 @@ void main() {
       expect(tester.getSize(find.byType(FaviconTile)), before);
     });
 
-    browserWidgetTest('a site keeps the same tile colour everywhere', (tester) async {
+    browserWidgetTest('a site keeps the same tile colour everywhere', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         host(
           const Column(

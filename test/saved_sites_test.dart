@@ -76,14 +76,23 @@ void main() {
   });
 
   group('duplicates', () {
-    test('an already-saved URL reports the existing row, not a second',
-        () async {
-      await repo.save(url: 'https://a.example/page', title: 'A');
-      final again = await repo.save(url: 'https://a.example/page', title: 'B');
-      expect(again.outcome, SaveSiteOutcome.duplicate);
-      expect(again.site.title, 'A', reason: 'untouched until the user says so');
-      expect(await repo.all(), hasLength(1));
-    });
+    test(
+      'an already-saved URL reports the existing row, not a second',
+      () async {
+        await repo.save(url: 'https://a.example/page', title: 'A');
+        final again = await repo.save(
+          url: 'https://a.example/page',
+          title: 'B',
+        );
+        expect(again.outcome, SaveSiteOutcome.duplicate);
+        expect(
+          again.site.title,
+          'A',
+          reason: 'untouched until the user says so',
+        );
+        expect(await repo.all(), hasLength(1));
+      },
+    );
 
     test('updateExisting edits the existing tile instead of adding', () async {
       await repo.save(url: 'https://a.example/page', title: 'A');
@@ -98,8 +107,7 @@ void main() {
       expect(savedSiteDisplayTitle(sites.single), 'Renamed');
     });
 
-    test('URLs that only differ by tracking noise are the same site',
-        () async {
+    test('URLs that only differ by tracking noise are the same site', () async {
       await repo.save(url: 'https://a.example/page', title: 'A');
       final again = await repo.save(
         url: 'https://a.example/page?utm_source=x',
@@ -110,22 +118,27 @@ void main() {
 
     test('two pages on one host are two saved sites', () async {
       await repo.save(url: 'https://a.example/one', title: 'One');
-      final second = await repo.save(url: 'https://a.example/two', title: 'Two');
+      final second = await repo.save(
+        url: 'https://a.example/two',
+        title: 'Two',
+      );
       expect(second.outcome, SaveSiteOutcome.created);
       expect(await repo.all(), hasLength(2));
     });
 
-    test('editing a row into its own URL is not a duplicate of itself',
-        () async {
-      final created = await repo.save(url: 'https://a.example/x', title: 'A');
-      final edited = await repo.save(
-        url: 'https://a.example/x',
-        title: 'A renamed',
-        editingId: created.site.id,
-      );
-      expect(edited.outcome, SaveSiteOutcome.updated);
-      expect(await repo.all(), hasLength(1));
-    });
+    test(
+      'editing a row into its own URL is not a duplicate of itself',
+      () async {
+        final created = await repo.save(url: 'https://a.example/x', title: 'A');
+        final edited = await repo.save(
+          url: 'https://a.example/x',
+          title: 'A renamed',
+          editingId: created.site.id,
+        );
+        expect(edited.outcome, SaveSiteOutcome.updated);
+        expect(await repo.all(), hasLength(1));
+      },
+    );
   });
 
   group('ordering', () {
@@ -136,10 +149,7 @@ void main() {
     });
 
     test('new sites go to the back', () async {
-      expect(
-        (await repo.all()).map((s) => s.title),
-        ['A', 'B', 'C'],
-      );
+      expect((await repo.all()).map((s) => s.title), ['A', 'B', 'C']);
     });
 
     test('moving up and down persists', () async {
@@ -158,8 +168,7 @@ void main() {
       expect((await repo.all()).map((s) => s.title), ['A', 'B', 'C']);
     });
 
-    test('rows that were never reordered still have a stable order',
-        () async {
+    test('rows that were never reordered still have a stable order', () async {
       // Equal indices are what a seeded/imported set looks like; the fallback
       // is creation time, so the list never shuffles between reads.
       for (final site in await repo.all()) {
@@ -176,24 +185,31 @@ void main() {
   });
 
   group('naming', () {
-    test('a rename shows, and clearing it falls back to the page title',
-        () async {
-      final created = await repo.save(
-        url: 'https://a.example/',
-        title: 'Page title',
-      );
-      await repo.rename(created.site.id, 'My name');
-      expect(savedSiteDisplayTitle((await repo.all()).single), 'My name');
+    test(
+      'a rename shows, and clearing it falls back to the page title',
+      () async {
+        final created = await repo.save(
+          url: 'https://a.example/',
+          title: 'Page title',
+        );
+        await repo.rename(created.site.id, 'My name');
+        expect(savedSiteDisplayTitle((await repo.all()).single), 'My name');
 
-      await repo.rename(created.site.id, '');
-      expect(savedSiteDisplayTitle((await repo.all()).single), 'Page title');
-    });
+        await repo.rename(created.site.id, '');
+        expect(savedSiteDisplayTitle((await repo.all()).single), 'Page title');
+      },
+    );
 
-    test('an empty title falls back to the host rather than saving blank',
-        () async {
-      final created = await repo.save(url: 'https://a.example/x', title: '  ');
-      expect(savedSiteDisplayTitle(created.site), 'a.example');
-    });
+    test(
+      'an empty title falls back to the host rather than saving blank',
+      () async {
+        final created = await repo.save(
+          url: 'https://a.example/x',
+          title: '  ',
+        );
+        expect(savedSiteDisplayTitle(created.site), 'a.example');
+      },
+    );
   });
 
   group('persistence', () {

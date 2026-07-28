@@ -849,6 +849,63 @@ Implements the verified audit recommendations (see D30–D34):
 
 ---
 
+### Browser UX — M18 *(2026-07-28, Claude Design browser pass)*
+
+The whole Browser surface, end to end. Schema **v10** adds three tables
+(`browsing_history`, `saved_sites`, `favicon_cache`) — additive, no existing
+row read or rewritten.
+
+**Navigation model.** One `InAppWebView`, built in one place, mounted for the
+session. `BrowserSurface` (`website` | `home` | `editingAddress`) says which
+local layer is over it; nothing unmounts the WebView, so closing Home reveals
+the same page with its scroll position, cookie jar, back/forward list and any
+paused capture intact (D52). Back means: close the editor → close Home → page
+back → leave the Browser (guarded).
+
+**Toolbar.** Back · Forward · Address · Refresh/Stop · Home. The permanent Go
+button is gone; Go lives in the expanded editor and on the keyboard. The
+compact address control is a display (host + shortened path), not a field.
+
+**Browser Home.** Search-or-address field, saved-site grid with an inline
+reorder mode, four bounded Recently Visited rows, Full history. Empty states
+for no saved sites, no history, and no preserved page.
+
+**Expanded URL editor.** Whole URL on a horizontally-scrolling line above the
+field; select-all-on-open from a page, blank from Home; Select all · Copy ·
+Paste and go · Clear · Open host · Save site; local suggestions from saved
+sites, history and visited hostnames, ranked exact → prefix → contains with
+saved above history, debounced at 180 ms.
+
+**History.** Pages (date-grouped) and Sites (hostname-grouped, expandable)
+tabs, search, per-row menu (open · save · copy · remove visit · remove site),
+clear-by-range with counts read before deletion.
+
+**Saved sites.** Google seeded once per install behind a settings flag;
+removal is permanent (D54). Add flow: Recent pages · Visited sites · manual
+entry, with duplicate detection on the normalised URL and a site-vs-page
+choice offered only when a root can be derived safely.
+
+**Page actions.** Capture (through the existing range sheet and queue —
+queueing still starts nothing), Add to saved sites, Copy link, Share
+(`share_plus`), Open in Safari (`url_launcher`, externalApplication), Find in
+page (`FindInteractionController`), Site information.
+
+**Clearing.** Clear history touches one table. Clear website data clears
+cookies, site storage and cache behind an explicit acknowledgement, reports
+what it could not clear, and never touches app data.
+
+**Appearance.** System / Light / Dark, persisted. `AppPalette` is the one
+token layer (D56); dark values are derived, the design artifact is light-only.
+
+New deps (user-approved 2026-07-28): `share_plus`, `url_launcher`.
+
+**Not converted to the palette yet:** Library, Series Detail, Reader, Storage,
+Activity, Archived, Rules and the capture sheets still use literal light
+colours, so dark mode is correct on the Browser surfaces, the shell and
+Settings, and light-locked elsewhere. See §8.
+
+---
+
 ## 4. Build and run
 
 ```bash
@@ -1160,6 +1217,23 @@ check state (owned by M10's session detection).
 ---
 
 ## 8. Known limitations
+
+**Dark appearance is partial (2026-07-28).** `AppPalette` + the persisted
+System/Light/Dark setting are in, and the Browser surfaces, the app shell and
+Settings render correctly in both. Every other screen — Library, Series
+Detail, Reader, Storage, Activity, Archived, Rules, the capture and cleanup
+sheets — still writes literal light colours and will look wrong under Dark.
+The Reader is deliberately exempt: it is pure black in every appearance.
+Converting the rest is a mechanical but wide pass (~200 call sites, most of
+them `const`), tracked as the recommended next task.
+
+**Favicons need the network.** A first-run list shows hostname-initial
+fallbacks until icons are fetched; that is the designed fallback, not a bug,
+but it means a screenshot taken offline never shows real icons.
+
+**Find in page** relies on the plugin's `FindInteractionController`. Match
+counting is reported by the platform; on Android some pages report a count
+before highlighting settles.
 
 **Test harness (not the product)**
 

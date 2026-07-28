@@ -124,8 +124,9 @@ void main() {
       });
     }
 
-    testWidgets('choosing Stay leaves the page on screen and the run running',
-        (tester) async {
+    testWidgets('choosing Stay leaves the page on screen and the run running', (
+      tester,
+    ) async {
       inState(CaptureState.scrolling);
       final asked = <String>[];
       final presentation = BrowserPresentation();
@@ -233,8 +234,9 @@ void main() {
     });
 
     for (final state in const [CaptureState.downloading, CaptureState.saving]) {
-      testWidgets('${state.name}: the download-only phase does not warn',
-          (tester) async {
+      testWidgets('${state.name}: the download-only phase does not warn', (
+        tester,
+      ) async {
         // After extraction only bytes and manifests remain; the Browser is no
         // longer required, so opening Home must be silent.
         inState(state);
@@ -268,8 +270,9 @@ void main() {
       });
     }
 
-    testWidgets('an already-paused run is not asked about twice',
-        (tester) async {
+    testWidgets('an already-paused run is not asked about twice', (
+      tester,
+    ) async {
       inState(CaptureState.scrolling);
       job.pauseForBrowserHidden();
       expect(job.needsRenderedBrowser, isFalse);

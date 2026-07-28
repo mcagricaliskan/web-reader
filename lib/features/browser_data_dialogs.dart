@@ -228,9 +228,7 @@ class _RangeOption extends StatelessWidget {
                 ),
               ),
               Text(
-                count == null
-                    ? '—'
-                    : '$count ${count == 1 ? 'page' : 'pages'}',
+                count == null ? '—' : '$count ${count == 1 ? 'page' : 'pages'}',
                 style: monoStyle(size: 11, color: palette.inkMuted),
               ),
             ],

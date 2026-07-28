@@ -426,7 +426,9 @@ class _EditSavedSiteState extends ConsumerState<_EditSavedSite> {
 
   bool get _urlIsValid {
     final intent = interpretUrlInput(_effectiveUrl);
-    return !intent.isEmpty && !intent.isSearch && !isExternalAppScheme(intent.url);
+    return !intent.isEmpty &&
+        !intent.isSearch &&
+        !isExternalAppScheme(intent.url);
   }
 
   bool get _canSave => _urlIsValid && _title.text.trim().isNotEmpty;
@@ -441,8 +443,8 @@ class _EditSavedSiteState extends ConsumerState<_EditSavedSite> {
         .findByUrl(_effectiveUrl);
     if (!mounted) return;
     setState(
-      () => _duplicate =
-          existing != null && existing.id != widget.draft.editingId
+      () =>
+          _duplicate = existing != null && existing.id != widget.draft.editingId
           ? existing
           : null,
     );
@@ -560,11 +562,7 @@ class _EditSavedSiteState extends ConsumerState<_EditSavedSite> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.bookmark_added,
-                    size: 17,
-                    color: palette.warn,
-                  ),
+                  Icon(Icons.bookmark_added, size: 17, color: palette.warn),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -613,8 +611,8 @@ class _EditSavedSiteState extends ConsumerState<_EditSavedSite> {
           Row(
             children: [
               OutlinedButton(
-                onPressed: widget.onBack ??
-                    () => Navigator.of(context).pop(false),
+                onPressed:
+                    widget.onBack ?? () => Navigator.of(context).pop(false),
                 style: OutlinedButton.styleFrom(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(13),

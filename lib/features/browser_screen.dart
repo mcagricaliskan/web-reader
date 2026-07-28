@@ -99,9 +99,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     if (browser == null) return;
     final url = browser.currentUrl;
     if (url.isEmpty) return;
-    _presentation?.rememberPage(
-      PreservedPage(url: url, title: browser.title),
-    );
+    _presentation?.rememberPage(PreservedPage(url: url, title: browser.title));
   }
 
   void _onPresentationChanged() {
@@ -127,10 +125,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     if (!mounted) return;
     final browser = ref.read(browserProvider);
     _p.openHome(
-      preserving: PreservedPage(
-        url: browser.currentUrl,
-        title: browser.title,
-      ),
+      preserving: PreservedPage(url: browser.currentUrl, title: browser.title),
     );
   }
 
@@ -262,9 +257,8 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
               onBack: _goBack,
               onForward: browser.canGoForward ? browser.goForward : null,
               onAddress: () => _openAddressEditor(),
-              onReloadOrStop: () => browser.isLoading
-                  ? browser.stopLoading()
-                  : browser.reload(),
+              onReloadOrStop: () =>
+                  browser.isLoading ? browser.stopLoading() : browser.reload(),
               onHome: _openHome,
             ),
             if (_findOpen)
@@ -340,7 +334,8 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                         onCancel: () => _p.closeAddressEditor(
                           // Cancelling out of an editor opened from Home
                           // returns to Home, not to the page behind it.
-                          toHome: presentation.addressDraft.isEmpty &&
+                          toHome:
+                              presentation.addressDraft.isEmpty &&
                               presentation.preserved != null,
                         ),
                         onSaveSite: (url, title) =>

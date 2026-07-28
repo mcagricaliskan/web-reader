@@ -93,18 +93,13 @@ class _PageActionsSheet extends ConsumerWidget {
               borderRadius: BorderRadius.circular(14),
               child: InkWell(
                 key: const ValueKey('pageActionCapture'),
-                onTap: () =>
-                    Navigator.of(context).pop(PageAction.capture),
+                onTap: () => Navigator.of(context).pop(PageAction.capture),
                 borderRadius: BorderRadius.circular(14),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.download,
-                        size: 21,
-                        color: Colors.white,
-                      ),
+                      const Icon(Icons.download, size: 21, color: Colors.white),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -149,9 +144,8 @@ class _PageActionsSheet extends ConsumerWidget {
                       ? 'Already in saved sites'
                       : 'Add to saved sites',
                   badge: isSaved ? 'Saved' : null,
-                  onTap: () => Navigator.of(
-                    context,
-                  ).pop(PageAction.addToSavedSites),
+                  onTap: () =>
+                      Navigator.of(context).pop(PageAction.addToSavedSites),
                 ),
                 _ActionTile(
                   icon: Icons.link,
@@ -208,8 +202,7 @@ class _PageActionsSheet extends ConsumerWidget {
                 _ActionTile(
                   icon: Icons.find_in_page,
                   label: 'Find in page',
-                  onTap: () =>
-                      Navigator.of(context).pop(PageAction.findInPage),
+                  onTap: () => Navigator.of(context).pop(PageAction.findInPage),
                 ),
                 _ActionTile(
                   icon: Icons.info_outline,
@@ -383,11 +376,7 @@ Future<void> showSiteInformationSheet({
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.label,
-    required this.value,
-    this.wrap = false,
-  });
+  const _InfoRow({required this.label, required this.value, this.wrap = false});
 
   final String label;
   final String value;

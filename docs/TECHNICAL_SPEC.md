@@ -1073,6 +1073,78 @@ the single most valuable development affordance available; set it up in M0.
 
 ---
 
+## 15a. The Browser surface (as built, 2026-07-28)
+
+### 15a.1 One WebView, three surfaces
+
+`BrowserScreen` builds exactly one `InAppWebView`, in `_WebViewHost`, and
+never removes it from the tree. `BrowserSurface` (`website` | `home` |
+`editingAddress`) says which local layer is drawn over it. Consequences:
+
+* opening Home costs nothing and loses nothing — no reload, no cookie
+  re-negotiation, no lost scroll position, no interrupted capture;
+* there is no save/restore path to get wrong;
+* every "open this" path (saved site, history row, suggestion, editor Go)
+  calls `load` on the same controller. A second WebView would be a second
+  cookie jar, and capture would run in a session the user never browsed with.
+
+**Back**, in order: close the address editor → close Home → `webView.goBack()`
+→ leave the Browser (guarded).
+
+**Toolbar**: Back · Forward · Address · Refresh/Stop · Home. All five are
+`36 × 40`, one row, one baseline — the toolbar analogue of `kHeaderActionSize`.
+The address control is a *display*, not a field: host in full ink, shortened
+path in muted ink, tapping opens the expanded editor.
+
+### 15a.2 Recording a visit
+
+`BrowserController.onLoadStop` emits a `BrowserVisit` for every completed
+main-frame load, carrying `effectiveNavigationSource`. `HistoryRepository`
+owns the single recording rule (D53). The controller knows nothing about
+storage; the repository knows nothing about the WebView.
+
+A load that produced a classified fault is not emitted at all — an error page
+the user never wanted is not a place they went.
+
+### 15a.3 Page-state classification
+
+`classifyPageError` maps platform error text and HTTP status onto
+`BrowserPageState`. The raw string is kept on `BrowserPageFault.detail` and
+rendered small, under the explanation — never as the explanation (§14).
+
+`PageStateView.isBlocking` decides banner vs. full-area overlay: a banner when
+the page underneath is still worth looking at (certificate warning, external
+link), an overlay when there is nothing behind it (offline, DNS failure,
+mistyped address).
+
+Offline is distinguished from "this site is down" by one bounded DNS probe
+(`hasNetwork()`), because the two need different instructions.
+
+### 15a.4 Clearing website data
+
+`clearWebsiteData()` clears cookies (`CookieManager`), site storage
+(`WebStorageManager` — `removeDataModifiedSince(epoch)` on Apple platforms,
+which have no delete-all, `deleteAllData()` elsewhere) and the HTTP cache. It
+returns the list of things it could **not** clear, and the UI reports that
+list rather than claiming a clean sweep.
+
+It reaches nothing the app owns: saved sites, history, library, files,
+progress and queue rows are all SQLite and are not addressable from there.
+
+### 15a.5 Performance notes
+
+* One bounded history stream (`kHistoryStreamLimit = 500`), shared by Browser
+  Home's four rows and the History screen — cleared history disappears from
+  both at once, with no cache to invalidate.
+* Search and suggestions filter the loaded list and are debounced at 180 ms;
+  at the stream limit an undebounced keystroke walks 500 rows.
+* Favicons are cached in SQLite including misses; the tile is a fixed size, so
+  a late icon repaints one square.
+* The toolbar rebuilds through an `AnimatedBuilder` on the controller, so a
+  progress tick does not rebuild Browser Home or the capture panel.
+
+---
+
 ## 16. Security and privacy
 
 - **No account, no backend, no telemetry.** The only network traffic is to the sites the user is

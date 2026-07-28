@@ -34,11 +34,9 @@ enum NavigationSource {
   liveTest,
 }
 
-NavigationSource navigationSourceFromName(String name) =>
-    NavigationSource.values.firstWhere(
-      (s) => s.name == name,
-      orElse: () => NavigationSource.internal,
-    );
+NavigationSource navigationSourceFromName(String name) => NavigationSource
+    .values
+    .firstWhere((s) => s.name == name, orElse: () => NavigationSource.internal);
 
 /// Retention (§18). Bounded by both age and row count: either alone leaves a
 /// way to grow without limit. Internal for now — no setting was designed, and

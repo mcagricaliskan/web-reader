@@ -64,12 +64,17 @@ void main() {
 
     test('localhost is an address in debug and a search otherwise', () {
       expect(
-        interpretUrlInput('localhost:8099/chapter/1', allowLocalhost: true).kind,
+        interpretUrlInput(
+          'localhost:8099/chapter/1',
+          allowLocalhost: true,
+        ).kind,
         UrlIntentKind.navigate,
       );
       expect(
-        interpretUrlInput('localhost:8099/chapter/1', allowLocalhost: false)
-            .kind,
+        interpretUrlInput(
+          'localhost:8099/chapter/1',
+          allowLocalhost: false,
+        ).kind,
         UrlIntentKind.search,
       );
     });

@@ -138,8 +138,9 @@ void main() {
       expect(find.text('No history yet'), findsOneWidget);
     });
 
-    browserWidgetTest('search filters, and says so when nothing matches',
-        (tester) async {
+    browserWidgetTest('search filters, and says so when nothing matches', (
+      tester,
+    ) async {
       await seedVisits();
       await tester.pumpWidget(host(const BrowserHistoryScreen()));
       await tester.pump();
@@ -160,8 +161,9 @@ void main() {
       expect(find.text('No matches'), findsOneWidget);
     });
 
-    browserWidgetTest('the Sites tab groups by hostname with counts',
-        (tester) async {
+    browserWidgetTest('the Sites tab groups by hostname with counts', (
+      tester,
+    ) async {
       await seedVisits();
       await tester.pumpWidget(host(const BrowserHistoryScreen()));
       await tester.pump();
@@ -190,8 +192,9 @@ void main() {
       expect(find.text('Remove site history'), findsOneWidget);
     });
 
-    browserWidgetTest('a row menu can remove that single visit',
-        (tester) async {
+    browserWidgetTest('a row menu can remove that single visit', (
+      tester,
+    ) async {
       await seedVisits();
       await tester.pumpWidget(host(const BrowserHistoryScreen()));
       await tester.pump();
@@ -204,21 +207,20 @@ void main() {
       expect(await db.visits(), hasLength(2));
     });
 
-    browserWidgetTest('the empty state explains where history comes from',
-        (tester) async {
+    browserWidgetTest('the empty state explains where history comes from', (
+      tester,
+    ) async {
       await tester.pumpWidget(host(const BrowserHistoryScreen()));
       await tester.pump();
       expect(find.text('No history yet'), findsOneWidget);
-      expect(
-        find.textContaining('Nothing is sent anywhere'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Nothing is sent anywhere'), findsOneWidget);
     });
   });
 
   group('clear history', () {
-    browserWidgetTest('shows a count per range and clears the chosen one',
-        (tester) async {
+    browserWidgetTest('shows a count per range and clears the chosen one', (
+      tester,
+    ) async {
       final now = DateTime.now();
       await seedVisits(now: now);
       await tester.pumpWidget(host(const BrowserHistoryScreen()));
@@ -230,14 +232,9 @@ void main() {
       expect(find.text('Clear browsing history'), findsOneWidget);
       // The promise the sheet makes about what it will not touch.
       expect(find.text('This does not touch'), findsOneWidget);
-      expect(
-        find.textContaining('Saved sites · your library'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Saved sites · your library'), findsOneWidget);
 
-      await tester.tap(
-        find.byKey(const ValueKey('clearRange-lastHour')),
-      );
+      await tester.tap(find.byKey(const ValueKey('clearRange-lastHour')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('confirmClearHistory')));
       await tester.pumpAndSettle();
@@ -266,54 +263,57 @@ void main() {
   });
 
   group('clear website data', () {
-    browserWidgetTest('the destructive button is gated on the acknowledgement',
-        (tester) async {
-      await tester.pumpWidget(
-        host(
-          Scaffold(
-            body: Builder(
-              builder: (context) => Consumer(
-                builder: (context, ref, _) => TextButton(
-                  onPressed: () => showClearWebsiteDataDialog(context, ref),
-                  child: const Text('open'),
+    browserWidgetTest(
+      'the destructive button is gated on the acknowledgement',
+      (tester) async {
+        await tester.pumpWidget(
+          host(
+            Scaffold(
+              body: Builder(
+                builder: (context) => Consumer(
+                  builder: (context, ref, _) => TextButton(
+                    onPressed: () => showClearWebsiteDataDialog(context, ref),
+                    child: const Text('open'),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Clear website data?'), findsOneWidget);
-      expect(
-        find.textContaining('signs you out of every site'),
-        findsOneWidget,
-      );
-      // It also says what it keeps, because that is the fear.
-      expect(
-        find.textContaining('library, captured chapters, saved sites'),
-        findsOneWidget,
-      );
+        expect(find.text('Clear website data?'), findsOneWidget);
+        expect(
+          find.textContaining('signs you out of every site'),
+          findsOneWidget,
+        );
+        // It also says what it keeps, because that is the fear.
+        expect(
+          find.textContaining('library, captured chapters, saved sites'),
+          findsOneWidget,
+        );
 
-      final before = tester.widget<FilledButton>(
-        find.byKey(const ValueKey('confirmClearWebsiteData')),
-      );
-      expect(before.onPressed, isNull, reason: 'gated until acknowledged');
+        final before = tester.widget<FilledButton>(
+          find.byKey(const ValueKey('confirmClearWebsiteData')),
+        );
+        expect(before.onPressed, isNull, reason: 'gated until acknowledged');
 
-      await tester.tap(find.byKey(const ValueKey('clearDataAcknowledge')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('clearDataAcknowledge')));
+        await tester.pumpAndSettle();
 
-      final after = tester.widget<FilledButton>(
-        find.byKey(const ValueKey('confirmClearWebsiteData')),
-      );
-      expect(after.onPressed, isNotNull);
-    });
+        final after = tester.widget<FilledButton>(
+          find.byKey(const ValueKey('confirmClearWebsiteData')),
+        );
+        expect(after.onPressed, isNotNull);
+      },
+    );
   });
 
   group('Add saved site', () {
-    browserWidgetTest('recent pages are offered, and saving one works',
-        (tester) async {
+    browserWidgetTest('recent pages are offered, and saving one works', (
+      tester,
+    ) async {
       await seedVisits();
       await tester.pumpWidget(
         host(
@@ -347,8 +347,9 @@ void main() {
       expect(sites.single.url, 'https://uzaymanga.com/manga/efsanevi/885');
     });
 
-    browserWidgetTest('a hostname with no reliable root says so',
-        (tester) async {
+    browserWidgetTest('a hostname with no reliable root says so', (
+      tester,
+    ) async {
       // Only ever seen one deep page on this host, on a non-default port —
       // so no homepage can be derived and the flow must not invent one.
       await history.recordVisit(
@@ -373,10 +374,7 @@ void main() {
       await tester.tap(find.text('Visited sites'));
       await tester.pumpAndSettle();
 
-      expect(
-        find.textContaining('No reliable home page seen'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('No reliable home page seen'), findsOneWidget);
     });
 
     browserWidgetTest('manual entry validates the address', (tester) async {
@@ -407,10 +405,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(
-        find.textContaining('Enter a full address'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Enter a full address'), findsOneWidget);
       final blocked = tester.widget<FilledButton>(
         find.byKey(const ValueKey('savedSiteSaveButton')),
       );
@@ -427,8 +422,9 @@ void main() {
       expect(await db.allSavedSites(), hasLength(1));
     });
 
-    browserWidgetTest('a duplicate is explained and offers to update',
-        (tester) async {
+    browserWidgetTest('a duplicate is explained and offers to update', (
+      tester,
+    ) async {
       await saved.save(url: 'https://mysite.example/', title: 'Original');
       await tester.pumpWidget(
         host(
@@ -466,8 +462,9 @@ void main() {
   });
 
   group('Settings', () {
-    browserWidgetTest('has a Browser section with the three doors',
-        (tester) async {
+    browserWidgetTest('has a Browser section with the three doors', (
+      tester,
+    ) async {
       await seedVisits();
       await saved.seedDefaultIfNeeded();
       await tester.pumpWidget(host(const SettingsScreen()));
@@ -484,10 +481,7 @@ void main() {
         findsOneWidget,
       );
       // The privacy and retention note the design asks for.
-      expect(
-        find.textContaining('never leave this device'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('never leave this device'), findsOneWidget);
       expect(find.textContaining('90 days'), findsOneWidget);
     });
 

@@ -704,7 +704,15 @@ action) · pin/favorite/dormant (M9) · auto-archive policies.
 
 ---
 
-## M17 — Settings, appearance, and the design system
+## M17 — Settings, appearance, and the design system *(partly done — see M18)*
+
+> **Status 2026-07-28.** The appearance setting, `ThemeMode` wiring, the dark
+> palette and the token layer shipped with M18, and the Browser surfaces, the
+> app shell and Settings render correctly in both appearances. What remains is
+> the mechanical part: converting Library, Series Detail, Reader, Storage,
+> Activity, Archived, Rules and the capture/cleanup sheets from literal
+> colours to `AppPalette` (~200 call sites, most of them `const`). Until then
+> Dark is correct on the new surfaces and wrong on the old ones.
 
 **Goal.** A settings surface, light/dark/system theming, and a reusable visual system — a polished
 Flutter UI, not a recolored demo. **User-facing outcome:** a Settings screen with Appearance
@@ -737,6 +745,39 @@ the badge set. **Risks:** scope creep into a full rebrand — the design system 
 components, not a new product identity; performance work hiding behind visuals — hence the
 explicit rebuild-scope acceptance. **Non-goals:** covers/artwork, onboarding, iPad layout,
 Android *testing* (layout compatibility only).
+
+---
+
+## M18 — The Browser experience ✅ *(done 2026-07-28, schema v10)*
+
+**Goal.** The Browser stops being an address bar with a WebView under it and
+becomes the surface the design draws: somewhere to start, somewhere to come
+back to, and a page you can act on. **User-facing outcome:** Browser Home with
+saved sites and recent pages; a readable, editable address; local history you
+own and can clear; page actions that do something.
+
+**Shipped.**
+
+- Explicit navigation model — one WebView, three surfaces, one Back rule
+  (D52). Home and the URL editor are layers; the page underneath is never
+  torn down, reloaded, or re-authenticated.
+- Toolbar: Back · Forward · Address · Refresh/Stop · **Home**; the permanent
+  Go button removed.
+- Browser Home, expanded URL editor with ranked local suggestions, History
+  (pages + sites, search, clear-by-range), Saved Sites with the two-tab Add
+  flow and duplicate handling, page-actions menu, find in page, site
+  information, clear website data.
+- Schema v10: `browsing_history`, `saved_sites`, `favicon_cache`.
+- Only manual navigation is recorded, enforced twice (D53). Retention 90 days
+  or 5,000 rows.
+- Appearance setting + `AppPalette` (D56) — this is the part of **M17** that
+  landed here, because dark mode is what forced the token layer.
+
+**Deliberately out.** No search-engine setting (the design has no picker). No
+remote suggestions. No per-site permission UI beyond cookies. No tab model.
+
+**Carried forward.** The palette conversion of the pre-M18 screens — see M17
+below, which is now scoped down to exactly that.
 
 ---
 
