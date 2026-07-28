@@ -1096,3 +1096,148 @@ a long series still has room to act, and late enough not to shout at a
 normally-loaded phone. 90% is where a single large chapter becomes a realistic
 risk of failing part-way — which is the specific outcome the colour warns
 about.
+
+### D52 — Browser Home is a layer over the WebView, never a replacement
+
+**Decision.** The Browser has exactly one `InAppWebView`, constructed in one
+place, and it stays mounted for the life of the session. Browser Home and the
+expanded URL editor are drawn **over** it in the same `Stack`; opening either
+changes which surface is on top and nothing else.
+
+The consequence is the whole point: closing Home reveals the same document —
+same scroll position, same back/forward list, same cookies, same in-page
+state, same paused capture — because nothing was ever torn down. There is no
+save/restore path to get wrong, because there is nothing to restore.
+
+*Why not a route.* A pushed route would keep the WebView alive underneath too,
+but it would also give Home its own entry in the app's navigation stack, and
+system back would then have three plausible meanings. Presentation state is
+explicit instead ([`BrowserSurface`](../lib/browser/browser_presentation.dart)):
+`website`, `home`, `editingAddress`, with one rule for Back — close the local
+surface, else go back in the page, else leave the Browser.
+
+*Corollary — a local surface is still "leaving the Browser".* Covering the
+rendered page hides it, and a WebView-dependent capture phase cannot run
+against a hidden surface (D32). So opening Home goes through exactly the same
+`LeaveBrowserGuard` as a tab switch or a route push, and pauses the same way
+(D36). Downloading and saving phases are excluded, as always — the
+confirmation must not cry wolf.
+
+*Corollary — nothing creates a second WebView.* Saved sites, history rows and
+the URL editor's Go all call `load` on the existing controller. A second
+WebView would mean a second cookie jar and a capture running in a session the
+user never browsed with.
+
+### D53 — Only manual navigation enters browsing history
+
+**Decision.** `browsing_history` records pages **the user visited**. Capture
+automation, update checks, rule validation, internal navigation and live tests
+all move the same WebView, and none of them are ever written.
+
+The user can watch the address bar change during a capture, which is exactly
+why "it appeared in the address bar" cannot be the rule. A twelve-chapter run
+would otherwise bury a day of real browsing.
+
+*How it is enforced — twice.* The controller carries a `navigationSource`, set
+beside `automationOwner` by whoever takes the WebView. `HistoryRepository`
+records only `manual`. Independently, `effectiveNavigationSource` refuses to
+answer `manual` while `automationOwner` is non-null: a forgotten assignment
+degrades to `internal`, which is excluded, rather than to the one value that
+would pollute the log.
+
+*What else never enters.* Non-`http(s)` URLs (`about:blank`, app schemes,
+`data:`, `file:`), loads that did not complete, and loads that ended on a
+classified fault. Only a completed, user-visible destination is a place the
+user went.
+
+*Repeated visits.* Individual rows, not a collapsed counter — that is what
+keeps "clear the last hour" accurate. A repeat of the same normalised URL
+within 30 minutes refreshes the existing row's timestamp instead of stacking,
+so a reload loop is one entry without losing time-range precision.
+
+*Retention.* 90 days **or** 5,000 rows, whichever bites first. Both bounds,
+because either alone leaves a way to grow without limit — a quiet year, or a
+very busy afternoon. Internal for now; no user-facing setting was designed,
+and clearing history remains the user-controlled cleanup action.
+
+### D54 — Google is the initial saved site, and removing it is permanent
+
+**Decision.** A clean install seeds one saved site, Google, so Browser Home is
+not an empty grid on first run. It is an ordinary row with an `isDefault`
+flag: it can be opened, renamed, re-pointed, reordered and removed exactly
+like any other.
+
+Once removed it stays removed. The seed is gated on a settings flag rather
+than on the table being empty — inferring "clean install" from an empty table
+would make the row impossible to delete, because the state after removing it
+is indistinguishable from the state before seeding it.
+
+*Existing development databases* get the row only when no equivalent entry
+already exists, so a database that saved Google by hand does not end up with
+two.
+
+*The one exception* is the full development reset (D50), which is the app
+becoming a clean install again — and a clean install has it.
+
+*Saved sites are not history rows.* Separate table, separate lifecycle:
+history is a log the user clears by time range, saved sites are a curated list
+they order by hand. Storing one as a flavour of the other would let "clear the
+last hour" delete a bookmark. Identity is the normalised URL, so two pages on
+one host are two saved sites, and the same page saved twice is one.
+
+### D55 — Favicons are decoration, with a fixed-size fallback
+
+**Decision.** No list, row, save or history write ever waits on an icon.
+Every icon sits in a box of a fixed size, so one arriving late repaints a
+square rather than reflowing a list.
+
+A miss is not a failure state: the hostname initial on a tinted tile is the
+designed fallback, and the tile colour is a stable hash of the host, so a site
+looks the same wherever it appears.
+
+*Sources, in confidence order:* the page's declared `<link rel="icon">`, read
+once per completed load; then `/favicon.ico`, which is a guess and treated as
+one. Bytes are sniffed (D31's principle again — trust the bytes, not the
+Content-Type), capped at 24 KB, and cached per host in SQLite.
+
+*Failures are cached too.* A site with no icon would otherwise be re-requested
+on every rebuild of every list. A negative entry stands for seven days.
+
+*Tests are network-free.* `allowNetwork: false` makes a miss render the
+fallback immediately — which is a state the UI must handle correctly anyway —
+and keeps an in-flight request from outliving the widget tree.
+
+### D56 — A derived dark appearance, and the one token layer
+
+**Decision.** The app ships light and dark, selected by a persisted
+System / Light / Dark preference. The reader stays pure black in every
+appearance: it is built for night reading, and a "light reader" nobody asked
+for would be a regression.
+
+This is a deliberate, narrow amendment to D28 ("flat theme, no token layer").
+That decision was right while there was one appearance — a literal
+`Color(0xFFF5F3EF)` said exactly what the design said. A second appearance
+makes a literal a lie, because the same value cannot be "the quiet surface" in
+both. `AppPalette` names the *roles* the design already uses and nothing more:
+no scale, no elevation system, no component tokens. `ColorScheme` is built
+from it rather than written out twice, so the two cannot drift.
+
+*The dark values are derived, not designed.* The Claude Design artifact ships
+light only (it labels itself "375pt · light theme"). The dark palette keeps
+the warm neutral — brown-greys, not blue-greys — and lifts the accents to
+clear 4.5:1 on the dark surfaces. It is marked as derived wherever it appears
+so a future design pass knows it is replacing an inference, not a decision.
+
+### D57 — A cold start opens Browser Home, and never re-visits the last page
+
+**Decision.** With no page loaded the Browser's WebView holds `about:blank`
+and Browser Home is the visible surface.
+
+The alternatives are both worse. A search engine makes the app's first act a
+network request to a third party. Silently re-loading the last page would look
+like a fresh manual visit — a history row nobody created — and re-loading it
+*without* recording would mean a load whose source has to be un-set again
+afterwards, which is exactly the kind of state that leaks.
+
+The last page is one tap away under Recently visited, where tapping it is a
+real visit because the user really did visit it.

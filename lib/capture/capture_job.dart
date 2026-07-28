@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../browser/browser_controller.dart';
+import '../browser/history_repository.dart' show NavigationSource;
 import '../core/config.dart';
 import '../core/device_storage.dart';
 import '../core/url_utils.dart';
@@ -513,6 +514,9 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
     // whatever the page does next.
     browser.navigationLocked = true;
     browser.automationOwner = 'a capture job';
+    // The chapter chain is the app walking the site, not the user browsing
+    // it: these pages never enter browsing history (D53).
+    browser.navigationSource = NavigationSource.captureAutomation;
     // A host the user allowed while browsing is not thereby allowed for an
     // unattended run — make the job earn its own consent.
     browser.clearAllowedHostChanges();
@@ -526,6 +530,7 @@ class CaptureJobController extends ChangeNotifier implements SelectionHost {
       } catch (_) {}
       browser.navigationLocked = false;
       browser.automationOwner = null;
+      browser.navigationSource = NavigationSource.manual;
       _running = false;
       _engine = null;
       _pendingDuplicate = null;

@@ -10,9 +10,26 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'palette.dart';
+
 /// Variable-font weight axis. Newsreader and IBM Plex Sans ship as variable
 /// TTFs, so a bare [FontWeight] would not instantiate the axis.
 List<FontVariation> wght(double w) => [FontVariation('wght', w)];
+
+/// The persisted appearance preference.
+const kAppearanceSettingKey = 'app.appearance';
+
+/// System / Light / Dark, as the design's three-up control offers them.
+enum AppearanceMode { system, light, dark }
+
+AppearanceMode appearanceFromName(String? name) => AppearanceMode.values
+    .firstWhere((m) => m.name == name, orElse: () => AppearanceMode.system);
+
+ThemeMode themeModeFor(AppearanceMode mode) => switch (mode) {
+  AppearanceMode.system => ThemeMode.system,
+  AppearanceMode.light => ThemeMode.light,
+  AppearanceMode.dark => ThemeMode.dark,
+};
 
 /// Series monogram tile colours (background, foreground), cycled by index so a
 /// series keeps the same tile colour wherever it appears.
@@ -41,47 +58,61 @@ String monogramText(String title) {
   return (words[0][0] + words[1][0]).toUpperCase();
 }
 
-ThemeData appTheme() {
-  const scheme = ColorScheme(
-    brightness: Brightness.light,
-    primary: Color(0xFF35606F),
-    onPrimary: Colors.white,
-    primaryContainer: Color(0xFFEAF1F4),
-    onPrimaryContainer: Color(0xFF133845),
-    secondary: Color(0xFF5F5B54),
-    onSecondary: Colors.white,
-    secondaryContainer: Color(0xFFF3F1ED),
-    onSecondaryContainer: Color(0xFF3E3A34),
-    tertiary: Color(0xFF8A5A1F),
-    onTertiary: Colors.white,
-    tertiaryContainer: Color(0xFFF8EEDA),
-    onTertiaryContainer: Color(0xFF4A2F08),
-    error: Color(0xFF8E3B31),
-    onError: Colors.white,
-    errorContainer: Color(0xFFF7DDD8),
-    onErrorContainer: Color(0xFF4A140E),
-    surface: Color(0xFFFBFAF8),
-    onSurface: Color(0xFF1B1A18),
-    surfaceContainerLowest: Color(0xFFFCFBF9),
-    surfaceContainerLow: Color(0xFFF8F6F3),
-    surfaceContainer: Color(0xFFF5F3EF),
-    surfaceContainerHigh: Color(0xFFF3F1ED),
-    surfaceContainerHighest: Color(0xFFEFECE7),
-    onSurfaceVariant: Color(0xFF5F5B54),
-    outline: Color(0xFFC9C3B9),
-    outlineVariant: Color(0xFFE7E3DC),
+/// The dark appearance. Derived from [AppPalette.dark]; see the note there
+/// about the design artifact shipping no dark variant (D56).
+ThemeData appDarkTheme() => appTheme(palette: AppPalette.dark);
+
+/// Built from [palette] so the [ColorScheme] and the extension can never
+/// disagree — the two would drift within a week if they were written out
+/// twice.
+ThemeData appTheme({AppPalette palette = AppPalette.light}) {
+  final dark = palette.isDark;
+  final scheme = ColorScheme(
+    brightness: palette.brightness,
+    primary: palette.primary,
+    onPrimary: dark ? const Color(0xFF10222A) : Colors.white,
+    primaryContainer: palette.primaryContainer,
+    onPrimaryContainer: palette.onPrimaryContainer,
+    secondary: palette.inkMuted,
+    onSecondary: dark ? const Color(0xFF171614) : Colors.white,
+    secondaryContainer: palette.surfaceHigh,
+    onSecondaryContainer: palette.inkStrong,
+    tertiary: palette.warn,
+    onTertiary: dark ? const Color(0xFF241A08) : Colors.white,
+    tertiaryContainer: palette.warnContainer,
+    onTertiaryContainer: palette.onWarnContainer,
+    error: palette.danger,
+    onError: dark ? const Color(0xFF2A0E0A) : Colors.white,
+    errorContainer: palette.dangerContainer,
+    onErrorContainer: palette.onDangerContainer,
+    surface: palette.surface,
+    onSurface: palette.ink,
+    surfaceContainerLowest: dark
+        ? const Color(0xFF121110)
+        : const Color(0xFFFCFBF9),
+    surfaceContainerLow: dark
+        ? const Color(0xFF1A1917)
+        : const Color(0xFFF8F6F3),
+    surfaceContainer: palette.surfaceMuted,
+    surfaceContainerHigh: palette.surfaceHigh,
+    surfaceContainerHighest: palette.divider,
+    onSurfaceVariant: palette.inkMuted,
+    outline: palette.borderStrong,
+    outlineVariant: palette.border,
     shadow: Colors.black,
-    scrim: Color(0x8C14120F),
-    inverseSurface: Color(0xFF1B1A18),
-    onInverseSurface: Color(0xFFFBFAF8),
-    inversePrimary: Color(0xFF9FC3CE),
+    scrim: palette.scrim,
+    inverseSurface: dark ? const Color(0xFFF2EFE9) : const Color(0xFF1B1A18),
+    onInverseSurface: dark ? const Color(0xFF1B1A18) : const Color(0xFFFBFAF8),
+    inversePrimary: const Color(0xFF9FC3CE),
   );
 
   final base = ThemeData(
     useMaterial3: true,
+    brightness: palette.brightness,
     colorScheme: scheme,
     fontFamily: 'IBM Plex Sans',
     scaffoldBackgroundColor: scheme.surface,
+    extensions: [palette],
   );
 
   return base.copyWith(
@@ -90,14 +121,14 @@ ThemeData appTheme() {
       displayColor: scheme.onSurface,
       fontFamily: 'IBM Plex Sans',
     ),
-    dividerTheme: const DividerThemeData(
-      color: Color(0xFFEFECE7),
+    dividerTheme: DividerThemeData(
+      color: palette.divider,
       thickness: 1,
       space: 1,
     ),
     appBarTheme: AppBarTheme(
       backgroundColor: scheme.surface,
-      foregroundColor: const Color(0xFF3E3A34),
+      foregroundColor: palette.inkStrong,
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
@@ -125,7 +156,7 @@ ThemeData appTheme() {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFF3E3A34),
+        foregroundColor: palette.inkStrong,
         side: BorderSide(color: scheme.outline),
         shape: const StadiumBorder(),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
@@ -171,13 +202,13 @@ ThemeData appTheme() {
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
     ),
-    listTileTheme: const ListTileThemeData(
-      iconColor: Color(0xFF5F5B54),
-      textColor: Color(0xFF1B1A18),
+    listTileTheme: ListTileThemeData(
+      iconColor: palette.inkMuted,
+      textColor: palette.ink,
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: scheme.primary,
-      linearTrackColor: const Color(0xFFE1DDD5),
+      linearTrackColor: palette.border,
     ),
   );
 }

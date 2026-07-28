@@ -5729,6 +5729,1566 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
   }
 }
 
+class $BrowsingHistoryTable extends BrowsingHistory
+    with TableInfo<$BrowsingHistoryTable, BrowsingHistoryData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $BrowsingHistoryTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _urlMeta = const VerificationMeta('url');
+  @override
+  late final GeneratedColumn<String> url = GeneratedColumn<String>(
+    'url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _urlKeyMeta = const VerificationMeta('urlKey');
+  @override
+  late final GeneratedColumn<String> urlKey = GeneratedColumn<String>(
+    'url_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hostMeta = const VerificationMeta('host');
+  @override
+  late final GeneratedColumn<String> host = GeneratedColumn<String>(
+    'host',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('manual'),
+  );
+  static const VerificationMeta _finalUrlMeta = const VerificationMeta(
+    'finalUrl',
+  );
+  @override
+  late final GeneratedColumn<String> finalUrl = GeneratedColumn<String>(
+    'final_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _completedMeta = const VerificationMeta(
+    'completed',
+  );
+  @override
+  late final GeneratedColumn<bool> completed = GeneratedColumn<bool>(
+    'completed',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("completed" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _visitedAtMeta = const VerificationMeta(
+    'visitedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> visitedAt = GeneratedColumn<DateTime>(
+    'visited_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    url,
+    urlKey,
+    host,
+    title,
+    source,
+    finalUrl,
+    completed,
+    visitedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'browsing_history';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<BrowsingHistoryData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('url')) {
+      context.handle(
+        _urlMeta,
+        url.isAcceptableOrUnknown(data['url']!, _urlMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_urlMeta);
+    }
+    if (data.containsKey('url_key')) {
+      context.handle(
+        _urlKeyMeta,
+        urlKey.isAcceptableOrUnknown(data['url_key']!, _urlKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_urlKeyMeta);
+    }
+    if (data.containsKey('host')) {
+      context.handle(
+        _hostMeta,
+        host.isAcceptableOrUnknown(data['host']!, _hostMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_hostMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('source')) {
+      context.handle(
+        _sourceMeta,
+        source.isAcceptableOrUnknown(data['source']!, _sourceMeta),
+      );
+    }
+    if (data.containsKey('final_url')) {
+      context.handle(
+        _finalUrlMeta,
+        finalUrl.isAcceptableOrUnknown(data['final_url']!, _finalUrlMeta),
+      );
+    }
+    if (data.containsKey('completed')) {
+      context.handle(
+        _completedMeta,
+        completed.isAcceptableOrUnknown(data['completed']!, _completedMeta),
+      );
+    }
+    if (data.containsKey('visited_at')) {
+      context.handle(
+        _visitedAtMeta,
+        visitedAt.isAcceptableOrUnknown(data['visited_at']!, _visitedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_visitedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  BrowsingHistoryData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return BrowsingHistoryData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      url: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url'],
+      )!,
+      urlKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url_key'],
+      )!,
+      host: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}host'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      finalUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}final_url'],
+      ),
+      completed: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}completed'],
+      )!,
+      visitedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}visited_at'],
+      )!,
+    );
+  }
+
+  @override
+  $BrowsingHistoryTable createAlias(String alias) {
+    return $BrowsingHistoryTable(attachedDatabase, alias);
+  }
+}
+
+class BrowsingHistoryData extends DataClass
+    implements Insertable<BrowsingHistoryData> {
+  final String id;
+
+  /// The address as the user would read it back.
+  final String url;
+
+  /// [normalizeUrl] of [url]. Grouping, dedup-within-a-window and
+  /// "remove every visit to this page" all key off this, never the raw text.
+  final String urlKey;
+  final String host;
+  final String title;
+
+  /// Where the visit came from. Persisted even though the UI only ever shows
+  /// `manual`: a row that says how it got here is debuggable, and a filter is
+  /// cheaper to widen than a lost column is to reconstruct.
+  final String source;
+
+  /// The address the load actually settled on, when a redirect moved it.
+  /// Null when nothing redirected.
+  final String? finalUrl;
+
+  /// Only completed, user-visible destinations are recorded, so this is true
+  /// for every row written today. Kept because "the load finished" is the
+  /// property the recording rule turns on, and an explicit column is what
+  /// makes that rule inspectable rather than implied by absence.
+  final bool completed;
+  final DateTime visitedAt;
+  const BrowsingHistoryData({
+    required this.id,
+    required this.url,
+    required this.urlKey,
+    required this.host,
+    required this.title,
+    required this.source,
+    this.finalUrl,
+    required this.completed,
+    required this.visitedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['url'] = Variable<String>(url);
+    map['url_key'] = Variable<String>(urlKey);
+    map['host'] = Variable<String>(host);
+    map['title'] = Variable<String>(title);
+    map['source'] = Variable<String>(source);
+    if (!nullToAbsent || finalUrl != null) {
+      map['final_url'] = Variable<String>(finalUrl);
+    }
+    map['completed'] = Variable<bool>(completed);
+    map['visited_at'] = Variable<DateTime>(visitedAt);
+    return map;
+  }
+
+  BrowsingHistoryCompanion toCompanion(bool nullToAbsent) {
+    return BrowsingHistoryCompanion(
+      id: Value(id),
+      url: Value(url),
+      urlKey: Value(urlKey),
+      host: Value(host),
+      title: Value(title),
+      source: Value(source),
+      finalUrl: finalUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(finalUrl),
+      completed: Value(completed),
+      visitedAt: Value(visitedAt),
+    );
+  }
+
+  factory BrowsingHistoryData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return BrowsingHistoryData(
+      id: serializer.fromJson<String>(json['id']),
+      url: serializer.fromJson<String>(json['url']),
+      urlKey: serializer.fromJson<String>(json['urlKey']),
+      host: serializer.fromJson<String>(json['host']),
+      title: serializer.fromJson<String>(json['title']),
+      source: serializer.fromJson<String>(json['source']),
+      finalUrl: serializer.fromJson<String?>(json['finalUrl']),
+      completed: serializer.fromJson<bool>(json['completed']),
+      visitedAt: serializer.fromJson<DateTime>(json['visitedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'url': serializer.toJson<String>(url),
+      'urlKey': serializer.toJson<String>(urlKey),
+      'host': serializer.toJson<String>(host),
+      'title': serializer.toJson<String>(title),
+      'source': serializer.toJson<String>(source),
+      'finalUrl': serializer.toJson<String?>(finalUrl),
+      'completed': serializer.toJson<bool>(completed),
+      'visitedAt': serializer.toJson<DateTime>(visitedAt),
+    };
+  }
+
+  BrowsingHistoryData copyWith({
+    String? id,
+    String? url,
+    String? urlKey,
+    String? host,
+    String? title,
+    String? source,
+    Value<String?> finalUrl = const Value.absent(),
+    bool? completed,
+    DateTime? visitedAt,
+  }) => BrowsingHistoryData(
+    id: id ?? this.id,
+    url: url ?? this.url,
+    urlKey: urlKey ?? this.urlKey,
+    host: host ?? this.host,
+    title: title ?? this.title,
+    source: source ?? this.source,
+    finalUrl: finalUrl.present ? finalUrl.value : this.finalUrl,
+    completed: completed ?? this.completed,
+    visitedAt: visitedAt ?? this.visitedAt,
+  );
+  BrowsingHistoryData copyWithCompanion(BrowsingHistoryCompanion data) {
+    return BrowsingHistoryData(
+      id: data.id.present ? data.id.value : this.id,
+      url: data.url.present ? data.url.value : this.url,
+      urlKey: data.urlKey.present ? data.urlKey.value : this.urlKey,
+      host: data.host.present ? data.host.value : this.host,
+      title: data.title.present ? data.title.value : this.title,
+      source: data.source.present ? data.source.value : this.source,
+      finalUrl: data.finalUrl.present ? data.finalUrl.value : this.finalUrl,
+      completed: data.completed.present ? data.completed.value : this.completed,
+      visitedAt: data.visitedAt.present ? data.visitedAt.value : this.visitedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BrowsingHistoryData(')
+          ..write('id: $id, ')
+          ..write('url: $url, ')
+          ..write('urlKey: $urlKey, ')
+          ..write('host: $host, ')
+          ..write('title: $title, ')
+          ..write('source: $source, ')
+          ..write('finalUrl: $finalUrl, ')
+          ..write('completed: $completed, ')
+          ..write('visitedAt: $visitedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    url,
+    urlKey,
+    host,
+    title,
+    source,
+    finalUrl,
+    completed,
+    visitedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BrowsingHistoryData &&
+          other.id == this.id &&
+          other.url == this.url &&
+          other.urlKey == this.urlKey &&
+          other.host == this.host &&
+          other.title == this.title &&
+          other.source == this.source &&
+          other.finalUrl == this.finalUrl &&
+          other.completed == this.completed &&
+          other.visitedAt == this.visitedAt);
+}
+
+class BrowsingHistoryCompanion extends UpdateCompanion<BrowsingHistoryData> {
+  final Value<String> id;
+  final Value<String> url;
+  final Value<String> urlKey;
+  final Value<String> host;
+  final Value<String> title;
+  final Value<String> source;
+  final Value<String?> finalUrl;
+  final Value<bool> completed;
+  final Value<DateTime> visitedAt;
+  final Value<int> rowid;
+  const BrowsingHistoryCompanion({
+    this.id = const Value.absent(),
+    this.url = const Value.absent(),
+    this.urlKey = const Value.absent(),
+    this.host = const Value.absent(),
+    this.title = const Value.absent(),
+    this.source = const Value.absent(),
+    this.finalUrl = const Value.absent(),
+    this.completed = const Value.absent(),
+    this.visitedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  BrowsingHistoryCompanion.insert({
+    required String id,
+    required String url,
+    required String urlKey,
+    required String host,
+    required String title,
+    this.source = const Value.absent(),
+    this.finalUrl = const Value.absent(),
+    this.completed = const Value.absent(),
+    required DateTime visitedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       url = Value(url),
+       urlKey = Value(urlKey),
+       host = Value(host),
+       title = Value(title),
+       visitedAt = Value(visitedAt);
+  static Insertable<BrowsingHistoryData> custom({
+    Expression<String>? id,
+    Expression<String>? url,
+    Expression<String>? urlKey,
+    Expression<String>? host,
+    Expression<String>? title,
+    Expression<String>? source,
+    Expression<String>? finalUrl,
+    Expression<bool>? completed,
+    Expression<DateTime>? visitedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (url != null) 'url': url,
+      if (urlKey != null) 'url_key': urlKey,
+      if (host != null) 'host': host,
+      if (title != null) 'title': title,
+      if (source != null) 'source': source,
+      if (finalUrl != null) 'final_url': finalUrl,
+      if (completed != null) 'completed': completed,
+      if (visitedAt != null) 'visited_at': visitedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  BrowsingHistoryCompanion copyWith({
+    Value<String>? id,
+    Value<String>? url,
+    Value<String>? urlKey,
+    Value<String>? host,
+    Value<String>? title,
+    Value<String>? source,
+    Value<String?>? finalUrl,
+    Value<bool>? completed,
+    Value<DateTime>? visitedAt,
+    Value<int>? rowid,
+  }) {
+    return BrowsingHistoryCompanion(
+      id: id ?? this.id,
+      url: url ?? this.url,
+      urlKey: urlKey ?? this.urlKey,
+      host: host ?? this.host,
+      title: title ?? this.title,
+      source: source ?? this.source,
+      finalUrl: finalUrl ?? this.finalUrl,
+      completed: completed ?? this.completed,
+      visitedAt: visitedAt ?? this.visitedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (url.present) {
+      map['url'] = Variable<String>(url.value);
+    }
+    if (urlKey.present) {
+      map['url_key'] = Variable<String>(urlKey.value);
+    }
+    if (host.present) {
+      map['host'] = Variable<String>(host.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (finalUrl.present) {
+      map['final_url'] = Variable<String>(finalUrl.value);
+    }
+    if (completed.present) {
+      map['completed'] = Variable<bool>(completed.value);
+    }
+    if (visitedAt.present) {
+      map['visited_at'] = Variable<DateTime>(visitedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BrowsingHistoryCompanion(')
+          ..write('id: $id, ')
+          ..write('url: $url, ')
+          ..write('urlKey: $urlKey, ')
+          ..write('host: $host, ')
+          ..write('title: $title, ')
+          ..write('source: $source, ')
+          ..write('finalUrl: $finalUrl, ')
+          ..write('completed: $completed, ')
+          ..write('visitedAt: $visitedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SavedSitesTable extends SavedSites
+    with TableInfo<$SavedSitesTable, SavedSite> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SavedSitesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _urlMeta = const VerificationMeta('url');
+  @override
+  late final GeneratedColumn<String> url = GeneratedColumn<String>(
+    'url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _urlKeyMeta = const VerificationMeta('urlKey');
+  @override
+  late final GeneratedColumn<String> urlKey = GeneratedColumn<String>(
+    'url_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hostMeta = const VerificationMeta('host');
+  @override
+  late final GeneratedColumn<String> host = GeneratedColumn<String>(
+    'host',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _userTitleMeta = const VerificationMeta(
+    'userTitle',
+  );
+  @override
+  late final GeneratedColumn<String> userTitle = GeneratedColumn<String>(
+    'user_title',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastOpenedAtMeta = const VerificationMeta(
+    'lastOpenedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastOpenedAt = GeneratedColumn<DateTime>(
+    'last_opened_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _orderIndexMeta = const VerificationMeta(
+    'orderIndex',
+  );
+  @override
+  late final GeneratedColumn<int> orderIndex = GeneratedColumn<int>(
+    'order_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _isDefaultMeta = const VerificationMeta(
+    'isDefault',
+  );
+  @override
+  late final GeneratedColumn<bool> isDefault = GeneratedColumn<bool>(
+    'is_default',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_default" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    url,
+    urlKey,
+    host,
+    title,
+    userTitle,
+    createdAt,
+    updatedAt,
+    lastOpenedAt,
+    orderIndex,
+    isDefault,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'saved_sites';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SavedSite> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('url')) {
+      context.handle(
+        _urlMeta,
+        url.isAcceptableOrUnknown(data['url']!, _urlMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_urlMeta);
+    }
+    if (data.containsKey('url_key')) {
+      context.handle(
+        _urlKeyMeta,
+        urlKey.isAcceptableOrUnknown(data['url_key']!, _urlKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_urlKeyMeta);
+    }
+    if (data.containsKey('host')) {
+      context.handle(
+        _hostMeta,
+        host.isAcceptableOrUnknown(data['host']!, _hostMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_hostMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('user_title')) {
+      context.handle(
+        _userTitleMeta,
+        userTitle.isAcceptableOrUnknown(data['user_title']!, _userTitleMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('last_opened_at')) {
+      context.handle(
+        _lastOpenedAtMeta,
+        lastOpenedAt.isAcceptableOrUnknown(
+          data['last_opened_at']!,
+          _lastOpenedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('order_index')) {
+      context.handle(
+        _orderIndexMeta,
+        orderIndex.isAcceptableOrUnknown(data['order_index']!, _orderIndexMeta),
+      );
+    }
+    if (data.containsKey('is_default')) {
+      context.handle(
+        _isDefaultMeta,
+        isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SavedSite map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SavedSite(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      url: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url'],
+      )!,
+      urlKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url_key'],
+      )!,
+      host: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}host'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      userTitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_title'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      lastOpenedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_opened_at'],
+      ),
+      orderIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}order_index'],
+      )!,
+      isDefault: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_default'],
+      )!,
+    );
+  }
+
+  @override
+  $SavedSitesTable createAlias(String alias) {
+    return $SavedSitesTable(attachedDatabase, alias);
+  }
+}
+
+class SavedSite extends DataClass implements Insertable<SavedSite> {
+  final String id;
+  final String url;
+
+  /// Identity for duplicate detection. Two saved sites may share a host; they
+  /// may not share a normalised URL.
+  final String urlKey;
+  final String host;
+
+  /// The title as captured from the page (or derived from the host).
+  final String title;
+
+  /// What the user typed instead. Presentation only — [title] is kept so
+  /// clearing a rename falls back to something real.
+  final String? userTitle;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final DateTime? lastOpenedAt;
+
+  /// Hand-ordered position. Ties fall back to [createdAt], so a row that was
+  /// never reordered still has a stable place.
+  final int orderIndex;
+
+  /// True for the Google row seeded on a clean install. Only meaningful to
+  /// the seeder: the user may rename, re-point, reorder or remove it exactly
+  /// like any other row, and it is never recreated afterwards (D54).
+  final bool isDefault;
+  const SavedSite({
+    required this.id,
+    required this.url,
+    required this.urlKey,
+    required this.host,
+    required this.title,
+    this.userTitle,
+    required this.createdAt,
+    required this.updatedAt,
+    this.lastOpenedAt,
+    required this.orderIndex,
+    required this.isDefault,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['url'] = Variable<String>(url);
+    map['url_key'] = Variable<String>(urlKey);
+    map['host'] = Variable<String>(host);
+    map['title'] = Variable<String>(title);
+    if (!nullToAbsent || userTitle != null) {
+      map['user_title'] = Variable<String>(userTitle);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || lastOpenedAt != null) {
+      map['last_opened_at'] = Variable<DateTime>(lastOpenedAt);
+    }
+    map['order_index'] = Variable<int>(orderIndex);
+    map['is_default'] = Variable<bool>(isDefault);
+    return map;
+  }
+
+  SavedSitesCompanion toCompanion(bool nullToAbsent) {
+    return SavedSitesCompanion(
+      id: Value(id),
+      url: Value(url),
+      urlKey: Value(urlKey),
+      host: Value(host),
+      title: Value(title),
+      userTitle: userTitle == null && nullToAbsent
+          ? const Value.absent()
+          : Value(userTitle),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      lastOpenedAt: lastOpenedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastOpenedAt),
+      orderIndex: Value(orderIndex),
+      isDefault: Value(isDefault),
+    );
+  }
+
+  factory SavedSite.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SavedSite(
+      id: serializer.fromJson<String>(json['id']),
+      url: serializer.fromJson<String>(json['url']),
+      urlKey: serializer.fromJson<String>(json['urlKey']),
+      host: serializer.fromJson<String>(json['host']),
+      title: serializer.fromJson<String>(json['title']),
+      userTitle: serializer.fromJson<String?>(json['userTitle']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      lastOpenedAt: serializer.fromJson<DateTime?>(json['lastOpenedAt']),
+      orderIndex: serializer.fromJson<int>(json['orderIndex']),
+      isDefault: serializer.fromJson<bool>(json['isDefault']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'url': serializer.toJson<String>(url),
+      'urlKey': serializer.toJson<String>(urlKey),
+      'host': serializer.toJson<String>(host),
+      'title': serializer.toJson<String>(title),
+      'userTitle': serializer.toJson<String?>(userTitle),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'lastOpenedAt': serializer.toJson<DateTime?>(lastOpenedAt),
+      'orderIndex': serializer.toJson<int>(orderIndex),
+      'isDefault': serializer.toJson<bool>(isDefault),
+    };
+  }
+
+  SavedSite copyWith({
+    String? id,
+    String? url,
+    String? urlKey,
+    String? host,
+    String? title,
+    Value<String?> userTitle = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    Value<DateTime?> lastOpenedAt = const Value.absent(),
+    int? orderIndex,
+    bool? isDefault,
+  }) => SavedSite(
+    id: id ?? this.id,
+    url: url ?? this.url,
+    urlKey: urlKey ?? this.urlKey,
+    host: host ?? this.host,
+    title: title ?? this.title,
+    userTitle: userTitle.present ? userTitle.value : this.userTitle,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    lastOpenedAt: lastOpenedAt.present ? lastOpenedAt.value : this.lastOpenedAt,
+    orderIndex: orderIndex ?? this.orderIndex,
+    isDefault: isDefault ?? this.isDefault,
+  );
+  SavedSite copyWithCompanion(SavedSitesCompanion data) {
+    return SavedSite(
+      id: data.id.present ? data.id.value : this.id,
+      url: data.url.present ? data.url.value : this.url,
+      urlKey: data.urlKey.present ? data.urlKey.value : this.urlKey,
+      host: data.host.present ? data.host.value : this.host,
+      title: data.title.present ? data.title.value : this.title,
+      userTitle: data.userTitle.present ? data.userTitle.value : this.userTitle,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      lastOpenedAt: data.lastOpenedAt.present
+          ? data.lastOpenedAt.value
+          : this.lastOpenedAt,
+      orderIndex: data.orderIndex.present
+          ? data.orderIndex.value
+          : this.orderIndex,
+      isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SavedSite(')
+          ..write('id: $id, ')
+          ..write('url: $url, ')
+          ..write('urlKey: $urlKey, ')
+          ..write('host: $host, ')
+          ..write('title: $title, ')
+          ..write('userTitle: $userTitle, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('lastOpenedAt: $lastOpenedAt, ')
+          ..write('orderIndex: $orderIndex, ')
+          ..write('isDefault: $isDefault')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    url,
+    urlKey,
+    host,
+    title,
+    userTitle,
+    createdAt,
+    updatedAt,
+    lastOpenedAt,
+    orderIndex,
+    isDefault,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SavedSite &&
+          other.id == this.id &&
+          other.url == this.url &&
+          other.urlKey == this.urlKey &&
+          other.host == this.host &&
+          other.title == this.title &&
+          other.userTitle == this.userTitle &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.lastOpenedAt == this.lastOpenedAt &&
+          other.orderIndex == this.orderIndex &&
+          other.isDefault == this.isDefault);
+}
+
+class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
+  final Value<String> id;
+  final Value<String> url;
+  final Value<String> urlKey;
+  final Value<String> host;
+  final Value<String> title;
+  final Value<String?> userTitle;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<DateTime?> lastOpenedAt;
+  final Value<int> orderIndex;
+  final Value<bool> isDefault;
+  final Value<int> rowid;
+  const SavedSitesCompanion({
+    this.id = const Value.absent(),
+    this.url = const Value.absent(),
+    this.urlKey = const Value.absent(),
+    this.host = const Value.absent(),
+    this.title = const Value.absent(),
+    this.userTitle = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.lastOpenedAt = const Value.absent(),
+    this.orderIndex = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SavedSitesCompanion.insert({
+    required String id,
+    required String url,
+    required String urlKey,
+    required String host,
+    required String title,
+    this.userTitle = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.lastOpenedAt = const Value.absent(),
+    this.orderIndex = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       url = Value(url),
+       urlKey = Value(urlKey),
+       host = Value(host),
+       title = Value(title),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<SavedSite> custom({
+    Expression<String>? id,
+    Expression<String>? url,
+    Expression<String>? urlKey,
+    Expression<String>? host,
+    Expression<String>? title,
+    Expression<String>? userTitle,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<DateTime>? lastOpenedAt,
+    Expression<int>? orderIndex,
+    Expression<bool>? isDefault,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (url != null) 'url': url,
+      if (urlKey != null) 'url_key': urlKey,
+      if (host != null) 'host': host,
+      if (title != null) 'title': title,
+      if (userTitle != null) 'user_title': userTitle,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (lastOpenedAt != null) 'last_opened_at': lastOpenedAt,
+      if (orderIndex != null) 'order_index': orderIndex,
+      if (isDefault != null) 'is_default': isDefault,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SavedSitesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? url,
+    Value<String>? urlKey,
+    Value<String>? host,
+    Value<String>? title,
+    Value<String?>? userTitle,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<DateTime?>? lastOpenedAt,
+    Value<int>? orderIndex,
+    Value<bool>? isDefault,
+    Value<int>? rowid,
+  }) {
+    return SavedSitesCompanion(
+      id: id ?? this.id,
+      url: url ?? this.url,
+      urlKey: urlKey ?? this.urlKey,
+      host: host ?? this.host,
+      title: title ?? this.title,
+      userTitle: userTitle ?? this.userTitle,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
+      orderIndex: orderIndex ?? this.orderIndex,
+      isDefault: isDefault ?? this.isDefault,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (url.present) {
+      map['url'] = Variable<String>(url.value);
+    }
+    if (urlKey.present) {
+      map['url_key'] = Variable<String>(urlKey.value);
+    }
+    if (host.present) {
+      map['host'] = Variable<String>(host.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (userTitle.present) {
+      map['user_title'] = Variable<String>(userTitle.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (lastOpenedAt.present) {
+      map['last_opened_at'] = Variable<DateTime>(lastOpenedAt.value);
+    }
+    if (orderIndex.present) {
+      map['order_index'] = Variable<int>(orderIndex.value);
+    }
+    if (isDefault.present) {
+      map['is_default'] = Variable<bool>(isDefault.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SavedSitesCompanion(')
+          ..write('id: $id, ')
+          ..write('url: $url, ')
+          ..write('urlKey: $urlKey, ')
+          ..write('host: $host, ')
+          ..write('title: $title, ')
+          ..write('userTitle: $userTitle, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('lastOpenedAt: $lastOpenedAt, ')
+          ..write('orderIndex: $orderIndex, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $FaviconCacheTable extends FaviconCache
+    with TableInfo<$FaviconCacheTable, FaviconCacheData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $FaviconCacheTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _hostMeta = const VerificationMeta('host');
+  @override
+  late final GeneratedColumn<String> host = GeneratedColumn<String>(
+    'host',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bytesMeta = const VerificationMeta('bytes');
+  @override
+  late final GeneratedColumn<Uint8List> bytes = GeneratedColumn<Uint8List>(
+    'bytes',
+    aliasedName,
+    true,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sourceUrlMeta = const VerificationMeta(
+    'sourceUrl',
+  );
+  @override
+  late final GeneratedColumn<String> sourceUrl = GeneratedColumn<String>(
+    'source_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _fetchedAtMeta = const VerificationMeta(
+    'fetchedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> fetchedAt = GeneratedColumn<DateTime>(
+    'fetched_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [host, bytes, sourceUrl, fetchedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'favicon_cache';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<FaviconCacheData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('host')) {
+      context.handle(
+        _hostMeta,
+        host.isAcceptableOrUnknown(data['host']!, _hostMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_hostMeta);
+    }
+    if (data.containsKey('bytes')) {
+      context.handle(
+        _bytesMeta,
+        bytes.isAcceptableOrUnknown(data['bytes']!, _bytesMeta),
+      );
+    }
+    if (data.containsKey('source_url')) {
+      context.handle(
+        _sourceUrlMeta,
+        sourceUrl.isAcceptableOrUnknown(data['source_url']!, _sourceUrlMeta),
+      );
+    }
+    if (data.containsKey('fetched_at')) {
+      context.handle(
+        _fetchedAtMeta,
+        fetchedAt.isAcceptableOrUnknown(data['fetched_at']!, _fetchedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_fetchedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {host};
+  @override
+  FaviconCacheData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return FaviconCacheData(
+      host: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}host'],
+      )!,
+      bytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}bytes'],
+      ),
+      sourceUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_url'],
+      ),
+      fetchedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}fetched_at'],
+      )!,
+    );
+  }
+
+  @override
+  $FaviconCacheTable createAlias(String alias) {
+    return $FaviconCacheTable(attachedDatabase, alias);
+  }
+}
+
+class FaviconCacheData extends DataClass
+    implements Insertable<FaviconCacheData> {
+  final String host;
+
+  /// The icon bytes, or null when the last attempt failed. A null row is a
+  /// *negative* cache entry — it stops every list rebuild from re-requesting
+  /// an icon the site does not have.
+  final Uint8List? bytes;
+
+  /// Where the bytes came from, for debugging a wrong icon.
+  final String? sourceUrl;
+  final DateTime fetchedAt;
+  const FaviconCacheData({
+    required this.host,
+    this.bytes,
+    this.sourceUrl,
+    required this.fetchedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['host'] = Variable<String>(host);
+    if (!nullToAbsent || bytes != null) {
+      map['bytes'] = Variable<Uint8List>(bytes);
+    }
+    if (!nullToAbsent || sourceUrl != null) {
+      map['source_url'] = Variable<String>(sourceUrl);
+    }
+    map['fetched_at'] = Variable<DateTime>(fetchedAt);
+    return map;
+  }
+
+  FaviconCacheCompanion toCompanion(bool nullToAbsent) {
+    return FaviconCacheCompanion(
+      host: Value(host),
+      bytes: bytes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(bytes),
+      sourceUrl: sourceUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceUrl),
+      fetchedAt: Value(fetchedAt),
+    );
+  }
+
+  factory FaviconCacheData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return FaviconCacheData(
+      host: serializer.fromJson<String>(json['host']),
+      bytes: serializer.fromJson<Uint8List?>(json['bytes']),
+      sourceUrl: serializer.fromJson<String?>(json['sourceUrl']),
+      fetchedAt: serializer.fromJson<DateTime>(json['fetchedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'host': serializer.toJson<String>(host),
+      'bytes': serializer.toJson<Uint8List?>(bytes),
+      'sourceUrl': serializer.toJson<String?>(sourceUrl),
+      'fetchedAt': serializer.toJson<DateTime>(fetchedAt),
+    };
+  }
+
+  FaviconCacheData copyWith({
+    String? host,
+    Value<Uint8List?> bytes = const Value.absent(),
+    Value<String?> sourceUrl = const Value.absent(),
+    DateTime? fetchedAt,
+  }) => FaviconCacheData(
+    host: host ?? this.host,
+    bytes: bytes.present ? bytes.value : this.bytes,
+    sourceUrl: sourceUrl.present ? sourceUrl.value : this.sourceUrl,
+    fetchedAt: fetchedAt ?? this.fetchedAt,
+  );
+  FaviconCacheData copyWithCompanion(FaviconCacheCompanion data) {
+    return FaviconCacheData(
+      host: data.host.present ? data.host.value : this.host,
+      bytes: data.bytes.present ? data.bytes.value : this.bytes,
+      sourceUrl: data.sourceUrl.present ? data.sourceUrl.value : this.sourceUrl,
+      fetchedAt: data.fetchedAt.present ? data.fetchedAt.value : this.fetchedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('FaviconCacheData(')
+          ..write('host: $host, ')
+          ..write('bytes: $bytes, ')
+          ..write('sourceUrl: $sourceUrl, ')
+          ..write('fetchedAt: $fetchedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(host, $driftBlobEquality.hash(bytes), sourceUrl, fetchedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is FaviconCacheData &&
+          other.host == this.host &&
+          $driftBlobEquality.equals(other.bytes, this.bytes) &&
+          other.sourceUrl == this.sourceUrl &&
+          other.fetchedAt == this.fetchedAt);
+}
+
+class FaviconCacheCompanion extends UpdateCompanion<FaviconCacheData> {
+  final Value<String> host;
+  final Value<Uint8List?> bytes;
+  final Value<String?> sourceUrl;
+  final Value<DateTime> fetchedAt;
+  final Value<int> rowid;
+  const FaviconCacheCompanion({
+    this.host = const Value.absent(),
+    this.bytes = const Value.absent(),
+    this.sourceUrl = const Value.absent(),
+    this.fetchedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  FaviconCacheCompanion.insert({
+    required String host,
+    this.bytes = const Value.absent(),
+    this.sourceUrl = const Value.absent(),
+    required DateTime fetchedAt,
+    this.rowid = const Value.absent(),
+  }) : host = Value(host),
+       fetchedAt = Value(fetchedAt);
+  static Insertable<FaviconCacheData> custom({
+    Expression<String>? host,
+    Expression<Uint8List>? bytes,
+    Expression<String>? sourceUrl,
+    Expression<DateTime>? fetchedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (host != null) 'host': host,
+      if (bytes != null) 'bytes': bytes,
+      if (sourceUrl != null) 'source_url': sourceUrl,
+      if (fetchedAt != null) 'fetched_at': fetchedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  FaviconCacheCompanion copyWith({
+    Value<String>? host,
+    Value<Uint8List?>? bytes,
+    Value<String?>? sourceUrl,
+    Value<DateTime>? fetchedAt,
+    Value<int>? rowid,
+  }) {
+    return FaviconCacheCompanion(
+      host: host ?? this.host,
+      bytes: bytes ?? this.bytes,
+      sourceUrl: sourceUrl ?? this.sourceUrl,
+      fetchedAt: fetchedAt ?? this.fetchedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (host.present) {
+      map['host'] = Variable<String>(host.value);
+    }
+    if (bytes.present) {
+      map['bytes'] = Variable<Uint8List>(bytes.value);
+    }
+    if (sourceUrl.present) {
+      map['source_url'] = Variable<String>(sourceUrl.value);
+    }
+    if (fetchedAt.present) {
+      map['fetched_at'] = Variable<DateTime>(fetchedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('FaviconCacheCompanion(')
+          ..write('host: $host, ')
+          ..write('bytes: $bytes, ')
+          ..write('sourceUrl: $sourceUrl, ')
+          ..write('fetchedAt: $fetchedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -5738,6 +7298,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $SiteRuleRowsTable siteRuleRows = $SiteRuleRowsTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
   late final $QueueTasksTable queueTasks = $QueueTasksTable(this);
+  late final $BrowsingHistoryTable browsingHistory = $BrowsingHistoryTable(
+    this,
+  );
+  late final $SavedSitesTable savedSites = $SavedSitesTable(this);
+  late final $FaviconCacheTable faviconCache = $FaviconCacheTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5749,6 +7314,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     siteRuleRows,
     settings,
     queueTasks,
+    browsingHistory,
+    savedSites,
+    faviconCache,
   ];
 }
 
@@ -8487,6 +10055,788 @@ typedef $$QueueTasksTableProcessedTableManager =
       QueueTask,
       PrefetchHooks Function()
     >;
+typedef $$BrowsingHistoryTableCreateCompanionBuilder =
+    BrowsingHistoryCompanion Function({
+      required String id,
+      required String url,
+      required String urlKey,
+      required String host,
+      required String title,
+      Value<String> source,
+      Value<String?> finalUrl,
+      Value<bool> completed,
+      required DateTime visitedAt,
+      Value<int> rowid,
+    });
+typedef $$BrowsingHistoryTableUpdateCompanionBuilder =
+    BrowsingHistoryCompanion Function({
+      Value<String> id,
+      Value<String> url,
+      Value<String> urlKey,
+      Value<String> host,
+      Value<String> title,
+      Value<String> source,
+      Value<String?> finalUrl,
+      Value<bool> completed,
+      Value<DateTime> visitedAt,
+      Value<int> rowid,
+    });
+
+class $$BrowsingHistoryTableFilterComposer
+    extends Composer<_$AppDatabase, $BrowsingHistoryTable> {
+  $$BrowsingHistoryTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get urlKey => $composableBuilder(
+    column: $table.urlKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get finalUrl => $composableBuilder(
+    column: $table.finalUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get completed => $composableBuilder(
+    column: $table.completed,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get visitedAt => $composableBuilder(
+    column: $table.visitedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$BrowsingHistoryTableOrderingComposer
+    extends Composer<_$AppDatabase, $BrowsingHistoryTable> {
+  $$BrowsingHistoryTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get urlKey => $composableBuilder(
+    column: $table.urlKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get finalUrl => $composableBuilder(
+    column: $table.finalUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get completed => $composableBuilder(
+    column: $table.completed,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get visitedAt => $composableBuilder(
+    column: $table.visitedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$BrowsingHistoryTableAnnotationComposer
+    extends Composer<_$AppDatabase, $BrowsingHistoryTable> {
+  $$BrowsingHistoryTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get url =>
+      $composableBuilder(column: $table.url, builder: (column) => column);
+
+  GeneratedColumn<String> get urlKey =>
+      $composableBuilder(column: $table.urlKey, builder: (column) => column);
+
+  GeneratedColumn<String> get host =>
+      $composableBuilder(column: $table.host, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get finalUrl =>
+      $composableBuilder(column: $table.finalUrl, builder: (column) => column);
+
+  GeneratedColumn<bool> get completed =>
+      $composableBuilder(column: $table.completed, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get visitedAt =>
+      $composableBuilder(column: $table.visitedAt, builder: (column) => column);
+}
+
+class $$BrowsingHistoryTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $BrowsingHistoryTable,
+          BrowsingHistoryData,
+          $$BrowsingHistoryTableFilterComposer,
+          $$BrowsingHistoryTableOrderingComposer,
+          $$BrowsingHistoryTableAnnotationComposer,
+          $$BrowsingHistoryTableCreateCompanionBuilder,
+          $$BrowsingHistoryTableUpdateCompanionBuilder,
+          (
+            BrowsingHistoryData,
+            BaseReferences<
+              _$AppDatabase,
+              $BrowsingHistoryTable,
+              BrowsingHistoryData
+            >,
+          ),
+          BrowsingHistoryData,
+          PrefetchHooks Function()
+        > {
+  $$BrowsingHistoryTableTableManager(
+    _$AppDatabase db,
+    $BrowsingHistoryTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$BrowsingHistoryTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$BrowsingHistoryTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$BrowsingHistoryTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> url = const Value.absent(),
+                Value<String> urlKey = const Value.absent(),
+                Value<String> host = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<String?> finalUrl = const Value.absent(),
+                Value<bool> completed = const Value.absent(),
+                Value<DateTime> visitedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => BrowsingHistoryCompanion(
+                id: id,
+                url: url,
+                urlKey: urlKey,
+                host: host,
+                title: title,
+                source: source,
+                finalUrl: finalUrl,
+                completed: completed,
+                visitedAt: visitedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String url,
+                required String urlKey,
+                required String host,
+                required String title,
+                Value<String> source = const Value.absent(),
+                Value<String?> finalUrl = const Value.absent(),
+                Value<bool> completed = const Value.absent(),
+                required DateTime visitedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => BrowsingHistoryCompanion.insert(
+                id: id,
+                url: url,
+                urlKey: urlKey,
+                host: host,
+                title: title,
+                source: source,
+                finalUrl: finalUrl,
+                completed: completed,
+                visitedAt: visitedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$BrowsingHistoryTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $BrowsingHistoryTable,
+      BrowsingHistoryData,
+      $$BrowsingHistoryTableFilterComposer,
+      $$BrowsingHistoryTableOrderingComposer,
+      $$BrowsingHistoryTableAnnotationComposer,
+      $$BrowsingHistoryTableCreateCompanionBuilder,
+      $$BrowsingHistoryTableUpdateCompanionBuilder,
+      (
+        BrowsingHistoryData,
+        BaseReferences<
+          _$AppDatabase,
+          $BrowsingHistoryTable,
+          BrowsingHistoryData
+        >,
+      ),
+      BrowsingHistoryData,
+      PrefetchHooks Function()
+    >;
+typedef $$SavedSitesTableCreateCompanionBuilder =
+    SavedSitesCompanion Function({
+      required String id,
+      required String url,
+      required String urlKey,
+      required String host,
+      required String title,
+      Value<String?> userTitle,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      Value<DateTime?> lastOpenedAt,
+      Value<int> orderIndex,
+      Value<bool> isDefault,
+      Value<int> rowid,
+    });
+typedef $$SavedSitesTableUpdateCompanionBuilder =
+    SavedSitesCompanion Function({
+      Value<String> id,
+      Value<String> url,
+      Value<String> urlKey,
+      Value<String> host,
+      Value<String> title,
+      Value<String?> userTitle,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<DateTime?> lastOpenedAt,
+      Value<int> orderIndex,
+      Value<bool> isDefault,
+      Value<int> rowid,
+    });
+
+class $$SavedSitesTableFilterComposer
+    extends Composer<_$AppDatabase, $SavedSitesTable> {
+  $$SavedSitesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get urlKey => $composableBuilder(
+    column: $table.urlKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userTitle => $composableBuilder(
+    column: $table.userTitle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastOpenedAt => $composableBuilder(
+    column: $table.lastOpenedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get orderIndex => $composableBuilder(
+    column: $table.orderIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SavedSitesTableOrderingComposer
+    extends Composer<_$AppDatabase, $SavedSitesTable> {
+  $$SavedSitesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get urlKey => $composableBuilder(
+    column: $table.urlKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userTitle => $composableBuilder(
+    column: $table.userTitle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastOpenedAt => $composableBuilder(
+    column: $table.lastOpenedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get orderIndex => $composableBuilder(
+    column: $table.orderIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SavedSitesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SavedSitesTable> {
+  $$SavedSitesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get url =>
+      $composableBuilder(column: $table.url, builder: (column) => column);
+
+  GeneratedColumn<String> get urlKey =>
+      $composableBuilder(column: $table.urlKey, builder: (column) => column);
+
+  GeneratedColumn<String> get host =>
+      $composableBuilder(column: $table.host, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get userTitle =>
+      $composableBuilder(column: $table.userTitle, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastOpenedAt => $composableBuilder(
+    column: $table.lastOpenedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get orderIndex => $composableBuilder(
+    column: $table.orderIndex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get isDefault =>
+      $composableBuilder(column: $table.isDefault, builder: (column) => column);
+}
+
+class $$SavedSitesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SavedSitesTable,
+          SavedSite,
+          $$SavedSitesTableFilterComposer,
+          $$SavedSitesTableOrderingComposer,
+          $$SavedSitesTableAnnotationComposer,
+          $$SavedSitesTableCreateCompanionBuilder,
+          $$SavedSitesTableUpdateCompanionBuilder,
+          (
+            SavedSite,
+            BaseReferences<_$AppDatabase, $SavedSitesTable, SavedSite>,
+          ),
+          SavedSite,
+          PrefetchHooks Function()
+        > {
+  $$SavedSitesTableTableManager(_$AppDatabase db, $SavedSitesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SavedSitesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SavedSitesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SavedSitesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> url = const Value.absent(),
+                Value<String> urlKey = const Value.absent(),
+                Value<String> host = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String?> userTitle = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<DateTime?> lastOpenedAt = const Value.absent(),
+                Value<int> orderIndex = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SavedSitesCompanion(
+                id: id,
+                url: url,
+                urlKey: urlKey,
+                host: host,
+                title: title,
+                userTitle: userTitle,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                lastOpenedAt: lastOpenedAt,
+                orderIndex: orderIndex,
+                isDefault: isDefault,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String url,
+                required String urlKey,
+                required String host,
+                required String title,
+                Value<String?> userTitle = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<DateTime?> lastOpenedAt = const Value.absent(),
+                Value<int> orderIndex = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SavedSitesCompanion.insert(
+                id: id,
+                url: url,
+                urlKey: urlKey,
+                host: host,
+                title: title,
+                userTitle: userTitle,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                lastOpenedAt: lastOpenedAt,
+                orderIndex: orderIndex,
+                isDefault: isDefault,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SavedSitesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SavedSitesTable,
+      SavedSite,
+      $$SavedSitesTableFilterComposer,
+      $$SavedSitesTableOrderingComposer,
+      $$SavedSitesTableAnnotationComposer,
+      $$SavedSitesTableCreateCompanionBuilder,
+      $$SavedSitesTableUpdateCompanionBuilder,
+      (SavedSite, BaseReferences<_$AppDatabase, $SavedSitesTable, SavedSite>),
+      SavedSite,
+      PrefetchHooks Function()
+    >;
+typedef $$FaviconCacheTableCreateCompanionBuilder =
+    FaviconCacheCompanion Function({
+      required String host,
+      Value<Uint8List?> bytes,
+      Value<String?> sourceUrl,
+      required DateTime fetchedAt,
+      Value<int> rowid,
+    });
+typedef $$FaviconCacheTableUpdateCompanionBuilder =
+    FaviconCacheCompanion Function({
+      Value<String> host,
+      Value<Uint8List?> bytes,
+      Value<String?> sourceUrl,
+      Value<DateTime> fetchedAt,
+      Value<int> rowid,
+    });
+
+class $$FaviconCacheTableFilterComposer
+    extends Composer<_$AppDatabase, $FaviconCacheTable> {
+  $$FaviconCacheTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceUrl => $composableBuilder(
+    column: $table.sourceUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get fetchedAt => $composableBuilder(
+    column: $table.fetchedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$FaviconCacheTableOrderingComposer
+    extends Composer<_$AppDatabase, $FaviconCacheTable> {
+  $$FaviconCacheTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceUrl => $composableBuilder(
+    column: $table.sourceUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get fetchedAt => $composableBuilder(
+    column: $table.fetchedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$FaviconCacheTableAnnotationComposer
+    extends Composer<_$AppDatabase, $FaviconCacheTable> {
+  $$FaviconCacheTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get host =>
+      $composableBuilder(column: $table.host, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get bytes =>
+      $composableBuilder(column: $table.bytes, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceUrl =>
+      $composableBuilder(column: $table.sourceUrl, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get fetchedAt =>
+      $composableBuilder(column: $table.fetchedAt, builder: (column) => column);
+}
+
+class $$FaviconCacheTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $FaviconCacheTable,
+          FaviconCacheData,
+          $$FaviconCacheTableFilterComposer,
+          $$FaviconCacheTableOrderingComposer,
+          $$FaviconCacheTableAnnotationComposer,
+          $$FaviconCacheTableCreateCompanionBuilder,
+          $$FaviconCacheTableUpdateCompanionBuilder,
+          (
+            FaviconCacheData,
+            BaseReferences<_$AppDatabase, $FaviconCacheTable, FaviconCacheData>,
+          ),
+          FaviconCacheData,
+          PrefetchHooks Function()
+        > {
+  $$FaviconCacheTableTableManager(_$AppDatabase db, $FaviconCacheTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$FaviconCacheTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$FaviconCacheTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$FaviconCacheTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> host = const Value.absent(),
+                Value<Uint8List?> bytes = const Value.absent(),
+                Value<String?> sourceUrl = const Value.absent(),
+                Value<DateTime> fetchedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => FaviconCacheCompanion(
+                host: host,
+                bytes: bytes,
+                sourceUrl: sourceUrl,
+                fetchedAt: fetchedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String host,
+                Value<Uint8List?> bytes = const Value.absent(),
+                Value<String?> sourceUrl = const Value.absent(),
+                required DateTime fetchedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => FaviconCacheCompanion.insert(
+                host: host,
+                bytes: bytes,
+                sourceUrl: sourceUrl,
+                fetchedAt: fetchedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$FaviconCacheTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $FaviconCacheTable,
+      FaviconCacheData,
+      $$FaviconCacheTableFilterComposer,
+      $$FaviconCacheTableOrderingComposer,
+      $$FaviconCacheTableAnnotationComposer,
+      $$FaviconCacheTableCreateCompanionBuilder,
+      $$FaviconCacheTableUpdateCompanionBuilder,
+      (
+        FaviconCacheData,
+        BaseReferences<_$AppDatabase, $FaviconCacheTable, FaviconCacheData>,
+      ),
+      FaviconCacheData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -8503,4 +10853,10 @@ class $AppDatabaseManager {
       $$SettingsTableTableManager(_db, _db.settings);
   $$QueueTasksTableTableManager get queueTasks =>
       $$QueueTasksTableTableManager(_db, _db.queueTasks);
+  $$BrowsingHistoryTableTableManager get browsingHistory =>
+      $$BrowsingHistoryTableTableManager(_db, _db.browsingHistory);
+  $$SavedSitesTableTableManager get savedSites =>
+      $$SavedSitesTableTableManager(_db, _db.savedSites);
+  $$FaviconCacheTableTableManager get faviconCache =>
+      $$FaviconCacheTableTableManager(_db, _db.faviconCache);
 }

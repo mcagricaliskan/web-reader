@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'bridge_script.dart';
+import 'browser_presentation.dart';
+import 'browser_url.dart';
+import 'history_repository.dart';
 import 'page_data.dart';
 
 /// The single boundary between the app and `flutter_inappwebview`.
@@ -36,6 +40,36 @@ class BrowserController extends ChangeNotifier {
   /// navigating it at once would corrupt both, so each refuses to start while
   /// the other holds this.
   String? automationOwner;
+
+  /// What kind of navigation the WebView is doing right now.
+  ///
+  /// Set beside [automationOwner] by whoever takes the WebView. History
+  /// recording reads it, and *also* refuses outright while
+  /// [automationOwner] is non-null — two independent guards, because a
+  /// capture flooding the user's history is the failure this exists to
+  /// prevent (D53).
+  NavigationSource navigationSource = NavigationSource.manual;
+
+  /// True when something other than the user is moving the page.
+  bool get isAutomating => automationOwner != null;
+
+  /// The source a visit landing now should be attributed to.
+  ///
+  /// While something holds the WebView, `manual` is not an available answer
+  /// even if nobody set [navigationSource] — a forgotten assignment degrades
+  /// to `internal`, which is excluded from History, rather than to the one
+  /// value that would pollute it.
+  NavigationSource get effectiveNavigationSource {
+    if (!isAutomating) return navigationSource;
+    return navigationSource == NavigationSource.manual
+        ? NavigationSource.internal
+        : navigationSource;
+  }
+
+  /// Called once per completed main-frame load. The history repository is
+  /// wired to this at bootstrap; the controller itself knows nothing about
+  /// storage.
+  void Function(BrowserVisit visit)? onVisitCompleted;
 
   /// Hosts the user has explicitly allowed this session to leave for.
   final Set<String> _allowedHostChanges = {};
@@ -213,21 +247,45 @@ class BrowserController extends ChangeNotifier {
   void onLoadStart(String? url) {
     _isLoading = true;
     _lastError = null;
+    _fault = null;
+    // A load that starts is the previous load's error going away, and the
+    // start of the URL this navigation was *asked* for — kept so a redirect
+    // to a different address is visible as one.
+    _requestedUrl = url ?? _requestedUrl;
     if (url != null) _currentUrl = url;
     notifyListeners();
   }
 
   Future<void> onLoadStop(String? url) async {
+    final hadError = _fault != null;
     _isLoading = false;
     _progress = 1;
     if (url != null) _currentUrl = url;
+    String? iconUrl;
     try {
       _title = await _webView?.getTitle() ?? _title;
       await _refreshHistory();
+      iconUrl = await _readPageIcon();
     } catch (_) {
       // The platform view can be mid-teardown (tab disposed, app shutting
       // down); a closed channel here must not surface as an error.
     }
+    _pageIconUrl = iconUrl;
+
+    // Only a load that finished without a fault is a destination. An error
+    // page the user never wanted is not somewhere they went (§7).
+    if (!hadError && _currentUrl.isNotEmpty) {
+      onVisitCompleted?.call(
+        BrowserVisit(
+          url: _currentUrl,
+          title: _title,
+          source: effectiveNavigationSource,
+          requestedUrl: _requestedUrl,
+          iconUrl: iconUrl,
+        ),
+      );
+    }
+
     notifyListeners();
     for (final c in _navigationCompleters) {
       if (!c.isCompleted) c.complete();
@@ -250,6 +308,88 @@ class BrowserController extends ChangeNotifier {
     _navigationCompleters.clear();
   }
 
+  /// A classified main-frame failure, ready for the design's error copy.
+  ///
+  /// Kept separate from [lastError], which stays the raw platform string —
+  /// the user gets the classification, diagnostics keep the original (§14).
+  BrowserPageFault? _fault;
+  BrowserPageFault? get fault => _fault;
+
+  /// The address this navigation was asked for, before any redirect.
+  String _requestedUrl = '';
+  String get requestedUrl => _requestedUrl;
+
+  /// The icon the current page declared, if any.
+  String? _pageIconUrl;
+  String? get pageIconUrl => _pageIconUrl;
+
+  /// True while the connection is one we would let a capture run on.
+  bool get isSecure =>
+      _currentUrl.startsWith('https://') &&
+      _fault?.state != BrowserPageState.certificate;
+
+  /// Record a classified failure for the current page.
+  void onPageFault({
+    String description = '',
+    String type = '',
+    int? statusCode,
+    bool online = true,
+  }) {
+    final state = classifyPageError(
+      description: description,
+      type: type,
+      statusCode: statusCode,
+      online: online,
+    );
+    _isLoading = false;
+    final detail = statusCode != null
+        ? 'HTTP $statusCode'
+        : [type, description].where((s) => s.isNotEmpty).join(' · ');
+    _lastError = detail;
+    _fault = BrowserPageFault(
+      state: state,
+      detail: detail,
+      url: _currentUrl.isEmpty ? _requestedUrl : _currentUrl,
+    );
+    notifyListeners();
+    for (final c in _navigationCompleters) {
+      if (!c.isCompleted) c.complete();
+    }
+    _navigationCompleters.clear();
+  }
+
+  /// The user dismissed an error banner, or is retrying.
+  void clearFault() {
+    if (_fault == null && _lastError == null) return;
+    _fault = null;
+    _lastError = null;
+    notifyListeners();
+  }
+
+  /// A link the Browser will not follow itself (`mailto:`, `reader://`).
+  /// Recorded so the page-state banner can offer the handoff explicitly
+  /// rather than the tap doing nothing.
+  void onExternalAppLink(String url) {
+    _fault = BrowserPageFault(
+      state: BrowserPageState.externalApp,
+      detail: url,
+      url: url,
+    );
+    notifyListeners();
+  }
+
+  /// Read the page's declared icon. Best effort and never awaited by
+  /// anything that matters — a page with no `<link rel="icon">` is normal.
+  Future<String?> _readPageIcon() async {
+    try {
+      final raw = await _call(kCallPageIcon, timeout: const Duration(seconds: 5));
+      final href = raw?.toString().trim();
+      return href == null || href.isEmpty ? null : href;
+    } catch (_) {
+      return null;
+    }
+  }
+
   void onUrlChanged(String? url) {
     if (url != null) _currentUrl = url;
     notifyListeners();
@@ -266,16 +406,35 @@ class BrowserController extends ChangeNotifier {
 
   // --- navigation --------------------------------------------------------
 
+  /// Load [url].
+  ///
+  /// Callers that already hold an absolute address (capture, checks, a saved
+  /// site, a history row) pass it straight through. Free text typed by the
+  /// user goes through [interpretUrlInput] first — see [open].
   Future<void> load(String url) async {
-    var target = url.trim();
+    final target = url.trim();
     if (target.isEmpty) return;
-    if (!target.startsWith('http://') && !target.startsWith('https://')) {
-      target = target.contains(' ') || !target.contains('.')
-          ? 'https://duckduckgo.com/?q=${Uri.encodeQueryComponent(target)}'
-          : 'https://$target';
-    }
     _lastError = null;
+    _fault = null;
+    _requestedUrl = target;
     await _webView?.loadUrl(urlRequest: URLRequest(url: WebUri(target)));
+  }
+
+  /// Open whatever the user typed: an address, or a search for it.
+  ///
+  /// Returns the intent so the caller can say what it did ("Search Google
+  /// for…") without re-deriving it. An external-app scheme is classified and
+  /// **not** loaded — handing a `reader://` link to the WebView produces an
+  /// unhelpful platform error, so the banner offers the handoff instead.
+  Future<UrlIntent> open(String text) async {
+    final intent = interpretUrlInput(text);
+    if (intent.isEmpty) return intent;
+    if (isExternalAppScheme(intent.url)) {
+      onExternalAppLink(intent.url);
+      return intent;
+    }
+    await load(intent.url);
+    return intent;
   }
 
   /// Navigate and wait for the load to settle (or time out). The capture
@@ -293,8 +452,148 @@ class BrowserController extends ChangeNotifier {
 
   Future<void> goBack() async => _webView?.goBack();
   Future<void> goForward() async => _webView?.goForward();
-  Future<void> reload() async => _webView?.reload();
-  Future<void> stopLoading() async => _webView?.stopLoading();
+  Future<void> reload() async {
+    _fault = null;
+    _lastError = null;
+    await _webView?.reload();
+  }
+
+  Future<void> stopLoading() async {
+    await _webView?.stopLoading();
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  // --- find in page --------------------------------------------------------
+
+  /// The plugin's own find controller, handed to the `InAppWebView` widget.
+  ///
+  /// Created here rather than in the widget so find state survives the
+  /// Browser Home overlay going up and coming down.
+  late final FindInteractionController findController =
+      FindInteractionController(
+        onFindResultReceived:
+            (_, activeMatchOrdinal, numberOfMatches, isDoneCounting) {
+              if (!isDoneCounting && numberOfMatches == 0) return;
+              _findMatches = numberOfMatches;
+              _findActiveMatch = numberOfMatches == 0
+                  ? 0
+                  : activeMatchOrdinal + 1;
+              notifyListeners();
+            },
+      );
+
+  String _findQuery = '';
+  int _findMatches = 0;
+  int _findActiveMatch = 0;
+
+  String get findQuery => _findQuery;
+
+  /// How many matches the last search found.
+  int get findMatchCount => _findMatches;
+
+  /// 1-based index of the highlighted match, or 0 when there is none.
+  int get findActiveMatch => _findActiveMatch;
+
+  Future<void> findAll(String query) async {
+    _findQuery = query;
+    if (query.trim().isEmpty) {
+      await clearFind();
+      return;
+    }
+    _findMatches = 0;
+    _findActiveMatch = 0;
+    notifyListeners();
+    await findController.findAll(find: query);
+  }
+
+  Future<void> findNext({bool forward = true}) async {
+    if (_findQuery.trim().isEmpty || _findMatches == 0) return;
+    await findController.findNext(forward: forward);
+  }
+
+  Future<void> clearFind() async {
+    _findQuery = '';
+    _findMatches = 0;
+    _findActiveMatch = 0;
+    notifyListeners();
+    try {
+      await findController.clearMatches();
+    } catch (_) {
+      // Nothing was highlighted; clearing is idempotent by intent.
+    }
+  }
+
+  // --- website data --------------------------------------------------------
+
+  /// Clear the app-owned WebView website storage: cookies, local and session
+  /// storage, and the HTTP cache.
+  ///
+  /// Deliberately does **not** touch anything the app owns — saved sites,
+  /// history, the library, captured files, reading progress and queue rows
+  /// all live in SQLite and are not reachable from here.
+  ///
+  /// Returns what could not be cleared, so the caller can say so honestly
+  /// rather than claiming a clean sweep (§11).
+  Future<List<String>> clearWebsiteData() async {
+    final failures = <String>[];
+
+    try {
+      await CookieManager.instance().deleteAllCookies();
+    } catch (e) {
+      failures.add('cookies ($e)');
+    }
+
+    try {
+      if (Platform.isIOS || Platform.isMacOS) {
+        // WKWebsiteDataStore has no "delete everything" call; deleting
+        // everything modified since the epoch is the supported equivalent.
+        await WebStorageManager.instance().removeDataModifiedSince(
+          dataTypes: WebsiteDataType.ALL,
+          date: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+      } else {
+        await WebStorageManager.instance().deleteAllData();
+      }
+    } catch (e) {
+      failures.add('site storage ($e)');
+    }
+
+    try {
+      await InAppWebViewController.clearAllCache();
+    } catch (e) {
+      failures.add('cache ($e)');
+    }
+
+    // A session that no longer exists must not keep an in-memory allow-list
+    // of hosts the user consented to under it.
+    clearAllowedHostChanges();
+    notifyListeners();
+    return failures;
+  }
+
+  /// Cookies for one host, for the site-information sheet.
+  Future<int> cookieCountFor(String url) async {
+    try {
+      final cookies = await CookieManager.instance().getCookies(
+        url: WebUri(url),
+      );
+      return cookies.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Clear cookies for a single site. Best effort: the platform only exposes
+  /// per-cookie deletion, so this is "every cookie we can see for this URL".
+  Future<void> clearDataForUrl(String url) async {
+    try {
+      await CookieManager.instance().deleteCookies(url: WebUri(url));
+    } catch (_) {
+      // Nothing stored for this host, or the platform refused; the sheet
+      // reports what it could do rather than pretending.
+    }
+  }
 
   // --- JavaScript bridge --------------------------------------------------
 
@@ -451,6 +750,35 @@ class BrowserController extends ChangeNotifier {
       return null;
     }
   }
+}
+
+/// One completed main-frame load, as the controller saw it.
+///
+/// Emitted for *every* completed load, automation included — the recording
+/// rule is the repository's job, and handing it the source rather than
+/// pre-filtering keeps that rule in one readable place.
+class BrowserVisit {
+  const BrowserVisit({
+    required this.url,
+    required this.title,
+    required this.source,
+    this.requestedUrl = '',
+    this.iconUrl,
+  });
+
+  final String url;
+  final String title;
+  final NavigationSource source;
+
+  /// What was asked for before redirects. Differs from [url] exactly when
+  /// something moved the navigation.
+  final String requestedUrl;
+
+  /// The page's declared icon, when it had one.
+  final String? iconUrl;
+
+  bool get wasRedirected =>
+      requestedUrl.isNotEmpty && requestedUrl != url;
 }
 
 /// What the user tapped in selection mode.

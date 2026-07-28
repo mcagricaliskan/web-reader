@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import 'package:drift/drift.dart' show Value;
 
 import '../browser/browser_controller.dart';
+import '../browser/history_repository.dart' show NavigationSource;
 import '../browser/page_data.dart';
 import '../capture/next_page.dart';
 import '../capture/rule_repository.dart';
@@ -255,6 +256,9 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     _addLog('checking "${item.title}" for new chapters');
 
     browser.automationOwner = 'an update check';
+    // Reading a chapter list is the app asking the source a question, not a
+    // page the user visited — excluded from browsing history (D53).
+    browser.navigationSource = NavigationSource.updateCheck;
     browser.navigationLocked = true;
     browser.clearAllowedHostChanges();
 
@@ -280,6 +284,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     } finally {
       browser.navigationLocked = false;
       browser.automationOwner = null;
+      browser.navigationSource = NavigationSource.manual;
       _pendingSelection = null;
       _selectionCompleter = null;
     }

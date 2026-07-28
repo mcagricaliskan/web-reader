@@ -28,3 +28,13 @@ class Connectivity {
     }
   }
 }
+
+/// Whether the device has a connection at all.
+///
+/// The one question that separates "this site is down" from "you are
+/// offline" — two page states with different instructions for the user
+/// (§14). Kept short: this runs inside an error callback, and a slow answer
+/// would delay the error the user is already looking at.
+Future<bool> hasNetwork() => const Connectivity(
+  timeout: Duration(milliseconds: 1200),
+).canReach('one.one.one.one');

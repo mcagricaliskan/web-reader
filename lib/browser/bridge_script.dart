@@ -560,3 +560,18 @@ const String kCallStartSelection = 'return window.__wr.startSelection(mode);';
 const String kCallStopSelection = 'return window.__wr.stopSelection();';
 const String kCallApplyLocator = 'return window.__wr.applyLocator(locator);';
 const String kCallApplyReaderRule = 'return window.__wr.applyReaderRule(rule);';
+
+/// The page's own declared icon, absolutised against the document.
+///
+/// Standalone rather than part of `__wr`: it is read once per completed load
+/// for decoration, has nothing to do with capture, and must keep working on
+/// pages where the preamble was blocked by CSP.
+const String kCallPageIcon = r'''
+var sel = ['link[rel~="icon"]', 'link[rel="shortcut icon"]',
+           'link[rel="apple-touch-icon"]', 'link[rel="apple-touch-icon-precomposed"]'];
+for (var i = 0; i < sel.length; i++) {
+  var el = document.querySelector(sel[i]);
+  if (el && el.href) return el.href;
+}
+return null;
+''';

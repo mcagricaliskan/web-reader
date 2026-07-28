@@ -145,3 +145,13 @@ CaptureRangeMode captureRangeModeFromName(String? name) =>
     );
 
 const kDefaultCaptureConfig = CaptureConfig();
+
+/// What the Browser's WebView holds before the user goes anywhere.
+///
+/// Blank on purpose. The alternatives are both worse: a search engine makes
+/// the app's first act a network request to a third party, and silently
+/// re-loading the last page the user was on would look like a fresh manual
+/// visit — a history row nobody created (§17, D57). Instead, a cold start
+/// shows Browser Home, where the last page is one tap away under Recently
+/// visited.
+const String kBrowserStartUrl = 'about:blank';

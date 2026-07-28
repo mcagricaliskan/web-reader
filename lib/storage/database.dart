@@ -278,6 +278,103 @@ class SiteRuleRows extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// One row per *manual* page visit in the Browser (M18).
+///
+/// Deliberately a separate table from [SavedSites]: history is a log the user
+/// clears by time range, saved sites are a curated list they order by hand.
+/// Storing one as a flavour of the other would make "clear the last hour"
+/// able to delete a bookmark.
+///
+/// Only navigation the user performed themselves is written here — see
+/// [NavigationSource]. Capture automation and update checks move the same
+/// WebView and must never appear (D53).
+class BrowsingHistory extends Table {
+  TextColumn get id => text()();
+
+  /// The address as the user would read it back.
+  TextColumn get url => text()();
+
+  /// [normalizeUrl] of [url]. Grouping, dedup-within-a-window and
+  /// "remove every visit to this page" all key off this, never the raw text.
+  TextColumn get urlKey => text()();
+  TextColumn get host => text()();
+  TextColumn get title => text()();
+
+  /// Where the visit came from. Persisted even though the UI only ever shows
+  /// `manual`: a row that says how it got here is debuggable, and a filter is
+  /// cheaper to widen than a lost column is to reconstruct.
+  TextColumn get source =>
+      text().withDefault(const Constant('manual'))();
+
+  /// The address the load actually settled on, when a redirect moved it.
+  /// Null when nothing redirected.
+  TextColumn get finalUrl => text().nullable()();
+
+  /// Only completed, user-visible destinations are recorded, so this is true
+  /// for every row written today. Kept because "the load finished" is the
+  /// property the recording rule turns on, and an explicit column is what
+  /// makes that rule inspectable rather than implied by absence.
+  BoolColumn get completed => boolean().withDefault(const Constant(true))();
+
+  DateTimeColumn get visitedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// The user's own list of sites (M18). User-controlled, hand-ordered, and
+/// never written by automation.
+class SavedSites extends Table {
+  TextColumn get id => text()();
+  TextColumn get url => text()();
+
+  /// Identity for duplicate detection. Two saved sites may share a host; they
+  /// may not share a normalised URL.
+  TextColumn get urlKey => text()();
+  TextColumn get host => text()();
+
+  /// The title as captured from the page (or derived from the host).
+  TextColumn get title => text()();
+
+  /// What the user typed instead. Presentation only — [title] is kept so
+  /// clearing a rename falls back to something real.
+  TextColumn get userTitle => text().nullable()();
+
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  DateTimeColumn get lastOpenedAt => dateTime().nullable()();
+
+  /// Hand-ordered position. Ties fall back to [createdAt], so a row that was
+  /// never reordered still has a stable place.
+  IntColumn get orderIndex => integer().withDefault(const Constant(0))();
+
+  /// True for the Google row seeded on a clean install. Only meaningful to
+  /// the seeder: the user may rename, re-point, reorder or remove it exactly
+  /// like any other row, and it is never recreated afterwards (D54).
+  BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// A tiny per-host icon cache. Optional by construction: a miss renders the
+/// hostname-initial fallback and nothing upstream waits on it (D55).
+class FaviconCache extends Table {
+  TextColumn get host => text()();
+
+  /// The icon bytes, or null when the last attempt failed. A null row is a
+  /// *negative* cache entry — it stops every list rebuild from re-requesting
+  /// an icon the site does not have.
+  BlobColumn get bytes => blob().nullable()();
+
+  /// Where the bytes came from, for debugging a wrong icon.
+  TextColumn get sourceUrl => text().nullable()();
+  DateTimeColumn get fetchedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {host};
+}
+
 @DriftDatabase(
   tables: [
     LibraryItems,
@@ -286,6 +383,9 @@ class SiteRuleRows extends Table {
     SiteRuleRows,
     Settings,
     QueueTasks,
+    BrowsingHistory,
+    SavedSites,
+    FaviconCache,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -296,7 +396,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -367,6 +467,15 @@ class AppDatabase extends _$AppDatabase {
         // Storage cleanup + browser-leave (post-design-v2). Additive.
         await m.addColumn(chapters, chapters.offlineRemovedAt);
         await m.addColumn(captureJobs, captureJobs.pauseReason);
+      }
+      if (from < 10) {
+        // The Browser's own state (M18): history, saved sites, favicons. New
+        // tables only — no existing row is read or rewritten, and the default
+        // saved site is seeded in Dart afterwards so it can check for an
+        // equivalent entry first.
+        await m.createTable(browsingHistory);
+        await m.createTable(savedSites);
+        await m.createTable(faviconCache);
       }
     },
     beforeOpen: (details) async {
@@ -690,4 +799,200 @@ class AppDatabase extends _$AppDatabase {
   Future<int> clearQueueHistory() => (delete(
     queueTasks,
   )..where((t) => t.state.isIn(['completed', 'failed', 'cancelled']))).go();
+
+  // --- browsing history (M18) -----------------------------------------------
+  //
+  // Every read here filters on `source` explicitly rather than relying on the
+  // writer to have kept automation out. Two independent guards, because a
+  // capture flooding the user's history is the failure mode that matters.
+
+  Future<void> insertVisit(BrowsingHistoryData visit) =>
+      into(browsingHistory).insertOnConflictUpdate(visit);
+
+  /// The most recent visit to [urlKey], if it happened within [window].
+  ///
+  /// Repeated visits are stored as individual rows — that is what keeps
+  /// "clear the last hour" honest — but reloading the same chapter four times
+  /// in a minute is one visit as far as the user is concerned, so a recent
+  /// row is refreshed in place instead of stacking.
+  Future<BrowsingHistoryData?> recentVisitTo(
+    String urlKey, {
+    required String source,
+    required Duration window,
+    DateTime? now,
+  }) {
+    final since = (now ?? DateTime.now()).subtract(window);
+    return (select(browsingHistory)
+          ..where(
+            (t) =>
+                t.urlKey.equals(urlKey) &
+                t.source.equals(source) &
+                t.visitedAt.isBiggerThanValue(since),
+          )
+          ..orderBy([(t) => OrderingTerm.desc(t.visitedAt)])
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  /// Newest-first manual visits, bounded. The Browser Home's "recently
+  /// visited" strip and the History screen both come through here, so neither
+  /// can accidentally read the whole table.
+  Stream<List<BrowsingHistoryData>> watchVisits({
+    String source = 'manual',
+    int limit = 200,
+  }) =>
+      (select(browsingHistory)
+            ..where((t) => t.source.equals(source))
+            ..orderBy([(t) => OrderingTerm.desc(t.visitedAt)])
+            ..limit(limit))
+          .watch();
+
+  Future<List<BrowsingHistoryData>> visits({
+    String source = 'manual',
+    int limit = 200,
+  }) =>
+      (select(browsingHistory)
+            ..where((t) => t.source.equals(source))
+            ..orderBy([(t) => OrderingTerm.desc(t.visitedAt)])
+            ..limit(limit))
+          .get();
+
+  /// Case-insensitive match on title, URL or host. `LIKE` is ASCII-case-
+  /// insensitive in SQLite, so both sides are lowered explicitly — Turkish
+  /// chapter titles are the normal case here, not the exception.
+  Future<List<BrowsingHistoryData>> searchVisits(
+    String query, {
+    String source = 'manual',
+    int limit = 200,
+  }) {
+    final needle = '%${query.trim().toLowerCase()}%';
+    return (select(browsingHistory)
+          ..where(
+            (t) =>
+                t.source.equals(source) &
+                (t.title.lower().like(needle) |
+                    t.url.lower().like(needle) |
+                    t.host.lower().like(needle)),
+          )
+          ..orderBy([(t) => OrderingTerm.desc(t.visitedAt)])
+          ..limit(limit))
+        .get();
+  }
+
+  /// How many manual visits fall in `[since, now]`. Drives the counts the
+  /// clear-history sheet shows *before* anything is deleted.
+  Future<int> countVisitsSince(DateTime? since, {String source = 'manual'}) async {
+    final count = browsingHistory.id.count();
+    final query = selectOnly(browsingHistory)..addColumns([count]);
+    query.where(
+      since == null
+          ? browsingHistory.source.equals(source)
+          : browsingHistory.source.equals(source) &
+                browsingHistory.visitedAt.isBiggerOrEqualValue(since),
+    );
+    final row = await query.getSingle();
+    return row.read(count) ?? 0;
+  }
+
+  Future<int> deleteVisit(String id) =>
+      (delete(browsingHistory)..where((t) => t.id.equals(id))).go();
+
+  Future<int> deleteVisitsForHost(String host, {String source = 'manual'}) =>
+      (delete(browsingHistory)
+            ..where((t) => t.host.equals(host) & t.source.equals(source)))
+          .go();
+
+  /// Clear a time range. `since == null` means all time. Scoped to [source]
+  /// so clearing the user's browsing never touches an automation audit row.
+  Future<int> deleteVisitsSince(DateTime? since, {String source = 'manual'}) =>
+      (delete(browsingHistory)..where(
+            (t) => since == null
+                ? t.source.equals(source)
+                : t.source.equals(source) &
+                      t.visitedAt.isBiggerOrEqualValue(since),
+          ))
+          .go();
+
+  /// Retention: drop anything older than [before], then anything beyond
+  /// [keep] rows. Both bounds, because either alone leaves a way to grow
+  /// without limit (a quiet year, or a very busy afternoon).
+  Future<int> pruneHistory({
+    required DateTime before,
+    required int keep,
+    String source = 'manual',
+  }) async {
+    var removed = await (delete(browsingHistory)..where(
+          (t) => t.source.equals(source) & t.visitedAt.isSmallerThanValue(before),
+        ))
+        .go();
+    final surviving =
+        await (select(browsingHistory)
+              ..where((t) => t.source.equals(source))
+              ..orderBy([(t) => OrderingTerm.desc(t.visitedAt)]))
+            .get();
+    if (surviving.length > keep) {
+      final doomed = surviving.skip(keep).map((v) => v.id).toList();
+      removed += await (delete(
+        browsingHistory,
+      )..where((t) => t.id.isIn(doomed))).go();
+    }
+    return removed;
+  }
+
+  // --- saved sites (M18) ----------------------------------------------------
+
+  Stream<List<SavedSite>> watchSavedSites() =>
+      (select(savedSites)..orderBy([
+            (t) => OrderingTerm.asc(t.orderIndex),
+            (t) => OrderingTerm.asc(t.createdAt),
+          ]))
+          .watch();
+
+  Future<List<SavedSite>> allSavedSites() =>
+      (select(savedSites)..orderBy([
+            (t) => OrderingTerm.asc(t.orderIndex),
+            (t) => OrderingTerm.asc(t.createdAt),
+          ]))
+          .get();
+
+  Future<SavedSite?> savedSiteByUrlKey(String urlKey) => (select(
+    savedSites,
+  )..where((t) => t.urlKey.equals(urlKey))).getSingleOrNull();
+
+  Future<SavedSite?> savedSiteById(String id) =>
+      (select(savedSites)..where((t) => t.id.equals(id))).getSingleOrNull();
+
+  Future<void> upsertSavedSite(SavedSite site) =>
+      into(savedSites).insertOnConflictUpdate(site);
+
+  /// Narrow writer for the fields the rename/edit sheet owns.
+  ///
+  /// Needed for the same reason as [clearOfflineRemovedMark]: an upsert would
+  /// read a null `userTitle` as "leave it alone", so clearing a rename would
+  /// silently do nothing.
+  Future<void> writeSavedSite(String id, SavedSitesCompanion values) =>
+      (update(savedSites)..where((t) => t.id.equals(id))).write(values);
+
+  Future<int> deleteSavedSite(String id) =>
+      (delete(savedSites)..where((t) => t.id.equals(id))).go();
+
+  Future<int> nextSavedSiteOrderIndex() async {
+    final max = await (selectOnly(
+      savedSites,
+    )..addColumns([savedSites.orderIndex.max()])).getSingle();
+    return (max.read(savedSites.orderIndex.max()) ?? 0) + 1;
+  }
+
+  // --- favicons (M18) -------------------------------------------------------
+
+  Future<FaviconCacheData?> favicon(String host) => (select(
+    faviconCache,
+  )..where((t) => t.host.equals(host))).getSingleOrNull();
+
+  Future<List<FaviconCacheData>> allFavicons() => select(faviconCache).get();
+
+  Future<void> putFavicon(FaviconCacheData icon) =>
+      into(faviconCache).insertOnConflictUpdate(icon);
+
+  Future<int> clearFavicons() => delete(faviconCache).go();
 }

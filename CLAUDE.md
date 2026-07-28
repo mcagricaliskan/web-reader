@@ -160,6 +160,41 @@ flutter test integration_test/live_queue_start_test.dart -d <udid>  # queue-firs
 - **The after-finished cleanup preference defaults to Ask** (D37);
   "Don't ask again" is the only thing that changes the persistent setting.
   Changing the setting never removes anything retroactively.
+- **Browser Home is a layer, not a route** (D52). One `InAppWebView`, built in
+  one place, mounted for the whole session; Home and the URL editor are drawn
+  over it. Closing them reveals the same page — scroll, cookies, in-page state
+  and any paused capture intact — because nothing was torn down. Covering the
+  page is still *hiding* it, so opening Home goes through the same
+  `LeaveBrowserGuard` as a tab switch (D36); download/save phases still do not
+  warn.
+- **Go is not permanent toolbar chrome** (D52). The toolbar is Back · Forward ·
+  Address · Refresh/Stop · Home. Go lives in the expanded URL editor and on the
+  keyboard, where entering an address actually happens. The compact address
+  field shows host + shortened path and opens the editor; it is never an
+  inline editor.
+- **Only manual navigation enters browsing history** (D53). Capture, update
+  checks, rule validation, internal navigation and live tests all drive the
+  same WebView and are never recorded — enforced twice: the source the
+  automation sets, and `effectiveNavigationSource`, which cannot answer
+  `manual` while `automationOwner` is held. `about:blank`, app schemes,
+  incomplete loads and faulted loads never enter either. Retention is 90 days
+  or 5,000 rows.
+- **Clearing history clears history** (D53). One table. Saved sites, library,
+  captured files, reading progress, cookies, rules and queue rows are not
+  reachable from it. **Clearing website data** is the separate,
+  stronger-confirmation action (cookies, site storage, cache) and never
+  touches app data.
+- **Google is the removable initial saved site** (D54). Seeded once per
+  install behind a settings flag — not inferred from an empty table, or it
+  could never be deleted. Removed stays removed; only a full reset (D50)
+  brings it back. Saved sites are their own table, keyed by normalised URL,
+  hand-ordered.
+- **Favicons are optional decoration** (D55). Nothing waits on one; the box is
+  a fixed size so a late icon never reflows a list; misses are cached too.
+  Tests run with `allowNetwork: false`.
+- **`AppPalette` is the one token layer** (D56) — a narrow amendment to D28,
+  because a literal colour cannot be "the quiet surface" in both appearances.
+  Dark values are *derived*, not designed: the design artifact is light-only.
 - **drift trap:** `insertOnConflictUpdate` treats a null field on a data
   class as *absent*, so nullable columns survive an upsert. Anything that
   must be cleared needs its own narrow writer (`clearOfflineRemovedMark`,

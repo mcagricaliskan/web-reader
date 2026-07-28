@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
+import '../browser/saved_sites_repository.dart';
 import '../core/local_reset.dart';
 import '../providers.dart';
 import '../storage/cleanup.dart';
 import '../ui/status_style.dart';
+import 'appearance_selector.dart';
+import 'browser_data_dialogs.dart';
 import 'cleanup_dialogs.dart';
 import 'library_screen.dart' show formatBytes;
 
@@ -25,10 +28,86 @@ class SettingsScreen extends ConsumerWidget {
     final offlineChapters =
         chapters?.where((c) => c.contentPath != null).length ?? 0;
 
+    final savedSites = ref.watch(savedSitesProvider).value;
+    final visits = ref.watch(browsingHistoryProvider).value;
+    final hosts = ref.watch(visitedHostsProvider).value;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
+          const SectionLabel('APPEARANCE'),
+          const AppearanceSelector(),
+          const SectionLabel('BROWSER'),
+          ListTile(
+            key: const ValueKey('settingsBrowsingHistory'),
+            leading: const Icon(Icons.history),
+            title: const Text('Browsing history'),
+            subtitle: Text(
+              visits == null
+                  ? 'Loading…'
+                  : visits.isEmpty
+                  ? 'Nothing visited yet'
+                  : '${visits.length} page${visits.length == 1 ? '' : 's'} · '
+                        '${hosts?.length ?? 0} '
+                        'site${(hosts?.length ?? 0) == 1 ? '' : 's'}',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => LeaveBrowserGuard.push(context, '/history'),
+          ),
+          ListTile(
+            key: const ValueKey('settingsSavedSites'),
+            leading: const Icon(Icons.bookmark),
+            title: const Text('Saved sites'),
+            subtitle: Text(
+              savedSites == null
+                  ? 'Loading…'
+                  : savedSites.isEmpty
+                  ? 'None saved yet'
+                  : '${savedSites.length} '
+                        'site${savedSites.length == 1 ? '' : 's'} · '
+                        '${savedSites.take(2).map(savedSiteDisplayTitle).join(', ')}'
+                        '${savedSites.length > 2 ? '…' : ''}',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            // Saved sites live on Browser Home; this is a door to it, not a
+            // second copy of the same list.
+            onTap: () async {
+              if (!await LeaveBrowserGuard.confirmLeave(context)) return;
+              ref.read(browserPresentationProvider).requestHome();
+              ref.read(shellTabRequestProvider).value = 1;
+              if (context.mounted) Navigator.of(context).pop();
+            },
+          ),
+          ListTile(
+            key: const ValueKey('settingsClearWebsiteData'),
+            leading: Icon(
+              Icons.no_encryption,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            title: Text(
+              'Clear website data',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+            subtitle: const Text(
+              'Signs you out of sites · cookies and site storage',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showClearWebsiteDataDialog(context, ref),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 4),
+            child: Text(
+              'Browsing history and saved sites never leave this device. '
+              'History is kept for 90 days, or 5,000 pages — whichever comes '
+              'first — and you can clear it at any time.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: Color(0xFF8C877E),
+              ),
+            ),
+          ),
           const SectionLabel('STORAGE'),
           ListTile(
             leading: const Icon(Icons.storage),

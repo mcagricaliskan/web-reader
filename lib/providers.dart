@@ -5,6 +5,10 @@ import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'browser/browser_controller.dart';
+import 'browser/browser_presentation.dart';
+import 'browser/favicon_service.dart';
+import 'browser/history_repository.dart';
+import 'browser/saved_sites_repository.dart';
 import 'capture/capture_job.dart';
 import 'capture/rule_repository.dart';
 import 'features/continue_entry.dart';
@@ -18,6 +22,7 @@ import 'capture/site_rule.dart';
 import 'storage/cleanup.dart';
 import 'storage/database.dart';
 import 'storage/file_store.dart';
+import 'ui/theme.dart';
 
 /// Set once during bootstrap, before `runApp`.
 class AppServices {
@@ -112,6 +117,17 @@ Future<void> setAfterFinishedPref(WidgetRef ref, AfterFinishedPref pref) =>
 final taskQueueProvider = Provider<TaskQueueController>(
   (ref) => ref.watch(appServicesProvider).taskQueue,
 );
+
+/// The persisted appearance preference (default: follow the system).
+final appearanceProvider = StreamProvider<AppearanceMode>(
+  (ref) => ref
+      .watch(databaseProvider)
+      .watchSetting(kAppearanceSettingKey)
+      .map(appearanceFromName),
+);
+
+Future<void> setAppearance(WidgetRef ref, AppearanceMode mode) =>
+    ref.read(databaseProvider).setSetting(kAppearanceSettingKey, mode.name);
 
 /// The queue as the UI sees it (activity strip + manager, M14 UI).
 final queueTasksProvider = StreamProvider<List<QueueTask>>(
@@ -339,4 +355,56 @@ final shellTabRequestProvider = Provider<ValueNotifier<int?>>((ref) {
 
 final resumableJobProvider = StreamProvider<CaptureJob?>(
   (ref) => ref.watch(databaseProvider).watchResumableJob(),
+);
+
+// --- browser (M18) ---------------------------------------------------------
+
+final historyRepositoryProvider = Provider<HistoryRepository>(
+  (ref) => HistoryRepository(ref.watch(databaseProvider)),
+);
+
+final savedSitesRepositoryProvider = Provider<SavedSitesRepository>(
+  (ref) => SavedSitesRepository(ref.watch(databaseProvider)),
+);
+
+/// One instance per app, so the icon a list fetched is the icon every other
+/// list already has.
+final faviconServiceProvider = Provider<FaviconService>((ref) {
+  final service = FaviconService(db: ref.watch(databaseProvider));
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+/// Which local surface the Browser is showing. Outside the widget because
+/// Settings → Saved sites opens Browser Home from another route entirely.
+final browserPresentationProvider = Provider<BrowserPresentation>((ref) {
+  final presentation = BrowserPresentation();
+  ref.onDispose(presentation.dispose);
+  return presentation;
+});
+
+/// The saved-site grid, hand-ordered.
+final savedSitesProvider = StreamProvider<List<SavedSite>>(
+  (ref) => ref.watch(databaseProvider).watchSavedSites(),
+);
+
+/// Manual browsing history, newest first and bounded — the History screen
+/// and Browser Home's "recently visited" both read this one stream, so a
+/// cleared range disappears from both at once with no cache to invalidate.
+final browsingHistoryProvider = StreamProvider<List<BrowsingHistoryData>>(
+  (ref) => ref.watch(databaseProvider).watchVisits(limit: kHistoryStreamLimit),
+);
+
+/// How many rows the shared history stream carries.
+///
+/// Bounded on purpose: Browser Home shows four, the History screen pages
+/// through what a person can plausibly scroll, and neither should hold ten
+/// thousand rows in memory to do it (§20).
+const int kHistoryStreamLimit = 500;
+
+/// Hostnames with visit counts, derived from the same stream.
+final visitedHostsProvider = Provider<AsyncValue<List<VisitedHost>>>(
+  (ref) => ref
+      .watch(browsingHistoryProvider)
+      .whenData(HistoryRepository.groupByHost),
 );

@@ -5,6 +5,7 @@ import 'package:drift/drift.dart' show TableInfo;
 import 'package:flutter/foundation.dart';
 
 import '../browser/browser_controller.dart';
+import '../browser/saved_sites_repository.dart';
 import '../capture/capture_job.dart';
 import '../library/update_checker.dart';
 import '../queue/task_queue.dart';
@@ -110,6 +111,7 @@ class LocalResetService {
     steps.add(await _step('database rows', _wipeDatabase));
     steps.add(await _step('captured files', _wipeFiles));
     steps.add(await _step('browser session', _wipeBrowserSession));
+    steps.add(await _step('browser defaults', _reseedBrowser));
 
     final report = ResetReport(steps);
     debugPrint('[reset] $report');
@@ -168,6 +170,16 @@ class LocalResetService {
       // Vacuum is a courtesy; a locked database is not a failed reset.
     }
     return '${tables.length} tables emptied';
+  }
+
+  /// Put the initial saved site back.
+  ///
+  /// The only path that ever recreates it. Removing Google by hand is
+  /// permanent; a full reset is the app becoming a clean install again, and a
+  /// clean install has it (D54).
+  Future<String> _reseedBrowser() async {
+    await SavedSitesRepository(db).seedDefaultIfNeeded();
+    return 'default saved site restored';
   }
 
   /// The whole asset tree: committed chapters, staging, and the `.previous`

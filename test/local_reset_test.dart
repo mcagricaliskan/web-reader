@@ -138,7 +138,13 @@ void main() {
     await seedUsedApp();
     await makeService().resetEverything();
 
+    // The wipe empties everything; the two rows that exist afterwards are the
+    // clean-install seed put back on purpose (D54) — the default saved site
+    // and the flag that stops it being seeded twice.
+    const reseeded = {'saved_sites', 'settings'};
+
     for (final table in db.allTables) {
+      if (reseeded.contains(table.actualTableName)) continue;
       final rows = await db
           .customSelect('SELECT COUNT(*) AS n FROM ${table.actualTableName}')
           .getSingle();
@@ -148,6 +154,12 @@ void main() {
         reason: '${table.actualTableName} still has rows',
       );
     }
+
+    final saved = await db.allSavedSites();
+    expect(saved, hasLength(1), reason: 'the default saved site is restored');
+    expect(saved.single.isDefault, isTrue);
+    // Nothing the *user* set survives — only the seed marker.
+    expect(await db.setting('series.chapterSort'), isNull);
   });
 
   test('captured files, staging and replacement backups all go', () async {
@@ -218,6 +230,7 @@ void main() {
       'database rows',
       'captured files',
       'browser session',
+      'browser defaults',
     ]);
     expect(report.summary, contains('Reset complete'));
   });

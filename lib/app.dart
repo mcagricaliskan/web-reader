@@ -8,6 +8,7 @@ import 'capture/capture_job.dart';
 import 'features/activity_screen.dart';
 import 'features/archived_screen.dart';
 import 'core/local_reset.dart';
+import 'features/browser_history_screen.dart';
 import 'features/browser_screen.dart';
 import 'features/developer_screen.dart';
 import 'features/library_screen.dart';
@@ -22,19 +23,20 @@ import 'core/device_capacity_provider.dart';
 import 'providers.dart';
 import 'queue/task_queue.dart';
 import 'storage/cleanup.dart';
+import 'ui/palette.dart';
 import 'ui/theme.dart';
 
 /// The browser tab keeps its WebView alive across tab switches — the session
 /// the user browsed with is the session capture runs in, so it must not be
 /// rebuilt when they look at the library.
-class WebReaderApp extends StatefulWidget {
+class WebReaderApp extends ConsumerStatefulWidget {
   const WebReaderApp({super.key});
 
   @override
-  State<WebReaderApp> createState() => _WebReaderAppState();
+  ConsumerState<WebReaderApp> createState() => _WebReaderAppState();
 }
 
-class _WebReaderAppState extends State<WebReaderApp> {
+class _WebReaderAppState extends ConsumerState<WebReaderApp> {
   // Built per app instance, not as a top-level singleton: a global router
   // keeps its navigation stack across app restarts inside a test process, so
   // a second boot would come up on whatever route the first one ended on.
@@ -55,6 +57,10 @@ class _WebReaderAppState extends State<WebReaderApp> {
         ),
       ),
       GoRoute(path: '/rules', builder: (context, state) => const RulesScreen()),
+      GoRoute(
+        path: '/history',
+        builder: (context, state) => const BrowserHistoryScreen(),
+      ),
       GoRoute(
         path: '/activity',
         builder: (context, state) => const ActivityScreen(),
@@ -83,10 +89,17 @@ class _WebReaderAppState extends State<WebReaderApp> {
 
   @override
   Widget build(BuildContext context) {
+    // Read as a value, not awaited: the app must render on the first frame,
+    // and the persisted preference arriving a microsecond later re-themes it
+    // without a flash of the wrong appearance being possible to notice.
+    final appearance =
+        ref.watch(appearanceProvider).value ?? AppearanceMode.system;
     return MaterialApp.router(
       title: 'Web Reader',
       debugShowCheckedModeBanner: false,
       theme: appTheme(),
+      darkTheme: appDarkTheme(),
+      themeMode: themeModeFor(appearance),
       routerConfig: _router,
     );
   }
@@ -322,10 +335,11 @@ class _BottomNav extends StatelessWidget {
       (Icons.public, 'Browser'),
     ];
 
+    final palette = AppPalette.of(context);
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFFFBFAF8),
-        border: Border(top: BorderSide(color: Color(0xFFEFECE7))),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        border: Border(top: BorderSide(color: palette.divider)),
       ),
       padding: EdgeInsets.only(
         top: 6,
@@ -365,7 +379,8 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fg = selected ? const Color(0xFF133845) : const Color(0xFF5F5B54);
+    final palette = AppPalette.of(context);
+    final fg = selected ? palette.onPrimaryContainer : palette.inkMuted;
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 6, 0, 2),
       child: Column(
@@ -374,7 +389,7 @@ class _NavItem extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 3),
             decoration: BoxDecoration(
-              color: selected ? const Color(0xFFEAF1F4) : Colors.transparent,
+              color: selected ? palette.primaryContainer : Colors.transparent,
               borderRadius: BorderRadius.circular(999),
             ),
             child: Icon(icon, size: 22, color: fg),

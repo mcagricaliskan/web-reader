@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'browser/browser_controller.dart';
+import 'browser/history_repository.dart';
+import 'browser/saved_sites_repository.dart';
 import 'capture/capture_job.dart';
 import 'core/device_storage.dart';
 import 'providers.dart';
@@ -64,6 +68,38 @@ Future<void> main() async {
     db: db,
     fileStore: fileStore,
   );
+
+  // Browsing history (M18). The controller emits every completed load; the
+  // repository decides which of them was a page the *user* visited, so the
+  // filtering rule lives in one place rather than at every call site (D53).
+  final history = HistoryRepository(db);
+  browser.onVisitCompleted = (visit) => unawaited(
+    history
+        .recordVisit(
+          url: visit.url,
+          title: visit.title,
+          source: visit.source,
+          finalUrl: visit.wasRedirected ? visit.url : null,
+        )
+        .catchError((Object e) {
+          debugPrint('[history] record failed: $e');
+          return null;
+        }),
+  );
+
+  try {
+    // Google, once per installation — and never again once removed (D54).
+    await SavedSitesRepository(db).seedDefaultIfNeeded();
+  } catch (e) {
+    debugPrint('[browser] saved-site seed failed: $e');
+  }
+
+  try {
+    final pruned = await history.prune();
+    if (pruned > 0) debugPrint('[history] pruned $pruned old visit(s)');
+  } catch (e) {
+    debugPrint('[history] prune failed: $e');
+  }
 
   final services = AppServices(
     db: db,

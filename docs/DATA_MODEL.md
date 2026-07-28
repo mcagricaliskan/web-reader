@@ -691,3 +691,75 @@ Rules, given that the data being migrated is irreplaceable user history:
    library metadata requires an explicit decision entry in [DECISIONS.md](./DECISIONS.md).
 3. `repairPointers()` runs after every migration.
 4. The database file is backed up (a plain file copy) before a migration that is not purely additive.
+
+---
+
+## 14. As-built Browser state (schema v10, 2026-07-28)
+
+Three tables, added together and additive only. None of them is referenced by
+`chapters`, `library_items` or `queue_tasks`, and none of them references
+those — deleting browsing history can therefore never cascade into the
+library, which is the property §10's copy promises.
+
+### 14.1 `browsing_history`
+
+One row per *manual* page visit (D53).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | uuid |
+| `url` | TEXT | the address as the user reads it back |
+| `url_key` | TEXT | `normalizeUrl(url)`; grouping and dedup key |
+| `host` | TEXT | lowercased |
+| `title` | TEXT | falls back to the host when the page reported none |
+| `source` | TEXT | `NavigationSource` name; only `manual` is ever written today |
+| `final_url` | TEXT? | set only when a redirect moved the load |
+| `completed` | BOOL | true on every row written; the rule is explicit rather than implied by absence |
+| `visited_at` | DATETIME | |
+
+**Recording rule** (one method, `HistoryRepository.recordVisit`): manual
+source, completed load, `http(s)` scheme, non-empty host. A repeat of the same
+`url_key` within 30 minutes updates the existing row's `visited_at` instead of
+inserting — individual rows are kept so time-range clearing stays accurate,
+but a reload loop is one entry.
+
+**Reads are doubly guarded**: every query filters on `source` explicitly
+rather than trusting the writer.
+
+**Retention**: 90 days *or* 5,000 rows, applied at boot (`prune`). Both
+bounds — either alone permits unbounded growth.
+
+### 14.2 `saved_sites`
+
+The user's own list. Separate from history by design (D54).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | uuid |
+| `url`, `url_key`, `host` | TEXT | `url_key` is identity: two pages on one host are two rows |
+| `title` | TEXT | from the page |
+| `user_title` | TEXT? | the rename; cleared → `title` shows again |
+| `created_at`, `updated_at`, `last_opened_at` | DATETIME | |
+| `order_index` | INT | hand order; ties fall back to `created_at` |
+| `is_default` | BOOL | the seeded Google row; meaningful only to the seeder |
+
+`writeSavedSite` is the narrow writer for `user_title` — the drift
+null-is-absent trap again (see §13 and `clearOfflineRemovedMark`).
+
+### 14.3 `favicon_cache`
+
+| Column | Type | Notes |
+|---|---|---|
+| `host` | TEXT PK | `www.` stripped |
+| `bytes` | BLOB? | **null means known-missing** — a negative cache entry |
+| `source_url` | TEXT? | which candidate produced the bytes |
+| `fetched_at` | DATETIME | negative entries stand for 7 days |
+
+Capped at 24 KB per icon, sniffed by magic number. Purely derived: dropping
+this table costs nothing but a re-fetch (D55).
+
+### 14.4 Migration
+
+`from < 10` creates the three tables. Nothing existing is read or rewritten.
+The default saved site is seeded afterwards in Dart, so it can check for an
+equivalent entry first.
