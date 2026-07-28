@@ -145,7 +145,15 @@ sites is the worst possible place to discover a session-recovery bug. Note: M15 
 
 ---
 
-### Q24 — Does queued work resume automatically after a restart?
+### Q24 — Does queued work resume automatically after a restart? ✅ *resolved 2026-07-28 → D46*
+
+> **Resolved.** No, and the rule is now stronger than "offer on restart":
+> **capture never starts without an explicit press**, restart or not (D46).
+> Queued rows persist; the authorisation to drive the Browser is in-memory
+> only, so a relaunch always lands back at "waiting to start". Update checks
+> and cleanup are unaffected — they were never the risk.
+
+### Q24 (original) — Does queued work resume automatically after a restart?
 
 **Why it matters.** The M14 queue persists across restarts. Auto-resuming means the app navigates a
 WebView and hits remote sites the moment it launches, with nobody watching; never resuming makes

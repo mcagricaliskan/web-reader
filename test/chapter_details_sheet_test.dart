@@ -407,7 +407,9 @@ void main() {
       await tester.tap(find.text('Not downloaded'));
       await tester.pumpAndSettle();
 
-      expect(find.text('3 selected'), findsOneWidget);
+      // The app bar and the selection bar both say it; the counts breakdown
+      // is the selection bar's own line.
+      expect(find.text('3 selected'), findsNWidgets(2));
       expect(find.textContaining('2 can be queued'), findsOneWidget);
       expect(find.textContaining('1 have no source page'), findsOneWidget);
 
@@ -425,7 +427,9 @@ void main() {
       await tester.tap(find.text('Queue 2 for re-download'));
       await tester.pumpAndSettle();
 
-      final rows = await db.watchQueueTasks().first;
+      // A plain future, not `watchQueueTasks().first`: awaiting a drift
+      // stream inside testWidgets deadlocks against the fake clock.
+      final rows = await db.pendingQueueTasks();
       expect(rows, hasLength(2), reason: 'the orphan is reported, not queued');
       // Ascending reading order, though the list showed newest first.
       final ordered = [...rows]
@@ -434,30 +438,13 @@ void main() {
         'https://x.example/manga/foo/487',
         'https://x.example/manga/foo/488',
       ]);
-      expect(ordered.every((t) => t.state == 'queued'), isTrue);
-      await drain(tester);
-    });
-
-    testWidgets('queueing a batch starts nothing', (tester) async {
-      await seedTwoRemoved(tester);
-      await open(tester, width: 430);
-      await tester.tap(find.byTooltip('Series actions'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Manage downloads'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Select…'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Not downloaded'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('queueSelectionButton')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Queue 2 for re-download'));
-      await tester.pumpAndSettle();
-
+      expect(
+        ordered.every((t) => t.state == 'queued'),
+        isTrue,
+        reason: 'queued, not started — nothing took the browser (D46)',
+      );
       expect(browser.automationOwner, isNull);
-      final rows = await db.watchQueueTasks().first;
-      expect(rows.every((t) => t.state == 'queued'), isTrue);
-      // And the user is still on the series screen.
+      // And the user never left the series screen.
       expect(find.byType(SeriesDetailScreen), findsOneWidget);
       await drain(tester);
     });

@@ -488,6 +488,12 @@ must not silently become the primary path.
 
 # Stage 1b — Reorganised backlog (2026-07-27)
 
+> **Revised 2026-07-28 (D46):** M14's queue is now *queue-first* — adding a
+> capture request never starts it. The Browser opens only on an explicit
+> **Start Capture**, and the Library carries a compact `Capture queue · N
+> waiting` strip. Batch re-download of removed episodes and a debug-only full
+> local reset ship alongside it.
+
 > Priority order: **P0 → M12 → M13 → M14 → M15 → M16 → M17**, then Stage 1c (M9, M7, M10, M11),
 > then Stage 2. This follows the requested ordering unchanged; the only dependency worth naming is
 > that M15's "exclude archived" clause only becomes meaningful once M16 exists — M15 ships checking

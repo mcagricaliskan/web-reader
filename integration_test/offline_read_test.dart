@@ -404,22 +404,18 @@ void main() {
     // Open the gutted chapter itself: the database has not yet noticed the
     // files are gone, so the reader is what discovers it — and must degrade
     // to an explicit message rather than crash.
-    final goneLabel = chapter.chapterLabel ?? chapter.title;
+    // By key, not by label or position: the episode list is number-first and
+    // newest-first now, so neither the visible text nor the row's index is a
+    // stable way to find one particular chapter.
+    final goneTile = find.byKey(ValueKey('chapterRow-${chapter.id}'));
     await pumpUntil(
       tester,
-      () => find
-          .descendant(of: chapterRow(), matching: find.text(goneLabel))
-          .evaluate()
-          .isNotEmpty,
+      () => goneTile.evaluate().isNotEmpty,
       timeout: const Duration(seconds: 20),
     );
-    final goneTile = find.ancestor(
-      of: find.text(goneLabel),
-      matching: chapterRow(),
-    );
-    await tester.ensureVisible(goneTile.first);
+    await tester.ensureVisible(goneTile);
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(goneTile.first, warnIfMissed: false);
+    await tester.tap(goneTile, warnIfMissed: false);
     await pumpFor(tester, const Duration(seconds: 3));
 
     // No crash, an explicit message, and the row survives.

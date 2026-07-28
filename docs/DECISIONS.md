@@ -933,3 +933,166 @@ competed with the one action that actually knows where the user is.
 Continue Reading is unaffected: it already falls back from "the unfinished
 chapter" to "the earliest unfinished one" to "nothing to read yet", and a
 series with one chapter, no history, or nothing offline is unchanged.
+
+### D46 — Queueing a capture does not start it
+
+**Decision.** Adding a capture request creates a `queued` row and stops there.
+Nothing navigates, nothing scrolls, no WebView is touched. The work waits
+until the user presses **Start Capture**, which is the only place Browser
+automation is authorised from.
+
+*Why.* Every capture entry point — the Browser button, Series Detail, the
+episode details sheet, re-fetch, New Chapters, a multi-select batch — used to
+be a trapdoor into a minutes-long Browser takeover. Preparing a list of things
+to fetch and then fetching them is the actual shape of the task; the old flow
+made every single addition an irreversible commitment to stop what you were
+doing.
+
+*Scope.* Capture only. Update checks and cleanup still drain on their own:
+they are bounded, cheap, and already one-action-one-intent, so a second
+confirmation would be ceremony. `taskWaitsForExplicitStart` is the single
+predicate that decides, and the pump consults it rather than special-casing
+task types.
+
+*Corollaries.*
+
+- **The authorisation is not persisted.** Queued rows survive a relaunch; the
+  permission to drive the Browser does not. A restart that resumed scrolling
+  because a row existed yesterday is exactly what Q24 forbids.
+- A queued capture is **skipped, not a roadblock** — a check queued behind one
+  still runs.
+- A drained capture queue revokes its own authorisation. Adding more later is
+  a new decision and needs a new Start.
+- **Stop ≠ cancel.** Stopping a batch returns the remainder to `queued`; the
+  user stopped the run, not the plan.
+
+### D47 — The Browser comes forward before automation, never as a side effect
+
+**Decision.** Before the queue runs any Browser-dependent task it calls
+`ensureBrowserVisible`, injected by the shell, which switches to the Browser
+tab and waits for the WebView to attach. If it cannot, the task **stays
+queued** — that is not a failure and not a cancellation.
+
+*Why.* "Navigate, then automate" is the only ordering in which the user can
+see what the app is doing to their session. The reverse — automation starting
+and the UI catching up — is how a capture ends up scrolling a page while the
+user is reading something else in the Library.
+
+*What this does not replace.* The capture engine's own zero-viewport guard
+(D32) is still the safety net that refuses to measure an unrendered surface.
+This is the *navigation*; that is the *proof*.
+
+*The leave-Browser distinction is unchanged and now load-bearing.*
+`needsRenderedBrowser` is true only for inspecting/scrolling/waiting/
+verifying/extracting/detecting/navigating. Once a chapter's panel URLs and
+next-page metadata are extracted, the task is downloading over HTTP: the user
+may leave, downloads continue, and the leave-Browser confirmation must not
+appear.
+
+### D48 — Removed episodes are batch-queued for re-download, oldest first
+
+**Decision.** Selection mode in Series Detail selects **any unlocked chapter**,
+not only offline ones, and the selection bar offers whichever action the
+selection supports: *Remove offline files* for chapters that have files,
+*Add to capture queue* for chapters that do not. Quick-selects cover
+`All offline`, `Finished`, `Not downloaded` and `Finished · files removed`.
+
+*Ordering.* `enqueueChapters` re-sorts into reading order regardless of the
+display sort. The list usually shows 490, 489, 488; the queue gets 488, 489,
+490. Capture walks *forward* through a series, so queueing it backwards fights
+the engine's own chain-following. Decimal-safe, because the comparison is the
+same one the reader uses.
+
+*Partial success is a real outcome.* A chapter with no usable `source_url`
+cannot be captured automatically. It is **reported, not dropped and not fatal**
+— "8 selected · 6 can be queued · 2 have no source page" — because failing the
+whole selection over two orphan rows helps nobody.
+
+*Identity.* Each chapter becomes its own single-chapter task against its own
+stored URL with `replaceAll`. The queue carries a URL, never a copy of the
+chapter, so there is nothing for it to duplicate: the existing row is reused,
+reading progress and read state survive, and the atomic replacement keeps the
+old copy until the new one lands.
+
+*Duplicates.* `pendingCaptureFor` matches on normalised start URL across
+queued and running capture rows only. History is deliberately excluded — a
+chapter captured last week must never veto an intentional re-fetch today.
+
+### D49 — The development reset empties the database rather than deleting it
+
+**Decision.** `LocalResetService` stops active work, empties every table
+(foreign keys suspended, discovered from `db.allTables` so a new table cannot
+be missed), deletes the whole asset tree, and clears cookies. It does **not**
+delete the database file.
+
+*Why.* Deleting the file means disposing the live `AppDatabase` — which every
+provider, stream and service in the running app holds. Tearing that graph down
+mid-session and rebuilding it is precisely the kind of half-initialised state
+that produces bugs indistinguishable from product bugs. Emptying the tables
+gives the same observable result — empty library, empty queue, default
+settings, reclaimed disk after `VACUUM` — with live streams that simply emit
+empty, so the UI walks itself back to the first-launch screen with no restart.
+
+*Order.* Machines, then rows, then bytes. Files last on purpose: a crash
+between rows and files leaves orphaned files that startup recovery already
+sweeps, whereas orphaned rows pointing at deleted files would surface as
+broken chapters.
+
+*Honesty.* The result is a per-area `ResetReport`, not a bool. A wipe where
+the cookie store threw reports `INCOMPLETE`, names the area, and offers a
+retry — a "start clean" button that claims success while leaving state behind
+is worse than one that fails loudly.
+
+### D50 — Destructive development tools are `kDebugMode` only
+
+**Decision.** `developerToolsAvailable` is `kDebugMode` and nothing else. Not
+a setting, not a hidden gesture, not a build-flavour string that could be
+typo'd into production — the constant the compiler strips in release.
+
+*Enforced in three places, deliberately redundant:* the Settings entry is
+inside an `if`, the `/developer` route is not registered at all in release, and
+the screen itself refuses to render. A hand-typed deep link in a release build
+finds no route.
+
+*The action itself is two-step:* a plain-language warning, then a dialog whose
+destructive button stays disabled until the word `RESET` has been typed. A
+hold-to-confirm button was the alternative; typing leaves a record of intent
+that a stray long-press cannot produce.
+
+### D51 — Storage warnings are driven by the percentage, from one palette
+
+**Decision.** How full the device is decides the colour, everywhere storage
+appears:
+
+| Used | Level | Colour | Word |
+|---|---|---|---|
+| < 75% | normal | quiet ink (`#7A756C`) | Healthy |
+| 75–89% | warning | amber (`#8A5A1F`) | Filling up |
+| ≥ 90% | critical | red (`#8E3B31`) | Almost full |
+| unknown | unknown | quiet, **no number, no bar** | Unavailable |
+
+`DeviceCapacity.level` computes it; `storageLook()` maps it to the palette.
+The Library pill and the Storage screen read the same two functions, so they
+cannot disagree about how worried to look.
+
+*Why the percentage and not free bytes.* Free space alone is unreadable —
+"12 GB free" means nothing without the size of the disk it is free on, and the
+previous thresholds (1 GB amber, 500 MB red) fired far too late on a large
+device and never at all on a small one that was merely 85% full.
+
+*Why an absolute floor survives anyway.* Under 1 GB free nothing large will
+finish, whatever share of the disk that is. It escalates straight to critical.
+In practice it only matters on very large disks, where a high percentage would
+still leave what looks like comfortable headroom.
+
+*Corollary — one warning surface per screen.* The Storage screen's metric
+tiles are now never coloured. The device meter carries the state; a second
+tile shading itself amber on a differently-derived threshold is how two
+numbers on the same screen end up contradicting each other. `_Metric` lost its
+`warn` parameter entirely so it cannot come back.
+
+*Chosen thresholds, and why these.* 75% is early enough that a user who wants
+a long series still has room to act, and late enough not to shout at a
+normally-loaded phone. 90% is where a single large chapter becomes a realistic
+risk of failing part-way — which is the specific outcome the colour warns
+about.

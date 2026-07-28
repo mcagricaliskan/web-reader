@@ -56,6 +56,7 @@ flutter test integration_test/user_assist_test.dart   -d <udid>
 flutter test integration_test/live_capture_test.dart     -d <udid>  # uzaymanga, 1 chapter
 flutter test integration_test/live_asura_smoke_test.dart -d <udid>  # asura, 2 chapters
 flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only, both sites
+flutter test integration_test/live_queue_start_test.dart -d <udid>  # queue-first flow
 #   ^ two groups: one chapter page per site (extraction + next-detection),
 #     and one series index page per site (chapter-list ordering, D40).
 ```
@@ -66,7 +67,7 @@ flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only,
 |---|---|---|
 | Series | Efsanevi Büyü İmparatoru | The Nebula's Civilization |
 | Example URL | `https://uzaymanga.com/manga/efsanevi-buyu-imparatoru/885-bolum-oku` | `https://asurascans.com/comics/the-nebulas-civilization-059befe1/chapter/137` |
-| Purpose | Real single-chapter capture · Referer-gated AVIF CDN · very tall panels (800×16000) · MIME/extension verification · next-chapter detection · aspect-ratio/manifest repair · adaptive scroll on a long lazy chapter · chapter-list ordering on the series index page | Very long eager-rendered chapter (~146k px, ~31 panels) · fast traversal over loaded content · hidden-WebView pause protection · comment-avatar false-positive rejection · JPEG bytes under `.webp` URLs · next-chapter detection · bounded multi-chapter chain · large-chapter downloads (15–40 MB) · chapter-list ordering on the series index page |
+| Purpose | Real single-chapter capture · Referer-gated AVIF CDN · very tall panels (800×16000) · MIME/extension verification · next-chapter detection · aspect-ratio/manifest repair · adaptive scroll on a long lazy chapter · chapter-list ordering on the series index page | Very long eager-rendered chapter (~146k px, ~31 panels) · fast traversal over loaded content · hidden-WebView pause protection · comment-avatar false-positive rejection · JPEG bytes under `.webp` URLs · next-chapter detection · bounded multi-chapter chain · large-chapter downloads (15–40 MB) · chapter-list ordering on the series index page · queue-first start flow (D46/D47) |
 | Download allowed | Yes — 1 chapter (~1.4 MB) | Yes — max 2 chapters (~30–80 MB) |
 | Max chapters | 1 | 2 |
 | Content type | Webtoon, AVIF strips, no HTML size attrs | Webtoon, WebP/JPEG strips via Astro/React island (panels absent from static HTML; hydrate eagerly) |
@@ -103,6 +104,23 @@ flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only,
 - Update-check chapter-list ordering is **measured from the page**, never
   assumed. Emission is oldest-first; "nothing new" ends a check only when the
   ordering was unambiguous, otherwise the chain walk still runs.
+- **Queueing a capture does not start it** (D46). Adding a capture request
+  creates a `queued` row and nothing else — no navigation, no WebView. It
+  waits for **Start Capture**. Update checks and cleanup still drain on their
+  own (`taskWaitsForExplicitStart` is the predicate). The start authorisation
+  is **never persisted**: queued rows survive a restart, permission does not.
+- **The Browser comes forward before automation** (D47), via the queue's
+  `ensureBrowserVisible` hook, which the shell provides. If it cannot, the
+  task stays queued — not failed, not cancelled. Downloading and saving do
+  **not** need the Browser: `needsRenderedBrowser` is the line, and leaving
+  during a download must not warn or pause.
+- **Removed episodes can be batch-queued for re-download** (D48), oldest
+  first regardless of the display sort, reusing the existing chapter row.
+  Chapters with no usable `source_url` are reported separately, never
+  silently dropped and never fatal to the rest of the selection.
+- **Destructive developer tools are `kDebugMode` only** (D50) — Settings
+  entry, route registration and the screen itself all check it. The reset is
+  two-step and requires typing `RESET`.
 - **Anything in a screen header uses the shared action geometry**:
   `HeaderIconButton`, `kHeaderActionSize` (40), `kHeaderIconSize` (22),
   `kHeaderIconColor`. A widget with its own size or glyph size in that row is
@@ -122,6 +140,11 @@ flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only,
   archive, restore, re-download and reading updates because every writer names
   its columns; it is what "Open on website" and "Capture again" stand on. A
   chapter with no usable URL disables those actions rather than guessing one.
+- **Storage colour comes from the percentage used** (D51): < 75% quiet,
+  75–89% amber, ≥ 90% red, plus a hard escalation under 1 GB free. One rule
+  (`DeviceCapacity.level`) and one palette (`storageLook`) shared by the
+  Library pill and the Storage screen. Exactly one element per screen carries
+  the warning state — the metric tiles never colour themselves.
 - **The Library's storage indicator is a glyph and a percentage** (D41):
   device usage from one throttled `capacity` call, fixed width, no filesystem
   walk. Detailed figures live on Settings → Storage. Never show the library's

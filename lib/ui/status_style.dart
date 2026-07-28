@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import '../core/device_storage.dart';
+
 import 'package:flutter/material.dart';
 
 import '../reading/reading_position.dart';
@@ -77,6 +79,73 @@ class CaptureGlyph extends StatelessWidget {
 
 /// Read-state indicator. Unread is a small filled dot, in-progress a partial
 /// ring with its percentage beside it, finished a hollow check.
+// ─── storage ────────────────────────────────────────────────────────────────
+
+/// The colours one storage reading wears, everywhere it appears.
+///
+/// Driven by the **percentage of the device in use**, not by the app's own
+/// share and not by free bytes alone (D51). One palette, one source, so the
+/// Library pill and the Storage screen can never disagree about how worried
+/// to look.
+class StorageLook {
+  const StorageLook({
+    required this.ink,
+    required this.track,
+    required this.fill,
+    required this.bg,
+    required this.border,
+    required this.label,
+  });
+
+  /// Text and glyph colour.
+  final Color ink;
+
+  /// Meter background and its filled portion.
+  final Color track, fill;
+
+  /// Card background and border, for the surfaces that have one.
+  final Color bg, border;
+
+  /// One word for what this level means.
+  final String label;
+}
+
+StorageLook storageLook(StorageLevel level) => switch (level) {
+  StorageLevel.critical => const StorageLook(
+    ink: Color(0xFF8E3B31),
+    track: Color(0xFFEBC4BC),
+    fill: Color(0xFFB4483A),
+    bg: Color(0xFFF7DDD8),
+    border: Color(0xFFEBC4BC),
+    label: 'Almost full',
+  ),
+  StorageLevel.warning => const StorageLook(
+    ink: Color(0xFF8A5A1F),
+    track: Color(0xFFE8D5B2),
+    fill: Color(0xFFC08A3E),
+    bg: Color(0xFFF8EEDA),
+    border: Color(0xFFE8D5B2),
+    label: 'Filling up',
+  ),
+  // Quiet by belonging: the same ink as every other header glyph.
+  StorageLevel.normal => const StorageLook(
+    ink: kHeaderIconColor,
+    track: Color(0xFFE7E3DC),
+    fill: Color(0xFF35606F),
+    bg: Color(0xFFF3F1ED),
+    border: Color(0xFFE7E3DC),
+    label: 'Healthy',
+  ),
+  StorageLevel.unknown => const StorageLook(
+    ink: kHeaderIconColor,
+    track: Color(0xFFE7E3DC),
+    fill: Color(0xFFC4BFB5),
+    bg: Color(0xFFF3F1ED),
+    border: Color(0xFFE7E3DC),
+    label: 'Unavailable',
+  ),
+};
+
 // ─── screen header ──────────────────────────────────────────────────────────
 
 /// Every action in a screen header is exactly this box, with exactly this

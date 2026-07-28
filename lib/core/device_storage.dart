@@ -33,6 +33,53 @@ class DeviceCapacity {
   }
 
   bool get isKnown => usedFraction != null;
+
+  /// How worried to look about this reading.
+  StorageLevel get level {
+    final percent = usedPercent;
+    if (percent == null) return StorageLevel.unknown;
+    // An absolute floor as well as the percentage: a disk with under a
+    // gigabyte free cannot finish a capture whatever share of it that is.
+    // In practice this only fires on very large disks, where a high
+    // percentage would otherwise still look comfortable.
+    final free = freeBytes;
+    if (percent >= kStorageCriticalPercent ||
+        (free != null && free < kStorageCriticalFreeBytes)) {
+      return StorageLevel.critical;
+    }
+    if (percent >= kStorageWarningPercent) return StorageLevel.warning;
+    return StorageLevel.normal;
+  }
+}
+
+/// The device is filling up. Amber from here.
+///
+/// 75% is early enough that a user who wants to capture a long series still
+/// has room to act on the warning, and late enough that a normally-loaded
+/// phone is not permanently shouting at them.
+const int kStorageWarningPercent = 75;
+
+/// Close to the limit. Red from here.
+///
+/// At 90% a capture of a large chapter is a realistic risk of failing
+/// part-way, which is the specific outcome the colour is warning about.
+const int kStorageCriticalPercent = 90;
+
+/// …and regardless of percentage, under this much free space nothing large
+/// will complete.
+const int kStorageCriticalFreeBytes = 1024 * 1024 * 1024;
+
+/// What the storage colour means. Ordered by severity so `index` comparisons
+/// read naturally.
+enum StorageLevel {
+  /// The platform would not say. Shown as a glyph with no number and no
+  /// colour — never as "fine".
+  unknown,
+  normal,
+  warning,
+  critical;
+
+  bool get isConcerning => this == warning || this == critical;
 }
 
 /// Free-space queries and backup exclusion, via one small platform channel.

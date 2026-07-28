@@ -692,6 +692,53 @@ logs both. Post-MVP, `awaitingUser` can present the choice (Q05).
 
 ---
 
+## 8a. The capture queue (as built, 2026-07-28)
+
+Capture is **queue-first**: adding a request and starting one are two separate
+acts (D46).
+
+```mermaid
+flowchart LD
+    A[Any capture entry point] --> B[queued — waiting to start]
+    B -->|user presses Start Capture| C[ensureBrowserVisible]
+    C -->|Browser not up| B
+    C -->|attached| D[inspecting / scrolling / extracting]
+    D -->|panel URLs + next link extracted| E[downloading / saving]
+    E --> F[completed]
+    D -->|surface lost| G[waitingForBrowser]
+    G -->|Browser reopened| D
+```
+
+**Who waits.** `taskWaitsForExplicitStart` — capture only. Update checks and
+cleanup drain on their own; they are bounded and already one-action-one-intent.
+A queued capture is *skipped* by the pump, never a roadblock for a check
+behind it.
+
+**Authorisation is in memory, not in the row.** Queued rows persist across a
+relaunch; the permission to drive the Browser does not (Q24). A drained
+capture queue revokes its own authorisation, so a later addition needs a new
+Start.
+
+**Browser routing.** The queue calls `ensureBrowserVisible` before any
+Browser-dependent task. The shell implements it: switch to the Browser tab,
+wait for the WebView to attach. A false return leaves the task queued. The
+capture engine's zero-viewport guard (D32) still applies on top — this is the
+navigation, that is the proof.
+
+**When the Browser stops being required.** `needsRenderedBrowser` covers
+inspecting, scrolling, waiting for assets, verifying, extracting, detecting
+next and navigating. Downloading and saving read bytes over HTTP and touch no
+layout: the user may leave, downloads continue, and the leave-Browser
+confirmation must not appear. This one predicate drives both the modal and the
+Activity row.
+
+**Batch re-download.** `enqueueChapters` re-sorts a selection into reading
+order (decimal-safe) and creates one single-chapter `replaceAll` task per
+chapter against its own stored URL. Chapters without a usable `source_url` are
+returned in `missingSource` rather than dropped. Deduplication is by
+normalised start URL over queued and running rows only — history never blocks
+an intentional re-fetch.
+
 ## 9. Manual source-update checking
 
 ```mermaid

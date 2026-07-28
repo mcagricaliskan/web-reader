@@ -11,6 +11,7 @@ import '../capture/capture_preflight.dart';
 import '../core/config.dart';
 import '../providers.dart';
 import 'capture_panel.dart';
+import 'capture_queue_ui.dart';
 import 'capture_preflight_sheet.dart';
 import 'capture_range_sheet.dart';
 import 'duplicate_decision_panel.dart';
@@ -232,15 +233,18 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     final current = await preflight.inspect(url);
 
     if (!current.needsUserDecision) {
-      setState(() => _panelOpen = true);
       // `ask` here means: if the run later walks onto a chapter that is
       // already saved, hold and ask — never silently skip or re-download.
-      await queue.enqueueCapture(
+      final result = await queue.enqueueCapture(
         startUrl: url,
         chapterLimit: limit,
         policy: DuplicatePolicy.ask,
         range: choice.mode,
       );
+      if (!context.mounted) return;
+      // Queued, not started — even here, in the Browser (D46). The panel
+      // opens when the run does.
+      showQueuedConfirmation(context, result);
       return;
     }
 
@@ -283,13 +287,13 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       case PreflightChoice.discardJobAndRestart:
         final existing = current.blockingJob;
         if (existing != null) await job.discardJob(existing);
-        setState(() => _panelOpen = true);
-        await queue.enqueueCapture(
+        final restarted = await queue.enqueueCapture(
           startUrl: url,
           chapterLimit: limit,
           policy: decision.policy ?? DuplicatePolicy.skipComplete,
           range: choice.mode,
         );
+        if (context.mounted) showQueuedConfirmation(context, restarted);
 
       case PreflightChoice.captureFollowing:
       case PreflightChoice.redownload:
@@ -297,7 +301,6 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       case PreflightChoice.restartCapture:
       case PreflightChoice.repair:
       case PreflightChoice.captureNow:
-        setState(() => _panelOpen = true);
         // "Re-download this chapter" is a single-chapter job even when the
         // sheet was opened from a larger request — the user asked for this
         // chapter, not a run starting at it.
@@ -306,12 +309,13 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
             decision.choice == PreflightChoice.retryMissing ||
             decision.choice == PreflightChoice.restartCapture ||
             decision.choice == PreflightChoice.repair;
-        await queue.enqueueCapture(
+        final queued = await queue.enqueueCapture(
           startUrl: url,
           chapterLimit: isSingle ? 1 : limit,
           policy: decision.policy ?? DuplicatePolicy.skipComplete,
           range: isSingle ? CaptureRangeMode.currentChapter : choice.mode,
         );
+        if (context.mounted) showQueuedConfirmation(context, queued);
 
       case PreflightChoice.cancel:
         break;

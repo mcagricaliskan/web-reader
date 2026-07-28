@@ -740,18 +740,28 @@ class _SelectionBar extends StatelessWidget {
           ),
           TextButton(onPressed: onCancel, child: const Text('Cancel')),
           const SizedBox(width: 4),
-          if (queueable > 0)
-            FilledButton(
-              key: const ValueKey('queueSelectionButton'),
-              onPressed: onQueue,
-              child: const Text('Add to capture queue'),
-            )
-          else
-            FilledButton(
-              key: const ValueKey('removeSelectionButton'),
-              onPressed: withFiles > 0 ? onRemove : null,
-              child: const Text('Remove offline files'),
-            ),
+          // Flexible + scale-down: these labels are the longest strings in
+          // the bar, and the counts column beside them is what actually has
+          // to stay readable.
+          Flexible(
+            child: queueable > 0
+                ? FilledButton(
+                    key: const ValueKey('queueSelectionButton'),
+                    onPressed: onQueue,
+                    child: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Add to queue'),
+                    ),
+                  )
+                : FilledButton(
+                    key: const ValueKey('removeSelectionButton'),
+                    onPressed: withFiles > 0 ? onRemove : null,
+                    child: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Remove files'),
+                    ),
+                  ),
+          ),
         ],
       ),
     );

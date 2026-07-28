@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../app.dart';
 import '../core/device_capacity_provider.dart';
+import '../core/device_storage.dart';
 import '../providers.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
@@ -133,7 +134,6 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
         error: (e, _) => Center(child: Text('$e')),
         data: (s) {
           final free = capacity?.freeBytes;
-          final usedPercent = capacity?.usedPercent;
           final temp = staging.value ?? 0;
           final series = [...s.series];
           if (!_sortBySize) {
@@ -148,6 +148,9 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
           return ListView(
             padding: const EdgeInsets.only(bottom: 40),
             children: [
+              // The device first: it is the number that decides whether a
+              // capture will finish, and the one the Library pill quotes.
+              _DeviceMeter(capacity: capacity),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
                 child: Column(
@@ -188,16 +191,12 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                   children: [
                     _Metric('${s.offlineChapters}', 'chapters offline'),
                     _Metric('${s.offlineSeries}', 'series offline'),
+                    // Free space stays as a figure; the *percentage* and its
+                    // colour live in the meter above, so this tile does not
+                    // carry a second, differently-derived warning.
                     _Metric(
                       free == null ? '—' : formatBytes(free),
                       'available on device',
-                      warn: free != null && free < 1024 * 1024 * 1024,
-                    ),
-                    // The number the Library shows, spelled out where there
-                    // is room for it.
-                    _Metric(
-                      usedPercent == null ? '—' : '$usedPercent%',
-                      'device storage used',
                     ),
                     _Metric(formatBytes(temp), 'temporary files'),
                   ],
@@ -310,34 +309,27 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
   }
 }
 
+/// A plain figure. Deliberately never coloured: exactly one thing on this
+/// screen carries the warning state, and it is the meter (D51).
 class _Metric extends StatelessWidget {
-  const _Metric(this.value, this.label, {this.warn = false});
+  const _Metric(this.value, this.label);
 
   final String value;
   final String label;
-  final bool warn;
 
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
     decoration: BoxDecoration(
-      color: warn ? const Color(0xFFF8EEDA) : const Color(0xFFF5F3EF),
+      color: const Color(0xFFF5F3EF),
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(
-        color: warn ? const Color(0xFFE8D5B2) : const Color(0xFFE7E3DC),
-      ),
+      border: Border.all(color: const Color(0xFFE7E3DC)),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(
-          value,
-          style: monoStyle(
-            size: 15,
-            color: warn ? const Color(0xFF4A2F08) : const Color(0xFF1B1A18),
-          ),
-        ),
+        Text(value, style: monoStyle(size: 15, color: const Color(0xFF1B1A18))),
         const SizedBox(height: 3),
         Text(
           label,
@@ -346,6 +338,107 @@ class _Metric extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// How full the device is: the percentage, a bar, and one line of plain
+/// language that changes with the level.
+///
+/// The percentage is the headline because it is the thing that predicts
+/// whether the next capture finishes — "12 GB free" means nothing without
+/// knowing the size of the disk it is free on.
+class _DeviceMeter extends StatelessWidget {
+  const _DeviceMeter({required this.capacity});
+
+  final DeviceCapacity? capacity;
+
+  @override
+  Widget build(BuildContext context) {
+    final level = capacity?.level ?? StorageLevel.unknown;
+    final look = storageLook(level);
+    final percent = capacity?.usedPercent;
+    final free = capacity?.freeBytes;
+    final total = capacity?.totalBytes;
+
+    return Container(
+      key: const ValueKey('deviceStorageMeter'),
+      margin: const EdgeInsets.fromLTRB(20, 16, 20, 2),
+      padding: const EdgeInsets.fromLTRB(15, 14, 15, 15),
+      decoration: BoxDecoration(
+        color: look.bg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: look.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Icon(Icons.storage, size: 18, color: look.ink),
+              const SizedBox(width: 8),
+              Text(
+                'DEVICE STORAGE',
+                style: monoStyle(size: 11, color: look.ink),
+              ),
+              const Spacer(),
+              Text(
+                percent == null ? '—' : '$percent%',
+                style: serifStyle(size: 30, color: look.ink),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // No bar at all when the platform will not report capacity: an
+          // empty track would read as "0% used", which is a claim.
+          if (percent != null) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: (percent / 100).clamp(0.0, 1.0),
+                minHeight: 7,
+                backgroundColor: look.track,
+                valueColor: AlwaysStoppedAnimation<Color>(look.fill),
+              ),
+            ),
+            const SizedBox(height: 9),
+          ],
+          Text(
+            _line(look, level, percent, free, total),
+            style: TextStyle(fontSize: 12.5, height: 1.45, color: look.ink),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Says what the colour means, and what to do about it — never just a
+  /// restatement of the number above.
+  String _line(
+    StorageLook look,
+    StorageLevel level,
+    int? percent,
+    int? free,
+    int? total,
+  ) {
+    if (percent == null) {
+      return "This device won't report its capacity, so the figure above is "
+          'unknown. Captures still check for space as they write.';
+    }
+    final space = free == null
+        ? ''
+        : total == null
+        ? '${formatBytes(free)} free. '
+        : '${formatBytes(free)} free of ${formatBytes(total)}. ';
+    return switch (level) {
+      StorageLevel.critical =>
+        '$space${look.label} — a large chapter may not finish. Remove '
+            'offline files below, or free space elsewhere on the device.',
+      StorageLevel.warning =>
+        '$space${look.label} — worth removing chapters you have finished '
+            'before starting a long capture.',
+      _ => '${space}Plenty of room for more chapters.',
+    };
+  }
 }
 
 class _TempFilesCard extends ConsumerWidget {
@@ -602,25 +695,17 @@ class StoragePill extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final capacity = ref.watch(deviceCapacityProvider).value;
     final percent = capacity?.usedPercent;
-    // Low-space warning stays on *free* bytes: 8% left of a small disk is
-    // urgent in a way 92% used does not convey on a large one.
-    final free = capacity?.freeBytes;
-    final low = free != null && free < 1024 * 1024 * 1024;
-    final critical = free != null && free < 500 * 1024 * 1024;
-
-    final fg = critical
-        ? const Color(0xFF8E3B31)
-        : low
-        ? const Color(0xFF8A5A1F)
-        // Healthy: the same ink as the other header glyphs, so it is quiet
-        // by belonging rather than by being faint.
-        : kHeaderIconColor;
+    // The colour is the percentage's job now (D51): one rule, shared with
+    // the Storage screen, rather than a second free-bytes threshold here.
+    final level = capacity?.level ?? StorageLevel.unknown;
+    final look = storageLook(level);
+    final fg = look.ink;
 
     // Unknown capacity shows the glyph alone. Inventing a percentage from a
     // half-known device is the one thing this must not do.
     final label = percent == null
         ? 'Device storage — usage unavailable'
-        : 'Device storage $percent% used';
+        : 'Device storage $percent% used · ${look.label}';
 
     return Semantics(
       button: true,
@@ -661,7 +746,7 @@ class StoragePill extends ConsumerWidget {
                           style: monoStyle(
                             size: 12,
                             color: fg,
-                            weight: critical || low
+                            weight: level.isConcerning
                                 ? FontWeight.w600
                                 : FontWeight.w400,
                           ),

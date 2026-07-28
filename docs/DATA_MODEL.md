@@ -243,6 +243,12 @@ failed}`. A retry starts a **new** attempt from `notCaptured` with a fresh stagi
 
 - Opening a chapter sets `inProgress`, `first_opened_at` (once), and `last_read_at`. **It never sets
   `completed`.**
+- **Queue rows are plans, not content.** A `queue_tasks` row carries a start
+  URL, a range and a policy — never a copy of a chapter. Clearing the queue,
+  cancelling a task or a failed run therefore cannot touch chapter metadata or
+  offline files, and a re-download reuses the existing chapter row by URL
+  (D46, D48). `state` stays `queued` until the user starts the queue; the
+  start authorisation itself is deliberately **not** a column (D46).
 - **`source_url` is durable.** Removing offline files, archiving, restoring,
   re-downloading and every reading-state write preserve it, along with the
   chapter label and number, the series relationship, the reading progress and

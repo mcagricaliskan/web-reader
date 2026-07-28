@@ -399,6 +399,39 @@ hands on the device; see §10 for the exact checklist. Uninstalling the app
 removes all local data by design — that is iOS container semantics, not a
 persistence failure.
 
+### Queue-first capture · batch re-download · dev reset ✅ *(2026-07-28)*
+
+**Queue-first (D46).** `_enqueue` no longer pumps capture work.
+`taskWaitsForExplicitStart` decides who waits: captures do, update checks and
+cleanup do not. `startQueuedCaptures()` sets an **in-memory** authorisation
+and pumps; a drained queue revokes it. Restart leaves rows `queued` and
+unauthorised, which is Q24 stated as a product rule instead of an accident.
+
+**Browser routing (D47).** `TaskQueueController.ensureBrowserVisible` is
+injected by `_ShellState`: switch to the Browser tab, wait for attach, return
+whether it worked. A false return leaves the task queued. The existing
+`needsRenderedBrowser` split (extraction vs downloading) is unchanged and now
+drives both the leave-Browser modal and the Activity row.
+
+**Entry points.** Browser capture, Series Detail, New Chapters, the episode
+details sheet, re-fetch, capture-again and the reader's retry all go through
+`showQueuedConfirmation` — a snackbar with **View Activity**, no redirect.
+
+**Batch re-download (D48).** Selection mode selects any unlocked chapter;
+quick-selects gained `Not downloaded` and `Finished · files removed`. The
+selection bar offers *Remove files* or *Add to queue* depending on what is
+selected, and a confirmation sheet shows series, count, range, estimate and
+the chapters that have no source page. `enqueueChapters` orders ascending.
+
+**Entry-point audit.** Every `enqueueCapture` call site now pairs with a
+`showQueuedConfirmation` — including the three inside the Browser's preflight
+sheet, which previously opened the capture panel as if a run had begun.
+
+**Development reset (D49, D50).** `lib/core/local_reset.dart` +
+`/developer`, both `kDebugMode`-gated. Stops work, empties every table with
+foreign keys suspended, deletes the asset tree, clears cookies, and returns a
+per-area `ResetReport`.
+
 ### Episode list: real progress, ordering, details, labels ✅ *(2026-07-27)*
 
 **Progress (D43).** `ChapterProgressRing` in `lib/ui/status_style.dart` — a
@@ -456,6 +489,15 @@ definition — `HeaderIconButton` / `kHeaderActionSize` (40) / `kHeaderIconSize`
 (22) / `kHeaderIconColor` — with `CrossAxisAlignment.center` and a
 single-line title. All four actions share centre y at both 320 and 430pt;
 locked by `library_ui_test.dart`'s header-alignment group.
+
+**Storage levels, revised 2026-07-28 (D51).** Warning colour is now derived
+from the **percentage of the device used** (75% amber, 90% red, plus a
+sub-1 GB escalation) rather than from free bytes, via `DeviceCapacity.level` +
+`storageLook()` — one rule and one palette shared by the pill and the Storage
+screen. The Storage screen leads with a `_DeviceMeter` card: percentage, bar,
+and a line that says what the colour means and what to do about it. Its metric
+tiles are no longer coloured (`_Metric.warn` removed), so only one element per
+screen carries the state.
 
 **Storage indicator (D41).** The header now shows a disk glyph and the device
 usage percentage, from a new `capacity` platform call (iOS
@@ -866,7 +908,7 @@ Fixture paths for manual driving: `/chapter/N` (rel=next), `/tr/N`, `/de/N`,
 
 ### Unit and widget — 314 tests, all passing
 
-`flutter test` → `00:14 +510: All tests passed!`
+`flutter test` → `00:16 +561: All tests passed!`
 
 | File | Tests | Covers |
 |---|---|---|
@@ -895,6 +937,9 @@ Fixture paths for manual driving: `/chapter/N` (rel=next), `/tr/N`, `/de/N`,
 | `image_dimensions_test.dart` | 12 | PNG/JPEG(+EXIF orientation)/GIF/BMP/WebP(3 variants)/AVIF(`ispe`, largest-wins) headers; truncation and garbage → null |
 | `manifest_repair_test.dart` | 5 | DOM-claim correction from stored files, verify-once, unparseable/missing files left alone, **progress approximately valid across repair** |
 | `session_duplicate_test.dart` | 10 | Mid-run prompt (real loop + real downloads over local HTTP), skip/re-download once vs for-session, stop-not-a-policy, partial actions, **resume keeps session decisions, new job resets**, requested-count semantics, skip bound |
+| `capture_queue_test.dart` | 26 | Queueing starts nothing and touches no browser · queued rows survive a restart unstarted · a queued capture does not block a check · start asks for the Browser first and refuses when it is unavailable · sequential processing · one failure does not discard the batch · stop keeps the remainder queued · duplicate prevention (history excluded) · batch ordering incl. decimals · missing source URLs reported · row reuse · reorder/clear/start-one |
+| `capture_queue_ui_test.dart` | 14 | Library strip appears only when captures wait · "Not now" keeps the queue and navigates nowhere · confirming runs it · Activity's WAITING TO START section, per-row position/mode/host, remove, reorder, clear-with-confirm · counts summary with no invented percentage · Settings shows Developer in debug · two-step reset, wrong word leaves the button dead |
+| `local_reset_test.dart` | 10 | A used app comes back empty · every table emptied (discovered from the schema) · files, staging and `.previous` backups gone · cookies cleared · active work stopped first · per-area report · a failing area reports INCOMPLETE and does not claim success · idempotent |
 | `chapter_progress_ring_test.dart` | 8 | 0% / partial / 100% rendering and semantics, completed always reads 100%, `shouldRepaint` only on a real change, compact 14pt row size |
 | `chapter_sort_test.dart` | 10 | Default newest-first, ascending, decimal ordering (`385 < 385.5 < 386`), non-numeric stable fallback and exact mirroring, preference persistence incl. an unrecognised stored value, display-label rules |
 | `chapter_details_sheet_test.dart` | 11 | Tap opens the reader with no sheet; long press opens the sheet and does **not** fire the tap; facts shown; mark-read from inside the sheet; state-appropriate actions; no re-fetch without a URL; unnumbered chapters keep their name; sort toggle flips and persists; the First-chapter action is gone. All at 320 pt |
