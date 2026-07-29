@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:web_reader/browser/browser_controller.dart';
+import 'package:web_reader/browser/browser_navigator.dart';
 import 'package:web_reader/capture/capture_job.dart';
 import 'package:web_reader/core/connectivity.dart';
 import 'package:web_reader/features/chapter_actions.dart';
@@ -40,6 +41,8 @@ void main() {
   late FileStore store;
   late BrowserController browser;
   late _FakeConnectivity connectivity;
+  late BrowserNavigator browserNavigator;
+  late ValueNotifier<int?> tabRequest;
   String? lastRoute;
 
   setUp(() {
@@ -48,9 +51,13 @@ void main() {
     store = FileStore(root);
     browser = BrowserController();
     connectivity = _FakeConnectivity(true);
+    browserNavigator = BrowserNavigator();
+    tabRequest = ValueNotifier<int?>(null);
     lastRoute = null;
   });
   tearDown(() async {
+    browserNavigator.dispose();
+    tabRequest.dispose();
     await db.close();
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
@@ -140,6 +147,8 @@ void main() {
         updateCheckerProvider.overrideWithValue(
           UpdateChecker(browser: browser, db: db),
         ),
+        browserNavigatorProvider.overrideWithValue(browserNavigator),
+        shellTabRequestProvider.overrideWithValue(tabRequest),
         cleanupProvider.overrideWithValue(
           CleanupService(db: db, fileStore: store),
         ),
@@ -213,11 +222,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(connectivity.hosts, ['x.example']);
+    // The page is handed to the shared coordinator's pending request, and the
+    // Browser section is selected — the two halves the old flow only did one
+    // of (D60). The Browser drains the request once it is mounted.
     expect(
-      browser.debugPendingUrl,
+      browserNavigator.pending?.url,
       url,
       reason: 'the stored chapter URL, never a series or fallback page',
     );
+    expect(tabRequest.value, 1, reason: 'the Browser section is selected');
     await drain(tester);
   });
 
@@ -235,7 +248,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('No network connection'), findsOneWidget);
-    expect(browser.debugPendingUrl, isNull);
+    expect(browserNavigator.hasPending, isFalse);
+    expect(tabRequest.value, isNull, reason: 'the user stays where they are');
     await drain(tester);
   });
 
@@ -257,7 +271,8 @@ void main() {
     // Disabled, not merely unhelpful: tapping must not navigate anywhere.
     await tester.tap(find.text('Open on website'));
     await tester.pumpAndSettle();
-    expect(browser.debugPendingUrl, isNull);
+    expect(browserNavigator.hasPending, isFalse);
+    expect(tabRequest.value, isNull);
     expect(connectivity.hosts, isEmpty);
     await drain(tester);
   });
@@ -276,7 +291,8 @@ void main() {
 
     await tester.tap(find.text('Open on website'));
     await tester.pumpAndSettle();
-    expect(browser.debugPendingUrl, url);
+    expect(browserNavigator.pending?.url, url);
+    expect(tabRequest.value, 1);
     await drain(tester);
   });
 }

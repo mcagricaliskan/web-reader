@@ -10,8 +10,10 @@ import '../library/update_checker.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../reading/reading_repository.dart';
+import '../storage/cleanup.dart';
 import '../storage/database.dart';
 import '../storage/manifest.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 import 'capture_queue_ui.dart';
@@ -309,6 +311,7 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final sort =
         ref.watch(chapterSortProvider).value ?? ChapterSort.newestFirst;
     // Reading order drives selection helpers and the reading state; the list
@@ -319,14 +322,25 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
     final reading = computeSeriesReadingState(group.chapters);
     final resume = reading.continueChapter;
     final checker = ref.watch(updateCheckerProvider);
-    final warning = group.warningLine;
+    final warning = group.warningLine(palette);
     final bytes = group.chapters.fold<int>(0, (sum, c) => sum + c.byteSize);
 
     return Scaffold(
       appBar: _selecting
           ? AppBar(
-              backgroundColor: const Color(0xFFEAF1F4),
-              foregroundColor: const Color(0xFF133845),
+              backgroundColor: palette.primaryContainer,
+              foregroundColor: palette.onPrimaryContainer,
+              iconTheme: IconThemeData(color: palette.onPrimaryContainer),
+              actionsIconTheme: IconThemeData(
+                color: palette.onPrimaryContainer,
+              ),
+              titleTextStyle: TextStyle(
+                fontFamily: 'IBM Plex Sans',
+                fontSize: 15,
+                fontVariations: wght(600),
+                fontWeight: FontWeight.w600,
+                color: palette.onPrimaryContainer,
+              ),
               leading: IconButton(
                 icon: const Icon(Icons.close, size: 24),
                 tooltip: 'Cancel selection',
@@ -405,14 +419,17 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
                     children: [
                       Text(group.displayName, style: serifStyle(size: 22)),
                       const SizedBox(height: 5),
-                      Text(group.item.host, style: monoStyle()),
+                      Text(
+                        group.item.host,
+                        style: monoStyle(color: palette.inkFaint),
+                      ),
                       if (group.item.userTitle != null) ...[
                         const SizedBox(height: 4),
                         Text(
                           'Renamed by you · source title: ${group.item.title}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
-                            color: Color(0xFF8C877E),
+                            color: palette.inkFaint,
                           ),
                         ),
                       ],
@@ -428,28 +445,34 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
               spacing: 8,
               runSpacing: 8,
               children: [
+                // The accent chip carries a border as well as a tint: under a
+                // device warm filter the teal loses most of its blue, so hue
+                // alone cannot be what separates it from the neutral ones.
                 _MetaChip(
                   icon: Icons.download_for_offline,
-                  iconColor: const Color(0xFF35606F),
+                  iconColor: palette.onPrimaryContainer,
                   label: '${group.offlineCount} offline',
-                  bg: const Color(0xFFEAF1F4),
-                  fg: const Color(0xFF133845),
+                  bg: palette.primaryContainer,
+                  border: palette.primaryBorder,
+                  fg: palette.onPrimaryContainer,
                 ),
                 _MetaChip(
                   icon: Icons.circle,
                   iconSize: 9,
-                  iconColor: const Color(0xFF35606F),
+                  iconColor: palette.primary,
                   label: '${group.unreadOfflineCount} unread',
-                  bg: const Color(0xFFF3F1ED),
-                  fg: const Color(0xFF3E3A34),
+                  bg: palette.surfaceHigh,
+                  border: palette.border,
+                  fg: palette.inkStrong,
                 ),
                 if (bytes > 0)
                   _MetaChip(
                     icon: Icons.folder,
-                    iconColor: const Color(0xFF7A756C),
+                    iconColor: palette.inkFaint,
                     label: formatBytes(bytes),
-                    bg: const Color(0xFFF3F1ED),
-                    fg: const Color(0xFF3E3A34),
+                    bg: palette.surfaceHigh,
+                    border: palette.border,
+                    fg: palette.inkStrong,
                   ),
               ],
             ),
@@ -555,6 +578,26 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
                 },
               ),
               ListTile(
+                key: const ValueKey('seriesCleanupPrefEntry'),
+                leading: const Icon(Icons.auto_delete),
+                title: const Text('Downloaded chapters'),
+                subtitle: Text(
+                  seriesCleanupSummary(
+                    seriesCleanupFromName(group.item.finishedCleanup),
+                  ),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  showSeriesCleanupSheet(
+                    context: context,
+                    ref: ref,
+                    seriesId: group.item.id,
+                    seriesName: group.displayName,
+                    current: seriesCleanupFromName(group.item.finishedCleanup),
+                  );
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.delete_sweep),
                 title: const Text('Remove offline files…'),
                 subtitle: const Text(
@@ -632,10 +675,13 @@ class _SeriesDetailState extends ConsumerState<_SeriesDetail> {
               decoration: const InputDecoration(labelText: 'Display name'),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Only what is shown here changes. Source URLs, stored files and '
               'how future captures are matched all stay as they are.',
-              style: TextStyle(fontSize: 11, color: Color(0xFF5F5B54)),
+              style: TextStyle(
+                fontSize: 11,
+                color: AppPalette.of(context).inkMuted,
+              ),
             ),
           ],
         ),
@@ -685,6 +731,7 @@ class _SelectionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final chosen = chapters.where((c) => selected.contains(c.id)).toList();
     final bytes = chosen.fold<int>(0, (sum, c) => sum + c.byteSize);
     final any = selected.isNotEmpty;
@@ -697,9 +744,9 @@ class _SelectionBar extends StatelessWidget {
         .length;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFFFBFAF8),
-        border: Border(top: BorderSide(color: Color(0xFFE7E3DC))),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        border: Border(top: BorderSide(color: palette.border)),
       ),
       padding: EdgeInsets.fromLTRB(
         14,
@@ -720,6 +767,7 @@ class _SelectionBar extends StatelessWidget {
                     fontSize: 13.5,
                     fontVariations: wght(600),
                     fontWeight: FontWeight.w600,
+                    color: palette.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -733,7 +781,7 @@ class _SelectionBar extends StatelessWidget {
                           if (noSource > 0) '$noSource have no source page',
                         ].join(' · '),
                   maxLines: 2,
-                  style: monoStyle(size: 11.5, color: const Color(0xFF5F5B54)),
+                  style: monoStyle(size: 11.5, color: palette.inkMuted),
                 ),
               ],
             ),
@@ -773,6 +821,7 @@ class _MetaChip extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.bg,
+    required this.border,
     required this.fg,
     required this.iconColor,
     this.iconSize = 15,
@@ -780,7 +829,7 @@ class _MetaChip extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final Color bg, fg, iconColor;
+  final Color bg, border, fg, iconColor;
   final double iconSize;
 
   @override
@@ -789,6 +838,7 @@ class _MetaChip extends StatelessWidget {
     decoration: BoxDecoration(
       color: bg,
       borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: border),
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
@@ -811,15 +861,16 @@ class _WarningCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final failed = group.failedChapters > 0;
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
       decoration: BoxDecoration(
-        color: failed ? const Color(0xFFF7DDD8) : const Color(0xFFF8EEDA),
+        color: failed ? palette.dangerContainer : palette.warnContainer,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: failed ? const Color(0xFFEBC4BC) : const Color(0xFFE8D5B2),
+          color: failed ? palette.dangerBorder : palette.warnBorder,
         ),
       ),
       child: Row(
@@ -838,8 +889,8 @@ class _WarningCard extends StatelessWidget {
                     fontVariations: wght(600),
                     fontWeight: FontWeight.w600,
                     color: failed
-                        ? const Color(0xFF4A140E)
-                        : const Color(0xFF4A2F08),
+                        ? palette.onDangerContainer
+                        : palette.onWarnContainer,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -853,8 +904,8 @@ class _WarningCard extends StatelessWidget {
                     fontSize: 12,
                     height: 1.5,
                     color: failed
-                        ? const Color(0xFF5F3730)
-                        : const Color(0xFF6B4A15),
+                        ? palette.onDangerContainer
+                        : palette.onWarnContainer,
                   ),
                 ),
               ],
@@ -874,54 +925,58 @@ class _ArchivedBanner extends ConsumerWidget {
   final SeriesGroup group;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Container(
-    margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF8F6F3),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xFFE7E3DC)),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Icon(Icons.inventory_2, size: 21, color: Color(0xFF5F5B54)),
-        const SizedBox(width: 11),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Archived',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontVariations: wght(600),
-                  fontWeight: FontWeight.w600,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+      decoration: BoxDecoration(
+        color: palette.surfaceMuted,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.inventory_2, size: 21, color: palette.inkMuted),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Archived',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontVariations: wght(600),
+                    fontWeight: FontWeight.w600,
+                    color: palette.ink,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Not checked for updates while archived'
-                '${group.item.archivedAt != null ? ' · archived ${formatRelative(group.item.archivedAt)}' : ''}. '
-                'Everything downloaded is still readable.',
-                style: const TextStyle(
-                  fontSize: 12,
-                  height: 1.45,
-                  color: Color(0xFF5F5B54),
+                const SizedBox(height: 2),
+                Text(
+                  'Not checked for updates while archived'
+                  '${group.item.archivedAt != null ? ' · archived ${formatRelative(group.item.archivedAt)}' : ''}. '
+                  'Everything downloaded is still readable.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.45,
+                    color: palette.inkMuted,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(width: 8),
-        FilledButton(
-          onPressed: () =>
-              ref.read(seriesRepositoryProvider).restore(group.item.id),
-          child: const Text('Restore'),
-        ),
-      ],
-    ),
-  );
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: () =>
+                ref.read(seriesRepositoryProvider).restore(group.item.id),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// "Check for new chapters" plus the state of the last check. Never checked is
@@ -937,6 +992,7 @@ class _UpdateCheckCard extends ConsumerWidget {
     return ListenableBuilder(
       listenable: checker,
       builder: (context, _) {
+        final palette = AppPalette.of(context);
         final checking =
             checker.isRunning && checker.activeItemId == group.item.id;
         final item = group.item;
@@ -944,7 +1000,7 @@ class _UpdateCheckCard extends ConsumerWidget {
         final (icon, iconColor, title, body) = switch (null) {
           _ when checking => (
             Icons.sync,
-            const Color(0xFF35606F),
+            palette.primary,
             'Checking the source…',
             checker.state == UpdateCheckState.needsUserInput
                 ? 'Waiting for you: select the next-chapter control in the '
@@ -956,21 +1012,21 @@ class _UpdateCheckCard extends ConsumerWidget {
           ),
           _ when item.lastCheckError != null => (
             Icons.sync_problem,
-            const Color(0xFF8E3B31),
+            palette.danger,
             'Check failed',
             '${item.lastCheckError}'
                 '${item.lastCheckSuccessAt != null ? ' · last success ${formatRelative(item.lastCheckSuccessAt)}' : ''}',
           ),
           _ when item.lastCheckSuccessAt == null => (
             Icons.history_toggle_off,
-            const Color(0xFF5F5B54),
+            palette.inkMuted,
             'Never checked for updates',
             'This is not the same as “no new chapters”. Nothing has asked '
                 'the source yet.',
           ),
           _ when group.knownRemoteCount > 0 => (
             Icons.cloud,
-            const Color(0xFF35606F),
+            palette.primary,
             '${group.knownRemoteCount} new '
                 'chapter${group.knownRemoteCount == 1 ? '' : 's'} on source',
             'Checked ${formatRelative(item.lastCheckSuccessAt)} · metadata '
@@ -978,7 +1034,7 @@ class _UpdateCheckCard extends ConsumerWidget {
           ),
           _ => (
             Icons.update,
-            const Color(0xFF5F5B54),
+            palette.inkMuted,
             'No new chapters',
             'Checked ${formatRelative(item.lastCheckSuccessAt)}'
                 '${item.lastCheckResult != null ? ' · ${item.lastCheckResult}' : ''}.',
@@ -989,9 +1045,9 @@ class _UpdateCheckCard extends ConsumerWidget {
           margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8F6F3),
+            color: palette.surfaceMuted,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE7E3DC)),
+            border: Border.all(color: palette.border),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1008,15 +1064,16 @@ class _UpdateCheckCard extends ConsumerWidget {
                         fontSize: 13,
                         fontVariations: wght(600),
                         fontWeight: FontWeight.w600,
+                        color: palette.ink,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       body,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         height: 1.45,
-                        color: Color(0xFF5F5B54),
+                        color: palette.inkMuted,
                       ),
                     ),
                   ],
@@ -1058,103 +1115,100 @@ class _RemoteChapters extends ConsumerWidget {
   final VoidCallback onCapture;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const SectionLabel('NEW ON SOURCE — NOT DOWNLOADED'),
-      Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFCFBF9),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFD7D2C9)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          children: [
-            for (final chapter in chapters)
-              InkWell(
-                key: ValueKey('remoteRow-${chapter.id}'),
-                onTap: () => showUnavailableChapterSheet(context, ref, chapter),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 13,
-                    vertical: 11,
-                  ),
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: Color(0xFFF1EEE9)),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionLabel('NEW ON SOURCE — NOT DOWNLOADED'),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: palette.surfaceMuted,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: palette.borderInset),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (final chapter in chapters)
+                InkWell(
+                  key: ValueKey('remoteRow-${chapter.id}'),
+                  onTap: () =>
+                      showUnavailableChapterSheet(context, ref, chapter),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 11,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: palette.hairline),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.cloud, size: 20, color: palette.inkFaint),
+                        const SizedBox(width: 11),
+                        Expanded(
+                          child: Text(
+                            chapterDisplayLabel(
+                              number: chapter.chapterNumber,
+                              rawLabel: chapter.chapterLabel,
+                              title: chapter.title,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: monoStyle(size: 13, color: palette.ink),
+                          ),
+                        ),
+                        Text(
+                          'found ${formatRelative(chapter.discoveredAt)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: palette.inkFaint,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.cloud,
-                        size: 20,
-                        color: Color(0xFFA39D93),
-                      ),
-                      const SizedBox(width: 11),
-                      Expanded(
-                        child: Text(
-                          chapterDisplayLabel(
-                            number: chapter.chapterNumber,
-                            rawLabel: chapter.chapterLabel,
-                            title: chapter.title,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: monoStyle(
-                            size: 13,
-                            color: const Color(0xFF4A463F),
+                ),
+              Material(
+                color: palette.primaryContainer,
+                child: InkWell(
+                  onTap: onCapture,
+                  child: Padding(
+                    padding: const EdgeInsets.all(13),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.download,
+                          size: 19,
+                          color: palette.onPrimaryContainer,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Capture ${chapters.length} new '
+                          'chapter${chapters.length == 1 ? '' : 's'}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontVariations: wght(600),
+                            fontWeight: FontWeight.w600,
+                            color: palette.onPrimaryContainer,
                           ),
                         ),
-                      ),
-                      Text(
-                        'found ${formatRelative(chapter.discoveredAt)}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF8C877E),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            Material(
-              color: const Color(0xFFEAF1F4),
-              child: InkWell(
-                onTap: onCapture,
-                child: Padding(
-                  padding: const EdgeInsets.all(13),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.download,
-                        size: 19,
-                        color: Color(0xFF133845),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Capture ${chapters.length} new '
-                        'chapter${chapters.length == 1 ? '' : 's'}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontVariations: wght(600),
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF133845),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 class _ChapterRow extends ConsumerWidget {
@@ -1176,11 +1230,12 @@ class _ChapterRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
     final status = captureStatusFromName(chapter.captureStatus);
     final offline =
         chapter.contentPath != null &&
         (status == CaptureStatus.complete || status == CaptureStatus.partial);
-    final look = captureLook(chapter);
+    final look = captureLook(chapter, palette);
     // Number-first: "Chapter 487", not "487. Bölüm Oku". The raw label is
     // kept on the row and shown in the details sheet.
     final displayLabel = chapterDisplayLabel(
@@ -1198,7 +1253,7 @@ class _ChapterRow extends ConsumerWidget {
     return Opacity(
       opacity: selecting && !selectable ? 0.45 : 1,
       child: Container(
-        color: selected ? const Color(0xFFEFF4F6) : Colors.transparent,
+        color: selected ? palette.surfaceSelected : Colors.transparent,
         child: InkWell(
           key: ValueKey('chapterRow-${chapter.id}'),
           // Offline → the reader, exactly as before. Not offline → the two
@@ -1232,10 +1287,10 @@ class _ChapterRow extends ConsumerWidget {
                                     : Icons.check_box_outline_blank),
                           size: 22,
                           color: selected
-                              ? const Color(0xFF35606F)
+                              ? palette.primary
                               : (selectable
-                                    ? const Color(0xFF5F5B54)
-                                    : const Color(0xFFC4BFB5)),
+                                    ? palette.inkMuted
+                                    : palette.inkDisabled),
                         )
                       : CaptureGlyph(look),
                 ),
@@ -1251,9 +1306,7 @@ class _ChapterRow extends ConsumerWidget {
                         style: monoStyle(
                           size: 13.5,
                           weight: FontWeight.w500,
-                          color: look.dimTitle
-                              ? const Color(0xFF8C877E)
-                              : const Color(0xFF1B1A18),
+                          color: look.dimTitle ? palette.inkFaint : palette.ink,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -1263,11 +1316,11 @@ class _ChapterRow extends ConsumerWidget {
                             look.label,
                             style: TextStyle(fontSize: 11.5, color: look.color),
                           ),
-                          const Text(
+                          Text(
                             ' · ',
                             style: TextStyle(
                               fontSize: 11.5,
-                              color: Color(0xFFCFC9BF),
+                              color: palette.inkDisabled,
                             ),
                           ),
                           Expanded(
@@ -1279,7 +1332,7 @@ class _ChapterRow extends ConsumerWidget {
                               overflow: TextOverflow.ellipsis,
                               style: monoStyle(
                                 size: 11.5,
-                                color: const Color(0xFF5F5B54),
+                                color: palette.inkMuted,
                               ),
                             ),
                           ),
@@ -1324,6 +1377,7 @@ class _ChapterSortToggle extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
     final next = sort == ChapterSort.newestFirst
         ? ChapterSort.oldestFirst
         : ChapterSort.newestFirst;
@@ -1332,10 +1386,10 @@ class _ChapterSortToggle extends ConsumerWidget {
       label: 'Sorted ${sort.label} first. Tap for ${next.label} first.',
       excludeSemantics: true,
       child: Material(
-        color: const Color(0xFFF3F1ED),
+        color: palette.surfaceHigh,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(999),
-          side: const BorderSide(color: Color(0xFFE7E3DC)),
+          side: BorderSide(color: palette.border),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -1351,15 +1405,12 @@ class _ChapterSortToggle extends ConsumerWidget {
                       ? Icons.arrow_downward
                       : Icons.arrow_upward,
                   size: 14,
-                  color: const Color(0xFF3E3A34),
+                  color: palette.inkStrong,
                 ),
                 const SizedBox(width: 5),
                 Text(
                   sort.label,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF3E3A34),
-                  ),
+                  style: TextStyle(fontSize: 12, color: palette.inkStrong),
                 ),
               ],
             ),

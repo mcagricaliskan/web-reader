@@ -8,6 +8,7 @@ import '../app.dart';
 import '../core/device_capacity_provider.dart';
 import '../core/device_storage.dart';
 import '../providers.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 import 'cleanup_dialogs.dart';
@@ -123,6 +124,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final summary = ref.watch(storageSummaryProvider);
     final capacity = ref.watch(deviceCapacityProvider).value;
     final staging = ref.watch(stagingBytesProvider);
@@ -158,7 +160,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                   children: [
                     Text(
                       'WEB READER USES',
-                      style: monoStyle(color: const Color(0xFF5F5B54)),
+                      style: monoStyle(color: palette.inkMuted),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -171,10 +173,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                       '${s.offlineChapters == 1 ? '' : 's'} across '
                       '${s.offlineSeries} series · reading history not '
                       'included',
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        color: Color(0xFF5F5B54),
-                      ),
+                      style: TextStyle(fontSize: 12.5, color: palette.inkMuted),
                     ),
                   ],
                 ),
@@ -210,17 +209,17 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                     vertical: 12,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF3F1ED),
+                    color: palette.surfaceHigh,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFDFDAD2)),
+                    border: Border.all(color: palette.border),
                   ),
-                  child: const Text(
+                  child: Text(
                     "Available device space can't be read right now. Capture "
                     'still works — space is checked as files are written.',
                     style: TextStyle(
                       fontSize: 12.5,
                       height: 1.5,
-                      color: Color(0xFF5F5B54),
+                      color: palette.inkMuted,
                     ),
                   ),
                 ),
@@ -258,8 +257,8 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                   '/series/${series.first.group.item.id}?select=1',
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 18, 20, 0),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
                 child: Text(
                   'Removing offline files never deletes a series, read marks '
                   'or reading history. Chapters stay listed and can be '
@@ -267,7 +266,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                   style: TextStyle(
                     fontSize: 11.5,
                     height: 1.55,
-                    color: Color(0xFFA39D93),
+                    color: palette.inkFaint,
                   ),
                 ),
               ),
@@ -318,26 +317,29 @@ class _Metric extends StatelessWidget {
   final String label;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF5F3EF),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0xFFE7E3DC)),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(value, style: monoStyle(size: 15, color: const Color(0xFF1B1A18))),
-        const SizedBox(height: 3),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 11.5, color: Color(0xFF5F5B54)),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: palette.surfaceMuted,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: palette.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(value, style: monoStyle(size: 15, color: palette.ink)),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11.5, color: palette.inkMuted),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// How full the device is: the percentage, a bar, and one line of plain
@@ -354,7 +356,7 @@ class _DeviceMeter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final level = capacity?.level ?? StorageLevel.unknown;
-    final look = storageLook(level);
+    final look = storageLook(level, AppPalette.of(context));
     final percent = capacity?.usedPercent;
     final free = capacity?.freeBytes;
     final total = capacity?.totalBytes;
@@ -447,69 +449,75 @@ class _TempFilesCard extends ConsumerWidget {
   final int bytes;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Container(
-    margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF8EEDA),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0xFFE8D5B2)),
-    ),
-    child: Row(
-      children: [
-        const Icon(Icons.cleaning_services, size: 20, color: Color(0xFF8A5A1F)),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${formatBytes(bytes)} of temporary files',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontVariations: wght(600),
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF4A2F08),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+      decoration: BoxDecoration(
+        color: palette.warnContainer,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: palette.warnBorder),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.cleaning_services, size: 20, color: palette.warn),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${formatBytes(bytes)} of temporary files',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontVariations: wght(600),
+                    fontWeight: FontWeight.w600,
+                    color: palette.onWarnContainer,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              const Text(
-                'Left behind by interrupted captures. Cleaning never touches '
-                'saved chapters.',
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.45,
-                  color: Color(0xFF6B4A15),
+                const SizedBox(height: 2),
+                Text(
+                  'Left behind by interrupted captures. Cleaning never touches '
+                  'saved chapters.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.45,
+                    color: palette.onWarnContainer,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(width: 8),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF8A5A1F),
+          const SizedBox(width: 8),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: palette.warn,
+              foregroundColor: palette.isDark
+                  ? palette.warnContainer
+                  : palette.onPrimary,
+            ),
+            onPressed: () async {
+              final swept = await ref.read(fileStoreProvider).sweepStaging();
+              ref.invalidate(stagingBytesProvider);
+              unawaited(
+                ref.read(deviceCapacityProvider.notifier).refresh(force: true),
+              );
+              if (!context.mounted) return;
+              showCleanupToast(
+                context,
+                text: swept == 0
+                    ? 'Nothing to clean'
+                    : 'Temporary files cleaned · ${formatBytes(bytes)} freed',
+                icon: Icons.cleaning_services,
+              );
+            },
+            child: const Text('Clean'),
           ),
-          onPressed: () async {
-            final swept = await ref.read(fileStoreProvider).sweepStaging();
-            ref.invalidate(stagingBytesProvider);
-            unawaited(
-              ref.read(deviceCapacityProvider.notifier).refresh(force: true),
-            );
-            if (!context.mounted) return;
-            showCleanupToast(
-              context,
-              text: swept == 0
-                  ? 'Nothing to clean'
-                  : 'Temporary files cleaned · ${formatBytes(bytes)} freed',
-              icon: Icons.cleaning_services,
-            );
-          },
-          child: const Text('Clean'),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 class _SortToggle extends StatelessWidget {
@@ -519,31 +527,34 @@ class _SortToggle extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: const Color(0xFFF3F1ED),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(999),
-      side: const BorderSide(color: Color(0xFFE7E3DC)),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.swap_vert, size: 16, color: Color(0xFF3E3A34)),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Color(0xFF3E3A34)),
-            ),
-          ],
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Material(
+      color: palette.surfaceHigh,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(999),
+        side: BorderSide(color: palette.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.swap_vert, size: 16, color: palette.inkStrong),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: palette.inkStrong),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _SeriesRow extends StatelessWidget {
@@ -554,6 +565,7 @@ class _SeriesRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final pct = largestBytes == 0
         ? 0.0
         : (row.bytes / largestBytes).clamp(0.0, 1.0);
@@ -576,29 +588,27 @@ class _SeriesRow extends StatelessWidget {
                       fontSize: 14,
                       fontVariations: wght(500),
                       fontWeight: FontWeight.w500,
+                      color: palette.ink,
                     ),
                   ),
                   const SizedBox(height: 3),
                   Text(
                     '${row.offlineChapters} chapters offline',
-                    style: monoStyle(),
+                    style: monoStyle(color: palette.inkFaint),
                   ),
                   if (row.partialChapters > 0) ...[
                     const SizedBox(height: 5),
                     Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.arrow_circle_down,
                           size: 14,
-                          color: Color(0xFF8A5A1F),
+                          color: palette.warn,
                         ),
                         const SizedBox(width: 5),
                         Text(
                           '${row.partialChapters} partial',
-                          style: const TextStyle(
-                            fontSize: 11.5,
-                            color: Color(0xFF8A5A1F),
-                          ),
+                          style: TextStyle(fontSize: 11.5, color: palette.warn),
                         ),
                       ],
                     ),
@@ -610,7 +620,10 @@ class _SeriesRow extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(formatBytes(row.bytes), style: monoStyle(size: 13)),
+                Text(
+                  formatBytes(row.bytes),
+                  style: monoStyle(size: 13, color: palette.inkMuted),
+                ),
                 const SizedBox(height: 6),
                 SizedBox(
                   width: 64,
@@ -619,14 +632,14 @@ class _SeriesRow extends StatelessWidget {
                     child: LinearProgressIndicator(
                       value: pct,
                       minHeight: 4,
-                      backgroundColor: const Color(0xFFEAE6E0),
-                      color: const Color(0xFF35606F),
+                      backgroundColor: palette.border,
+                      color: palette.primary,
                     ),
                   ),
                 ),
               ],
             ),
-            const Icon(Icons.chevron_right, size: 19, color: Color(0xFFB3ADA3)),
+            Icon(Icons.chevron_right, size: 19, color: palette.inkFaint),
           ],
         ),
       ),
@@ -650,27 +663,24 @@ class _CleanupRow extends StatelessWidget {
   final bool enabled;
 
   @override
-  Widget build(BuildContext context) => Opacity(
-    opacity: enabled ? 1 : 0.5,
-    child: ListTile(
-      leading: Icon(icon, color: const Color(0xFF5F5B54)),
-      title: Text(label, style: const TextStyle(fontSize: 14.5)),
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    // Disabled reads as disabled through the palette's own disabled inks
+    // rather than a blanket opacity, which used to take the row's borders and
+    // glyphs below the point where they were visible at all on dark.
+    final ink = enabled ? palette.ink : palette.inkDisabled;
+    final sub2 = enabled ? palette.inkFaint : palette.inkDisabled;
+    return ListTile(
+      leading: Icon(icon, color: enabled ? palette.inkMuted : sub2),
+      title: Text(label, style: TextStyle(fontSize: 14.5, color: ink)),
       subtitle: Text(
         sub,
-        style: const TextStyle(
-          fontSize: 12,
-          height: 1.4,
-          color: Color(0xFF8C877E),
-        ),
+        style: TextStyle(fontSize: 12, height: 1.4, color: sub2),
       ),
-      trailing: const Icon(
-        Icons.chevron_right,
-        size: 19,
-        color: Color(0xFFB3ADA3),
-      ),
+      trailing: Icon(Icons.chevron_right, size: 19, color: sub2),
       onTap: enabled ? onTap : null,
-    ),
-  );
+    );
+  }
 }
 
 /// The Library header's storage entry: a disk glyph and one number.
@@ -698,7 +708,7 @@ class StoragePill extends ConsumerWidget {
     // The colour is the percentage's job now (D51): one rule, shared with
     // the Storage screen, rather than a second free-bytes threshold here.
     final level = capacity?.level ?? StorageLevel.unknown;
-    final look = storageLook(level);
+    final look = storageLook(level, AppPalette.of(context));
     final fg = look.ink;
 
     // Unknown capacity shows the glyph alone. Inventing a percentage from a

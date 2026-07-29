@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/local_reset.dart';
 import '../providers.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 
 /// The reset service, wired to the app's real stores.
@@ -48,15 +49,15 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
       body: ListView(
         children: [
           const SectionLabel('DEBUG BUILD ONLY'),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
             child: Text(
               'These tools exist so development can start from a known empty '
               'state. They are compiled out of release builds.',
               style: TextStyle(
                 fontSize: 13,
                 height: 1.55,
-                color: Color(0xFF5F5B54),
+                color: AppPalette.of(context).inkMuted,
               ),
             ),
           ),
@@ -67,10 +68,13 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
                     dimension: 22,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.delete_forever, color: Color(0xFF8E3B31)),
-            title: const Text(
+                : Icon(
+                    Icons.delete_forever,
+                    color: AppPalette.of(context).danger,
+                  ),
+            title: Text(
               'Reset all local app data',
-              style: TextStyle(color: Color(0xFF8E3B31)),
+              style: TextStyle(color: AppPalette.of(context).danger),
             ),
             subtitle: const Text(
               'Library, captured files, reading progress, queue, rules, '
@@ -90,10 +94,10 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
     final proceed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(
+        icon: Icon(
           Icons.warning_amber,
           size: 26,
-          color: Color(0xFF8E3B31),
+          color: AppPalette.of(dialogContext).danger,
         ),
         title: const Text('Reset all local data?'),
         content: const Text(
@@ -133,7 +137,7 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(
         content: Text(report.summary),
-        backgroundColor: report.ok ? null : const Color(0xFF8E3B31),
+        backgroundColor: report.ok ? null : AppPalette.of(context).danger,
         action: report.ok
             ? null
             : SnackBarAction(label: 'Retry', onPressed: _confirmReset),
@@ -197,7 +201,8 @@ class _TypeToConfirmDialogState extends State<_TypeToConfirmDialog> {
         FilledButton(
           key: const ValueKey('resetEverything'),
           style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF8E3B31),
+            backgroundColor: AppPalette.of(context).danger,
+            foregroundColor: AppPalette.of(context).onPrimary,
           ),
           onPressed: armed ? () => Navigator.of(context).pop(true) : null,
           child: const Text('Reset everything'),
@@ -214,44 +219,45 @@ class _ReportCard extends StatelessWidget {
   final ResetReport report;
 
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-    padding: const EdgeInsets.all(13),
-    decoration: BoxDecoration(
-      color: report.ok ? const Color(0xFFEFF4F6) : const Color(0xFFF7DDD8),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(
-        color: report.ok ? const Color(0xFFD3E1E6) : const Color(0xFFEBC4BC),
-      ),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          report.summary,
-          style: TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w600,
-            color: report.ok
-                ? const Color(0xFF133845)
-                : const Color(0xFF8E3B31),
-          ),
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: report.ok ? palette.primaryContainer : palette.dangerContainer,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: report.ok ? palette.primaryBorder : palette.dangerBorder,
         ),
-        const SizedBox(height: 8),
-        for (final step in report.steps)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 3),
-            child: Text(
-              step.toString(),
-              style: monoStyle(
-                size: 11.5,
-                color: step.ok
-                    ? const Color(0xFF3E3A34)
-                    : const Color(0xFF8E3B31),
-              ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            report.summary,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+              color: report.ok
+                  ? palette.onPrimaryContainer
+                  : palette.onDangerContainer,
             ),
           ),
-      ],
-    ),
-  );
+          const SizedBox(height: 8),
+          for (final step in report.steps)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Text(
+                step.toString(),
+                style: monoStyle(
+                  size: 11.5,
+                  color: step.ok ? palette.onPrimaryContainer : palette.danger,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }

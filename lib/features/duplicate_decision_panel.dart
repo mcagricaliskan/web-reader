@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../capture/capture_job.dart';
 import '../capture/capture_preflight.dart';
 import '../features/library_screen.dart' show formatRelative;
+import '../ui/palette.dart';
+import '../ui/status_style.dart';
 import '../ui/theme.dart';
 
 /// Shown in place of the capture panel while the running job holds on a
@@ -30,19 +32,20 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final request = widget.request;
     final chapter = request.chapter;
 
     // The leading glyph speaks the capture-status vocabulary: what state the
     // existing copy is in decides both the icon and its colour.
     final (icon, iconColor) = switch (chapter?.captureStatus) {
-      'partial' => (Icons.arrow_circle_down, const Color(0xFF8A5A1F)),
-      'failed' => (Icons.error, const Color(0xFF8E3B31)),
-      _ => (Icons.download_for_offline, const Color(0xFF35606F)),
+      'partial' => (Icons.arrow_circle_down, palette.warn),
+      'failed' => (Icons.error, palette.danger),
+      _ => (Icons.download_for_offline, palette.primary),
     };
 
     return Material(
-      color: const Color(0xFFFBFAF8),
+      color: palette.surface,
       elevation: 12,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
       clipBehavior: Clip.antiAlias,
@@ -60,7 +63,7 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFDFDAD2),
+                    color: palette.borderStrong,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -81,6 +84,7 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
                             height: 1.3,
                             fontVariations: wght(600),
                             fontWeight: FontWeight.w600,
+                            color: palette.ink,
                           ),
                         ),
                         if (chapter != null) ...[
@@ -91,21 +95,20 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
                             ' · saved ${formatRelative(chapter.capturedAt)}',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontFamily: 'IBM Plex Mono',
-                              fontSize: 11.5,
-                              color: Color(0xFF5F5B54),
+                            style: monoStyle(
+                              size: 11.5,
+                              color: palette.inkMuted,
                             ),
                           ),
                         ],
                         const SizedBox(height: 6),
-                        const Text(
+                        Text(
                           'Nothing has been overwritten. Choose what the run '
                           'should do.',
                           style: TextStyle(
                             fontSize: 12.5,
                             height: 1.5,
-                            color: Color(0xFF5F5B54),
+                            color: palette.inkMuted,
                           ),
                         ),
                       ],
@@ -131,18 +134,18 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
                             : Icons.check_box_outline_blank,
                         size: 21,
                         color: _applyToSession
-                            ? const Color(0xFF35606F)
-                            : const Color(0xFF5F5B54),
+                            ? palette.primary
+                            : palette.inkMuted,
                       ),
                       const SizedBox(width: 10),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'Use this choice for every already-captured chapter '
                           'in this run',
                           style: TextStyle(
                             fontSize: 12.5,
                             height: 1.45,
-                            color: Color(0xFF3E3A34),
+                            color: palette.inkStrong,
                           ),
                         ),
                       ),
@@ -150,11 +153,12 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
                   ),
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.only(left: 35, top: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 35, top: 6),
                 child: Text(
-                  'Applies to this session only. Nothing is deleted either way.',
-                  style: TextStyle(fontSize: 11, color: Color(0xFFA39D93)),
+                  'Applies to this session only. Nothing is deleted either '
+                  'way.',
+                  style: TextStyle(fontSize: 11, color: palette.inkFaint),
                 ),
               ),
             ],
@@ -215,8 +219,9 @@ class _ActionCard extends StatelessWidget {
       ),
     };
 
+    final palette = AppPalette.of(context);
     return Material(
-      color: highlighted ? const Color(0xFFEAF1F4) : const Color(0xFFF5F3EF),
+      color: highlighted ? palette.primaryContainer : palette.surfaceMuted,
       borderRadius: BorderRadius.circular(14),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -226,9 +231,7 @@ class _ActionCard extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: highlighted
-                  ? const Color(0xFFD2E2E8)
-                  : const Color(0xFFE7E3DC),
+              color: highlighted ? palette.primaryBorder : palette.border,
             ),
           ),
           child: Row(
@@ -236,9 +239,7 @@ class _ActionCard extends StatelessWidget {
               Icon(
                 icon,
                 size: 20,
-                color: highlighted
-                    ? const Color(0xFF35606F)
-                    : const Color(0xFF5F5B54),
+                color: highlighted ? palette.primary : palette.inkMuted,
               ),
               const SizedBox(width: 11),
               Expanded(
@@ -252,16 +253,18 @@ class _ActionCard extends StatelessWidget {
                         fontVariations: wght(500),
                         fontWeight: FontWeight.w500,
                         color: highlighted
-                            ? const Color(0xFF133845)
-                            : const Color(0xFF1B1A18),
+                            ? palette.onPrimaryContainer
+                            : palette.ink,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       sub,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11.5,
-                        color: Color(0xFF5F5B54),
+                        color: highlighted
+                            ? palette.onPrimaryContainer
+                            : palette.inkMuted,
                       ),
                     ),
                   ],

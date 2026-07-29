@@ -68,7 +68,7 @@ class _FaviconTileState extends ConsumerState<FaviconTile> {
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     final service = ref.watch(faviconServiceProvider);
-    final (bg, fg) = faviconColorsFor(widget.host, dark: palette.isDark);
+    final (bg, fg) = faviconColorsFor(widget.host, palette: palette);
 
     return AnimatedBuilder(
       animation: service,
@@ -525,11 +525,11 @@ class BrowserSegmented extends StatelessWidget {
                     color: i == selected ? palette.surface : Colors.transparent,
                     borderRadius: BorderRadius.circular(10),
                     boxShadow: i == selected && !palette.isDark
-                        ? const [
+                        ? [
                             BoxShadow(
-                              color: Color(0x241E1A14),
+                              color: palette.shadow,
                               blurRadius: 3,
-                              offset: Offset(0, 1),
+                              offset: const Offset(0, 1),
                             ),
                           ]
                         : null,

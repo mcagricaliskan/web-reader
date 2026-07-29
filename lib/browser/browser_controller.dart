@@ -72,7 +72,7 @@ class BrowserController extends ChangeNotifier {
   /// storage.
   void Function(BrowserVisit visit)? onVisitCompleted;
 
-  // --- page session identity (D58) ----------------------------------------
+  // --- page session identity (D59) ----------------------------------------
 
   int _pageSession = 0;
 
@@ -256,40 +256,22 @@ class BrowserController extends ChangeNotifier {
 
   // --- wiring from the widget -------------------------------------------
 
+  /// The WebView is live.
+  ///
+  /// Notifying matters: a page waiting to be shown is waiting on exactly this
+  /// (see `PendingOpenDrainer`). There is deliberately no queued-URL field
+  /// here any more — holding a pending page in *two* places was how one of
+  /// them ended up being the one nobody drained. The Browser owns that
+  /// contract now, in one place, with the tab switch and the local surfaces
+  /// it also has to coordinate (D60).
   void attach(InAppWebViewController controller) {
     _webView = controller;
-    final pending = _pendingUrl;
-    _pendingUrl = null;
-    if (pending != null) unawaited(load(pending));
     notifyListeners();
-  }
-
-  /// A page the app asked for before the WebView existed.
-  ///
-  /// The Browser tab builds its WebView lazily, so "open this chapter's page"
-  /// from the Library arrives with nothing to load into. Held here rather
-  /// than making every caller wait for an attach it cannot observe.
-  String? _pendingUrl;
-
-  /// Show [url] in the Browser, whether or not the tab has been opened yet.
-  ///
-  /// The caller is still responsible for switching to the Browser tab; this
-  /// only guarantees the URL is not dropped when it gets there.
-  /// The queued page, for tests that assert *where* the app tried to go
-  /// without standing up a WebView.
-  @visibleForTesting
-  String? get debugPendingUrl => _pendingUrl;
-
-  Future<void> requestOpen(String url) async {
-    if (_webView == null) {
-      _pendingUrl = url;
-      return;
-    }
-    await load(url);
   }
 
   void detach() {
     _webView = null;
+    notifyListeners();
   }
 
   void onLoadStart(String? url) {

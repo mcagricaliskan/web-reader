@@ -9,6 +9,7 @@ import 'package:web_reader/core/device_capacity_provider.dart';
 import 'package:web_reader/core/device_storage.dart';
 import 'package:web_reader/features/storage_screen.dart';
 import 'package:web_reader/providers.dart';
+import 'package:web_reader/ui/palette.dart';
 import 'package:web_reader/ui/status_style.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
@@ -229,8 +230,20 @@ void main() {
         if (find.text('100%').evaluate().isNotEmpty) break;
       }
 
+      // Asserted against the palette, not a literal: what matters is that
+      // the critical level wears the critical ink and that it is *different*
+      // from the quiet one — not which hex the design happens to use today.
       final icon = tester.widget<Icon>(find.byIcon(Icons.storage));
-      expect(icon.color, const Color(0xFF8E3B31), reason: 'critical');
+      expect(
+        icon.color,
+        storageLook(StorageLevel.critical, AppPalette.light).ink,
+        reason: 'critical',
+      );
+      expect(
+        icon.color,
+        isNot(storageLook(StorageLevel.normal, AppPalette.light).ink),
+        reason: 'critical must not look like healthy',
+      );
       // Still just the glyph and the number.
       expect(find.textContaining('low'), findsNothing);
       expect(find.textContaining('Storage'), findsNothing);
@@ -241,7 +254,12 @@ void main() {
       tester,
     ) async {
       await show(tester);
-      expect(find.bySemanticsLabel('Device storage 72% used'), findsOneWidget);
+      // The level word is part of the label: a screen reader hears what the
+      // colour says, since it cannot see it.
+      expect(
+        find.bySemanticsLabel('Device storage 72% used · Healthy'),
+        findsOneWidget,
+      );
       await drain(tester);
     });
 

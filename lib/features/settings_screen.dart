@@ -5,11 +5,10 @@ import '../app.dart';
 import '../browser/saved_sites_repository.dart';
 import '../core/local_reset.dart';
 import '../providers.dart';
-import '../storage/cleanup.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import 'appearance_selector.dart';
 import 'browser_data_dialogs.dart';
-import 'cleanup_dialogs.dart';
 import 'library_screen.dart' show formatBytes;
 
 /// Settings is a list of doors, not a control panel. Everything that changes
@@ -95,18 +94,10 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => showClearWebsiteDataDialog(context, ref),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 8, 20, 4),
-            child: Text(
-              'Browsing history and saved sites never leave this device. '
-              'History is kept for 90 days, or 5,000 pages — whichever comes '
-              'first — and you can clear it at any time.',
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.5,
-                color: Color(0xFF8C877E),
-              ),
-            ),
+          _SettingsNote(
+            'Browsing history and saved sites never leave this device. '
+            'History is kept for 90 days, or 5,000 pages — whichever comes '
+            'first — and you can clear it at any time.',
           ),
           const SectionLabel('STORAGE'),
           ListTile(
@@ -121,23 +112,9 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => LeaveBrowserGuard.push(context, '/storage'),
           ),
-          Consumer(
-            builder: (context, ref, _) {
-              final pref =
-                  ref.watch(afterFinishedPrefProvider).value ??
-                  AfterFinishedPref.ask;
-              return ListTile(
-                leading: const Icon(Icons.auto_delete),
-                title: const Text('After finishing a chapter'),
-                subtitle: Text(switch (pref) {
-                  AfterFinishedPref.ask => 'Ask each time',
-                  AfterFinishedPref.keep => 'Keep offline',
-                  AfterFinishedPref.remove => 'Remove automatically',
-                }),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => showAfterFinishedSheet(context, ref),
-              );
-            },
+          _SettingsNote(
+            'What happens to a finished chapter\'s downloaded files is set '
+            'per series — open a series and use Downloaded chapters.',
           ),
           const SectionLabel('CAPTURE & SOURCES'),
           ListTile(
@@ -174,8 +151,8 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => LeaveBrowserGuard.push(context, '/developer'),
             ),
           ],
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 18, 20, 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
             child: Text(
               'Everything is stored on this device. There is no account, no '
               'sync and no background network activity — captures and update '
@@ -183,7 +160,7 @@ class SettingsScreen extends ConsumerWidget {
               style: TextStyle(
                 fontSize: 13,
                 height: 1.55,
-                color: Color(0xFF5F5B54),
+                color: AppPalette.of(context).inkMuted,
               ),
             ),
           ),
@@ -191,4 +168,28 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// The quiet explanatory line under a settings group.
+///
+/// One widget rather than a repeated inline `TextStyle`: these lines are the
+/// screen's tertiary voice, and three copies of the same literal is exactly
+/// how a tone drifts.
+class _SettingsNote extends StatelessWidget {
+  const _SettingsNote(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: 12,
+        height: 1.5,
+        color: AppPalette.of(context).inkFaint,
+      ),
+    ),
+  );
 }

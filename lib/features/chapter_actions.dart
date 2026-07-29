@@ -9,6 +9,7 @@ import '../providers.dart';
 import 'capture_queue_ui.dart';
 import 'open_in_browser.dart';
 import '../storage/database.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 
 /// Injectable so a widget test can say "this device is offline" without one.
@@ -93,7 +94,7 @@ Future<void> showUnavailableChapterSheet(
                     style: monoStyle(
                       size: 14,
                       weight: FontWeight.w500,
-                      color: const Color(0xFF1B1A18),
+                      color: AppPalette.of(context).ink,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -102,10 +103,10 @@ Future<void> showUnavailableChapterSheet(
                         ? 'Not available offline — you removed its files. '
                               'Your reading history is still here.'
                         : 'Not available offline yet.',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12.5,
                       height: 1.45,
-                      color: Color(0xFF5F5B54),
+                      color: AppPalette.of(context).inkMuted,
                     ),
                   ),
                 ],
@@ -116,7 +117,7 @@ Future<void> showUnavailableChapterSheet(
               enabled: knowsSource,
               leading: Icon(
                 Icons.public,
-                color: knowsSource ? null : const Color(0xFFC4BFB5),
+                color: knowsSource ? null : AppPalette.of(context).inkDisabled,
               ),
               title: const Text('Open on website'),
               subtitle: Text(
@@ -205,7 +206,7 @@ Widget openOnWebsiteTile(
     enabled: knowsSource,
     leading: Icon(
       Icons.public,
-      color: knowsSource ? null : const Color(0xFFC4BFB5),
+      color: knowsSource ? null : AppPalette.of(context).inkDisabled,
     ),
     title: const Text('Open on website'),
     subtitle: Text(

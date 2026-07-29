@@ -6,6 +6,7 @@ import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../library/series_identity.dart';
 import '../storage/database.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 
 /// Everything the "queue it now, start it later" flow needs on screen.
@@ -154,10 +155,10 @@ Future<bool> showBatchQueueConfirm({
             Text(
               'These episodes will wait in the queue. Nothing downloads '
               'until you start the queue and open the Browser.',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 height: 1.5,
-                color: Color(0xFF5F5B54),
+                color: AppPalette.of(context).inkMuted,
               ),
             ),
             const SizedBox(height: 16),
@@ -227,7 +228,10 @@ class _PlanFact extends StatelessWidget {
           width: 118,
           child: Text(
             label,
-            style: monoStyle(size: 11.5, color: const Color(0xFF8C877E)),
+            style: monoStyle(
+              size: 11.5,
+              color: AppPalette.of(context).inkFaint,
+            ),
           ),
         ),
         Expanded(
@@ -236,7 +240,9 @@ class _PlanFact extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               height: 1.4,
-              color: warn ? const Color(0xFF8A5A1F) : const Color(0xFF3E3A34),
+              color: warn
+                  ? AppPalette.of(context).warn
+                  : AppPalette.of(context).inkStrong,
             ),
           ),
         ),
@@ -268,7 +274,11 @@ Future<bool> confirmAndStartCaptures(
   final start = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      icon: const Icon(Icons.play_circle, size: 26, color: Color(0xFF35606F)),
+      icon: Icon(
+        Icons.play_circle,
+        size: 26,
+        color: AppPalette.of(dialogContext).primary,
+      ),
       title: const Text('Start queued captures?'),
       content: Text(
         'The Browser will open and must remain visible while pages are '

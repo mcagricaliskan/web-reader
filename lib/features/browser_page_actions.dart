@@ -99,7 +99,7 @@ class _PageActionsSheet extends ConsumerWidget {
                   padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
                   child: Row(
                     children: [
-                      const Icon(Icons.download, size: 21, color: Colors.white),
+                      Icon(Icons.download, size: 21, color: palette.onPrimary),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -112,15 +112,17 @@ class _PageActionsSheet extends ConsumerWidget {
                                 fontSize: 14,
                                 fontVariations: wght(600),
                                 fontWeight: FontWeight.w600,
-                                color: Colors.white,
+                                color: palette.onPrimary,
                               ),
                             ),
                             const SizedBox(height: 2),
-                            const Text(
+                            Text(
                               'Current chapter, a number, or until the end',
                               style: TextStyle(
                                 fontSize: 11.5,
-                                color: Color(0xFFC6DBE2),
+                                color: palette.onPrimary.withValues(
+                                  alpha: 0.78,
+                                ),
                               ),
                             ),
                           ],

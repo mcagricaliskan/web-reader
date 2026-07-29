@@ -12,6 +12,7 @@ import '../library/series_identity.dart';
 import '../providers.dart';
 import '../reading/reading_position.dart';
 import '../storage/database.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import 'capture_queue_ui.dart';
 import 'chapter_actions.dart';
@@ -103,7 +104,7 @@ class _ChapterDetails extends ConsumerWidget {
                           style: monoStyle(
                             size: 15,
                             weight: FontWeight.w600,
-                            color: const Color(0xFF1B1A18),
+                            color: AppPalette.of(context).ink,
                           ),
                         ),
                         // The site's own words, but only when they add
@@ -115,9 +116,9 @@ class _ChapterDetails extends ConsumerWidget {
                               raw,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
-                                color: Color(0xFF8C877E),
+                                color: AppPalette.of(context).inkFaint,
                               ),
                             ),
                           ),
@@ -187,7 +188,7 @@ class _ChapterDetails extends ConsumerWidget {
             ListTile(
               leading: Icon(
                 completed ? Icons.remove_done : Icons.done_all,
-                color: const Color(0xFF3E3A34),
+                color: AppPalette.of(context).inkStrong,
               ),
               title: Text(completed ? 'Mark as unread' : 'Mark as read'),
               onTap: () async {
@@ -328,7 +329,10 @@ class _Fact extends StatelessWidget {
           width: 92,
           child: Text(
             label,
-            style: monoStyle(size: 11.5, color: const Color(0xFF8C877E)),
+            style: monoStyle(
+              size: 11.5,
+              color: AppPalette.of(context).inkFaint,
+            ),
           ),
         ),
         Expanded(
@@ -337,8 +341,11 @@ class _Fact extends StatelessWidget {
             maxLines: wrap ? 3 : 1,
             overflow: TextOverflow.ellipsis,
             style: mono
-                ? monoStyle(size: 11.5, color: const Color(0xFF3E3A34))
-                : const TextStyle(fontSize: 13, color: Color(0xFF3E3A34)),
+                ? monoStyle(size: 11.5, color: AppPalette.of(context).inkStrong)
+                : TextStyle(
+                    fontSize: 13,
+                    color: AppPalette.of(context).inkStrong,
+                  ),
           ),
         ),
       ],

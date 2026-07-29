@@ -73,6 +73,10 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
   int _pageSession = -1;
   String _pageKey = '';
 
+  /// Whether the user is what put this page on screen. An automation hop owns
+  /// its own page, so the run stays on screen across it.
+  bool _pageEnteredManually = true;
+
   /// What this page already holds locally, looked up once per page session.
   /// Null while unknown — which is also the honest answer for a page nobody
   /// has ever captured.
@@ -151,6 +155,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     if (browser.pageSession == _pageSession) return;
     _pageSession = browser.pageSession;
     _pageKey = browser.pageSessionKey;
+    _pageEnteredManually = browser.pageSessionIsManual;
     _pageChapterState = null;
     _panelOpen = false;
     // A result the user never dismissed belongs to the page they have now
@@ -418,9 +423,9 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                     animation: job,
                     builder: (context, _) =>
                         job.isRunning && job.pendingSelection == null
-                        ? const Positioned.fill(
+                        ? Positioned.fill(
                             child: AbsorbPointer(
-                              child: ColoredBox(color: Color(0x22000000)),
+                              child: ColoredBox(color: palette.veil),
                             ),
                           )
                         : const SizedBox.shrink(),
@@ -432,6 +437,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                     pageSession: _pageSession,
                     pageChapterState: _pageChapterState,
                     pageIsQueued: pageIsQueued,
+                    pageEnteredManually: _pageEnteredManually,
                     waitingCaptures: waitingCaptures,
                     onCapture: () => _showCaptureSheet(context),
                     onPageActions: _openPageActions,
@@ -544,6 +550,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
           job.pendingSelection != null || job.pendingDuplicate != null,
       pausedForBrowser: job.pauseReason == kPauseBrowserHidden,
       checkerRunning: checker.isRunning,
+      pageEnteredManually: _pageEnteredManually,
       lastRun: job.lastRun,
       pageChapterState: _pageChapterState,
       pageIsQueued: pageIsQueued,
@@ -623,6 +630,34 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       case DirectStartResult.noPage:
         showDirectStartRefusal(context, 'There is no page to capture.');
     }
+  }
+
+  /// Launch whatever the preflight answer resolved to, keeping the launch the
+  /// user chose before it interrupted (D58).
+  Future<void> _launchPlanned(
+    BuildContext context,
+    String url,
+    PreflightDecision decision,
+    CaptureSheetAction action,
+    int limit,
+    CaptureRangeMode range,
+  ) async {
+    final plan = planAfterPreflight(
+      action: action,
+      choice: decision.choice,
+      requestedLimit: limit,
+      requestedRange: range,
+      policy: decision.policy,
+    );
+    if (plan == null) return;
+    await _launch(
+      context,
+      plan.action,
+      startUrl: url,
+      chapterLimit: plan.chapterLimit,
+      policy: plan.policy,
+      range: plan.range,
+    );
   }
 
   /// Preflight before anything downloads: if this chapter already exists, say
@@ -712,13 +747,13 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
         final existing = current.blockingJob;
         if (existing != null) await job.discardJob(existing);
         if (!context.mounted) return;
-        await _launch(
+        await _launchPlanned(
           context,
+          url,
+          decision,
           action,
-          startUrl: url,
-          chapterLimit: limit,
-          policy: decision.policy ?? DuplicatePolicy.skipComplete,
-          range: choice.mode,
+          limit,
+          choice.mode,
         );
 
       case PreflightChoice.captureFollowing:
@@ -727,22 +762,14 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       case PreflightChoice.restartCapture:
       case PreflightChoice.repair:
       case PreflightChoice.captureNow:
-        // "Re-download this chapter" is a single-chapter job even when the
-        // sheet was opened from a larger request — the user asked for this
-        // chapter, not a run starting at it.
-        final isSingle =
-            decision.choice == PreflightChoice.redownload ||
-            decision.choice == PreflightChoice.retryMissing ||
-            decision.choice == PreflightChoice.restartCapture ||
-            decision.choice == PreflightChoice.repair;
         if (!context.mounted) return;
-        await _launch(
+        await _launchPlanned(
           context,
+          url,
+          decision,
           action,
-          startUrl: url,
-          chapterLimit: isSingle ? 1 : limit,
-          policy: decision.policy ?? DuplicatePolicy.skipComplete,
-          range: isSingle ? CaptureRangeMode.currentChapter : choice.mode,
+          limit,
+          choice.mode,
         );
 
       case PreflightChoice.cancel:
@@ -765,6 +792,7 @@ class _CaptureActions extends StatelessWidget {
     required this.pageSession,
     required this.pageChapterState,
     required this.pageIsQueued,
+    required this.pageEnteredManually,
     required this.waitingCaptures,
     required this.onCapture,
     required this.onPageActions,
@@ -777,6 +805,7 @@ class _CaptureActions extends StatelessWidget {
   final int pageSession;
   final ChapterLocalState? pageChapterState;
   final bool pageIsQueued;
+  final bool pageEnteredManually;
   final int waitingCaptures;
   final VoidCallback onCapture;
   final VoidCallback onPageActions;
@@ -800,6 +829,7 @@ class _CaptureActions extends StatelessWidget {
               job.pendingSelection != null || job.pendingDuplicate != null,
           pausedForBrowser: job.pauseReason == kPauseBrowserHidden,
           checkerRunning: checker.isRunning,
+          pageEnteredManually: pageEnteredManually,
           lastRun: job.lastRun,
           pageChapterState: pageChapterState,
           pageIsQueued: pageIsQueued,
@@ -850,7 +880,9 @@ class _CaptureActions extends StatelessWidget {
                     backgroundColor: running
                         ? palette.surface
                         : palette.primary,
-                    foregroundColor: running ? palette.inkStrong : Colors.white,
+                    foregroundColor: running
+                        ? palette.inkStrong
+                        : palette.onPrimary,
                     icon: Icon(switch (ui.status) {
                       BrowserCaptureStatus.queued => Icons.schedule,
                       BrowserCaptureStatus.capturing => Icons.swipe_vertical,

@@ -104,17 +104,6 @@ final cleanupProvider = Provider<CleanupService>((ref) {
   }
 });
 
-/// The persisted "after finishing a chapter" preference (default: ask).
-final afterFinishedPrefProvider = StreamProvider<AfterFinishedPref>(
-  (ref) => ref
-      .watch(databaseProvider)
-      .watchSetting(kAfterFinishedPrefKey)
-      .map(afterFinishedFromName),
-);
-
-Future<void> setAfterFinishedPref(WidgetRef ref, AfterFinishedPref pref) =>
-    ref.read(databaseProvider).setSetting(kAfterFinishedPrefKey, pref.name);
-
 final taskQueueProvider = Provider<TaskQueueController>(
   (ref) => ref.watch(appServicesProvider).taskQueue,
 );

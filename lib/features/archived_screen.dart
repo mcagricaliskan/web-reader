@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 import 'library_screen.dart' show SeriesGroup, formatBytes, formatRelative;
@@ -30,10 +31,10 @@ class ArchivedScreen extends ConsumerWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.inventory_2,
                       size: 30,
-                      color: Color(0xFF9A948A),
+                      color: AppPalette.of(context).inkFaint,
                     ),
                     const SizedBox(height: 10),
                     Text(
@@ -45,7 +46,7 @@ class ArchivedScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'Archiving hides a finished series from the library '
                       'without deleting anything. Find it in a series’ '
                       'menu.',
@@ -53,7 +54,7 @@ class ArchivedScreen extends ConsumerWidget {
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.55,
-                        color: Color(0xFF5F5B54),
+                        color: AppPalette.of(context).inkMuted,
                       ),
                     ),
                   ],
@@ -69,15 +70,15 @@ class ArchivedScreen extends ConsumerWidget {
                 _ArchivedRow(group: group),
                 const Divider(),
               ],
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 12, 20, 0),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                 child: Text(
                   'Archiving never deletes anything. Restored series return '
                   'to the library exactly as they were.',
                   style: TextStyle(
                     fontSize: 12,
                     height: 1.5,
-                    color: Color(0xFF8C877E),
+                    color: AppPalette.of(context).inkFaint,
                   ),
                 ),
               ),
@@ -132,9 +133,9 @@ class _ArchivedRow extends ConsumerWidget {
                     meta,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: Color(0xFF5F5B54),
+                      color: AppPalette.of(context).inkMuted,
                     ),
                   ),
                 ],

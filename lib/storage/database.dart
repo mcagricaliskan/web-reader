@@ -74,6 +74,18 @@ class LibraryItems extends Table {
   /// ("archived 2 weeks ago") — [lifecycle] is the source of truth.
   DateTimeColumn get archivedAt => dateTime().nullable()();
 
+  // --- finished-chapter cleanup (D37) ---------------------------------------
+
+  /// What to do with a finished chapter's downloaded files when the reader
+  /// moves forward inside this series: `remove` · `keep`, or **null** while
+  /// the series has never been asked.
+  ///
+  /// The only source of truth for the behaviour. There is no global default
+  /// and no per-chapter copy: null means "ask on the next eligible
+  /// transition", and an unrecognised value reads as null, which asks rather
+  /// than guessing at removal.
+  TextColumn get finishedCleanup => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -409,7 +421,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -496,6 +508,20 @@ class AppDatabase extends _$AppDatabase {
         // existing row was.
         await m.addColumn(captureJobs, captureJobs.origin);
         await m.addColumn(queueTasks, queueTasks.origin);
+      }
+      if (from < 12) {
+        // The finished-chapter cleanup decision moves onto the series (D37).
+        // Additive, and deliberately left null on every existing row: the old
+        // app-wide answer was never given per series, so backfilling it would
+        // enable automatic removal for series the user was never asked about.
+        // Each series asks once, on its next eligible transition.
+        await m.addColumn(libraryItems, libraryItems.finishedCleanup);
+        // The obsolete global key goes with it. Nothing reads it any more, so
+        // this is hygiene rather than correctness — but a stale row that looks
+        // like a preference is the kind of thing a later reader trusts.
+        await (delete(
+          settings,
+        )..where((t) => t.key.equals('storage.afterFinished'))).go();
       }
     },
     beforeOpen: (details) async {
@@ -635,6 +661,17 @@ class AppDatabase extends _$AppDatabase {
   Future<void> touchLibraryItem(String id) =>
       (update(libraryItems)..where((t) => t.id.equals(id))).write(
         LibraryItemsCompanion(lastOpenedAt: Value(DateTime.now())),
+      );
+
+  /// The series' finished-chapter cleanup decision (D37): `remove` · `keep`,
+  /// or null to go back to asking on the next eligible transition.
+  ///
+  /// Narrow like the other decision writers, and scoped to one id: a decision
+  /// taken while reading one series can never land on another. It writes a
+  /// rule for future transitions only — no file is touched here.
+  Future<void> setSeriesFinishedCleanup(String id, String? pref) =>
+      (update(libraryItems)..where((t) => t.id.equals(id))).write(
+        LibraryItemsCompanion(finishedCleanup: Value(pref)),
       );
 
   /// M16: flip a series between `active` and `archived`. Rows only — never

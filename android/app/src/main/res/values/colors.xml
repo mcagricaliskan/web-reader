@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppPalette.light.surface — the same page the Flutter splash draws on,
+         so the hand-off from the OS launch window to the app is not a colour
+         change. -->
+    <color name="launch_background">#F8F6F2</color>
+</resources>

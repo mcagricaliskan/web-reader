@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:web_reader/storage/database.dart';
 
 void main() {
@@ -182,6 +185,79 @@ void main() {
       expect(await db.findResumableJob(), isNotNull);
       await db.deleteJob('j1');
       expect(await db.findResumableJob(), isNull);
+    });
+  });
+
+  group('schema v12 — the per-series cleanup decision (D37)', () {
+    late Directory root;
+    late File file;
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('webread_migrate');
+      file = File(p.join(root.path, 'migrate.sqlite'));
+    });
+    tearDown(() {
+      if (root.existsSync()) root.deleteSync(recursive: true);
+    });
+
+    /// A v11-shaped database: the current schema minus the v12 column, with
+    /// `user_version` wound back so opening it runs the real migration.
+    Future<void> buildV11() async {
+      final seed = AppDatabase.forTesting(NativeDatabase(file));
+      await seed.upsertLibraryItem(item('s1'));
+      await seed.upsertLibraryItem(item('s2'));
+      // What an old install would carry: a global answer and nothing else.
+      await seed.setSetting('storage.afterFinished', 'remove');
+      await seed.customStatement(
+        'ALTER TABLE library_items DROP COLUMN finished_cleanup',
+      );
+      await seed.customStatement('PRAGMA user_version = 11');
+      await seed.close();
+    }
+
+    test(
+      'upgrading adds the column and leaves every series undecided',
+      () async {
+        await buildV11();
+
+        final upgraded = AppDatabase.forTesting(NativeDatabase(file));
+        // The first query is what forces the migration to run.
+        expect((await upgraded.libraryItemById('s1'))!.finishedCleanup, isNull);
+        expect(
+          (await upgraded.libraryItemById('s2'))!.finishedCleanup,
+          isNull,
+          reason:
+              'the old global answer was never given per series, so it is not '
+              'backfilled onto one',
+        );
+        await upgraded.close();
+      },
+    );
+
+    test('upgrading deletes the obsolete global row', () async {
+      await buildV11();
+
+      final upgraded = AppDatabase.forTesting(NativeDatabase(file));
+      expect(await upgraded.libraryItemById('s1'), isNotNull);
+      expect(await upgraded.getSetting('storage.afterFinished'), isNull);
+      await upgraded.close();
+    });
+
+    test('other settings survive the upgrade untouched', () async {
+      final seed = AppDatabase.forTesting(NativeDatabase(file));
+      await seed.upsertLibraryItem(item('s1'));
+      await seed.setSetting('storage.afterFinished', 'keep');
+      await seed.setSetting('appearance', 'dark');
+      await seed.customStatement(
+        'ALTER TABLE library_items DROP COLUMN finished_cleanup',
+      );
+      await seed.customStatement('PRAGMA user_version = 11');
+      await seed.close();
+
+      final upgraded = AppDatabase.forTesting(NativeDatabase(file));
+      expect(await upgraded.getSetting('appearance'), 'dark');
+      expect(await upgraded.getSetting('storage.afterFinished'), isNull);
+      await upgraded.close();
     });
   });
 }

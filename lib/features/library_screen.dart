@@ -9,6 +9,7 @@ import '../app.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../reading/reading_position.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 import 'capture_queue_ui.dart';
@@ -86,6 +87,8 @@ class _LibraryHeader extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => Padding(
     padding: const EdgeInsets.fromLTRB(20, 10, 12, 6),
     child: Row(
+      // The title inherits body ink from the theme rather than naming a
+      // colour: `serifStyle()` with no colour is the whole point (D62).
       // Centred, not bottom-aligned: the actions are all one height now, and
       // a serif title's box is taller than its glyphs, so aligning bottoms
       // pushed the word visibly below the row it belongs to.
@@ -150,70 +153,77 @@ class _CaptureQueueStrip extends ConsumerWidget {
   final int count;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-    child: Material(
-      color: const Color(0xFFF3F1ED),
-      borderRadius: BorderRadius.circular(16),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        key: const ValueKey('captureQueueStrip'),
-        onTap: () => LeaveBrowserGuard.push(context, '/activity'),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(13, 10, 10, 10),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.playlist_add_check,
-                size: 20,
-                color: Color(0xFF5F5B54),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Capture queue · $count waiting',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontVariations: wght(500),
-                        fontWeight: FontWeight.w500,
-                        color: const Color(0xFF3E3A34),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Open Browser to start',
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        color: Color(0xFF7A756C),
-                      ),
-                    ),
-                  ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Material(
+        color: palette.surfaceHigh,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: const ValueKey('captureQueueStrip'),
+          onTap: () => LeaveBrowserGuard.push(context, '/activity'),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: palette.border),
+            ),
+            padding: const EdgeInsets.fromLTRB(13, 10, 10, 10),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.playlist_add_check,
+                  size: 20,
+                  color: palette.inkMuted,
                 ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                key: const ValueKey('startCaptureButton'),
-                onPressed: () => confirmAndStartCaptures(context, ref),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Capture queue · $count waiting',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontVariations: wght(500),
+                          fontWeight: FontWeight.w500,
+                          color: palette.inkStrong,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Open Browser to start',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: palette.inkFaint,
+                        ),
+                      ),
+                    ],
                   ),
-                  visualDensity: VisualDensity.compact,
                 ),
-                child: const Text('Start'),
-              ),
-            ],
+                const SizedBox(width: 8),
+                FilledButton(
+                  key: const ValueKey('startCaptureButton'),
+                  onPressed: () => confirmAndStartCaptures(context, ref),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: const Text('Start'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _ActivityStrip extends ConsumerWidget {
@@ -271,31 +281,29 @@ class _ActivityStrip extends ConsumerWidget {
 
     // A capture holding on a hidden WebView needs the user, not a percent:
     // the strip becomes the banner, and its action opens the Browser.
+    final palette = AppPalette.of(context);
+
     if (job.state == CaptureState.waitingForBrowser) {
       return Consumer(
         builder: (context, ref, _) => Container(
           margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           padding: const EdgeInsets.fromLTRB(13, 12, 10, 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8EEDA),
+            color: palette.warnContainer,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE8D5B2)),
+            border: Border.all(color: palette.warnBorder),
           ),
           child: Row(
             children: [
-              const Icon(
-                Icons.pause_circle,
-                size: 22,
-                color: Color(0xFF8A5A1F),
-              ),
+              Icon(Icons.pause_circle, size: 22, color: palette.warn),
               const SizedBox(width: 11),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Capture is waiting — open the Browser to continue.',
                   style: TextStyle(
                     fontSize: 13,
                     height: 1.4,
-                    color: Color(0xFF4A2F08),
+                    color: palette.onWarnContainer,
                   ),
                 ),
               ),
@@ -313,7 +321,7 @@ class _ActivityStrip extends ConsumerWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       child: Material(
-        color: const Color(0xFFEAF1F4),
+        color: palette.primaryContainer,
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -324,10 +332,10 @@ class _ActivityStrip extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(13, 13, 10, 12),
                 child: Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.downloading,
                       size: 22,
-                      color: Color(0xFF35606F),
+                      color: palette.onPrimaryContainer,
                     ),
                     const SizedBox(width: 11),
                     Expanded(
@@ -338,7 +346,7 @@ class _ActivityStrip extends ConsumerWidget {
                             phase,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: monoStyle(color: const Color(0xFF35606F)),
+                            style: monoStyle(color: palette.onPrimaryContainer),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -353,6 +361,7 @@ class _ActivityStrip extends ConsumerWidget {
                               fontSize: 13,
                               fontVariations: wght(500),
                               fontWeight: FontWeight.w500,
+                              color: palette.onPrimaryContainer,
                             ),
                           ),
                         ],
@@ -366,23 +375,23 @@ class _ActivityStrip extends ConsumerWidget {
                           '${(pct * 100).round()}%',
                           style: monoStyle(
                             size: 12,
-                            color: const Color(0xFF133845),
+                            color: palette.onPrimaryContainer,
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           '$queued queued · $failed failed',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
-                            color: Color(0xFF5F5B54),
+                            color: palette.onPrimaryContainer,
                           ),
                         ),
                       ],
                     ),
-                    const Icon(
+                    Icon(
                       Icons.chevron_right,
                       size: 20,
-                      color: Color(0xFF7E8B90),
+                      color: palette.onPrimaryContainer,
                     ),
                   ],
                 ),
@@ -390,8 +399,8 @@ class _ActivityStrip extends ConsumerWidget {
               LinearProgressIndicator(
                 value: pct,
                 minHeight: 3,
-                backgroundColor: const Color(0xFFD2E2E8),
-                color: const Color(0xFF35606F),
+                backgroundColor: palette.primaryBorder,
+                color: palette.primary,
               ),
             ],
           ),
@@ -406,14 +415,15 @@ class _SortControl extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
     final sort = ref.watch(librarySortProvider).value ?? LibrarySort.lastRead;
     final label = sort == LibrarySort.name ? 'Name' : 'Last read';
 
     return Material(
-      color: const Color(0xFFF3F1ED),
+      color: palette.surfaceHigh,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(999),
-        side: const BorderSide(color: Color(0xFFE7E3DC)),
+        side: BorderSide(color: palette.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -426,11 +436,11 @@ class _SortControl extends ConsumerWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.swap_vert, size: 16, color: Color(0xFF3E3A34)),
+              Icon(Icons.swap_vert, size: 16, color: palette.inkStrong),
               const SizedBox(width: 5),
               Text(
                 label,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF3E3A34)),
+                style: TextStyle(fontSize: 12, color: palette.inkStrong),
               ),
             ],
           ),
@@ -451,6 +461,7 @@ class _ContinueRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     if (entries.isEmpty) {
       final anyReadable = allSeries.any((g) => g.offlineCount > 0);
       final anyOpened = allSeries.any((g) => g.item.lastReadAt != null);
@@ -475,9 +486,9 @@ class _ContinueRow extends StatelessWidget {
         margin: const EdgeInsets.fromLTRB(20, 4, 20, 0),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFFF5F3EF),
+          color: palette.surfaceMuted,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFDFDAD2)),
+          border: Border.all(color: palette.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -488,15 +499,16 @@ class _ContinueRow extends StatelessWidget {
                 fontSize: 14,
                 fontVariations: wght(600),
                 fontWeight: FontWeight.w600,
+                color: palette.ink,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               body,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 height: 1.5,
-                color: Color(0xFF5F5B54),
+                color: palette.inkMuted,
               ),
             ),
           ],
@@ -525,13 +537,16 @@ class _ContinueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final pct = (entry.progress * 100).clamp(0, 100).round();
 
     return SizedBox(
       key: ValueKey('continueCard-${entry.chapter.id}'),
-      width: 214,
+      // Wide enough that the progress line ("68% • 12 chapters remaining")
+      // renders at full size; the FittedBox below covers what is left.
+      width: 240,
       child: Material(
-        color: const Color(0xFFF5F3EF),
+        color: palette.surfaceMuted,
         borderRadius: BorderRadius.circular(18),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -539,7 +554,7 @@ class _ContinueCard extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFE7E3DC)),
+              border: Border.all(color: palette.border),
             ),
             padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),
             child: Column(
@@ -568,6 +583,7 @@ class _ContinueCard extends StatelessWidget {
                               height: 1.25,
                               fontVariations: wght(600),
                               fontWeight: FontWeight.w600,
+                              color: palette.ink,
                             ),
                           ),
                           const SizedBox(height: 3),
@@ -575,7 +591,7 @@ class _ContinueCard extends StatelessWidget {
                             entry.chapterLabel,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: monoStyle(color: const Color(0xFF5F5B54)),
+                            style: monoStyle(color: palette.inkMuted),
                           ),
                         ],
                       ),
@@ -585,21 +601,38 @@ class _ContinueCard extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
+                    // The same component the episode list uses, so a card and
+                    // a row cannot draw the same fraction two ways.
+                    ChapterProgressRing(
+                      key: ValueKey('continueRing-${entry.chapter.id}'),
+                      fraction: entry.progress,
+                      completed: entry.isCompleted,
+                    ),
+                    const SizedBox(width: 8),
+                    // One line, and it stays one line: an ellipsised
+                    // "12 chapters remain…" is worse than a line a few
+                    // percent smaller, so it scales down instead of
+                    // truncating when the text is long or scaled up.
                     Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          value: entry.progress.clamp(0.0, 1.0),
-                          minHeight: 4,
-                          backgroundColor: const Color(0xFFE1DDD5),
-                          color: const Color(0xFF35606F),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text: '$pct%',
+                                style: monoStyle(color: palette.primary),
+                              ),
+                              TextSpan(
+                                text: ' • ${entry.laterChaptersLabel}',
+                                style: monoStyle(color: palette.inkMuted),
+                              ),
+                            ],
+                          ),
+                          maxLines: 1,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 9),
-                    Text(
-                      '$pct%',
-                      style: monoStyle(color: const Color(0xFF35606F)),
                     ),
                   ],
                 ),
@@ -611,8 +644,8 @@ class _ContinueCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 12,
                     color: entry.isPartialCapture
-                        ? const Color(0xFF8A5A1F)
-                        : const Color(0xFF5F5B54),
+                        ? palette.warn
+                        : palette.inkMuted,
                   ),
                 ),
               ],
@@ -645,14 +678,16 @@ class _SeriesRow extends ConsumerWidget {
   }
 
   Widget _row(BuildContext context, WidgetRef ref, {required bool checking}) {
+    final palette = AppPalette.of(context);
     final chip = checkLook(
+      palette: palette,
       checking: checking,
       failed: group.lastCheckFailed,
       checkedAt: group.lastCheckedAt,
       newCount: group.knownRemoteCount,
       checkedLabel: formatRelative(group.lastCheckedAt),
     );
-    final warning = group.warningLine;
+    final warning = group.warningLine(palette);
 
     return Stack(
       key: ValueKey('seriesRow-${group.item.id}'),
@@ -683,6 +718,7 @@ class _SeriesRow extends ConsumerWidget {
                                 height: 1.3,
                                 fontVariations: wght(600),
                                 fontWeight: FontWeight.w600,
+                                color: palette.ink,
                               ),
                             ),
                           ),
@@ -697,35 +733,34 @@ class _SeriesRow extends ConsumerWidget {
                         ],
                       ),
                       const SizedBox(height: 3),
-                      Text(group.item.host, style: monoStyle()),
+                      Text(
+                        group.item.host,
+                        style: monoStyle(color: palette.inkFaint),
+                      ),
                       const SizedBox(height: 6),
                       Row(
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.download_for_offline,
                             size: 15,
-                            color: Color(0xFF35606F),
+                            color: palette.primary,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             '${group.offlineCount}',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: Color(0xFF35606F),
+                              color: palette.primary,
                             ),
                           ),
                           const SizedBox(width: 10),
-                          const Icon(
-                            Icons.circle,
-                            size: 9,
-                            color: Color(0xFF35606F),
-                          ),
+                          Icon(Icons.circle, size: 9, color: palette.primary),
                           const SizedBox(width: 4),
                           Text(
                             '${group.unreadOfflineCount} unread',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: Color(0xFF5F5B54),
+                              color: palette.inkMuted,
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -736,9 +771,9 @@ class _SeriesRow extends ConsumerWidget {
                                   : formatRelative(group.item.lastReadAt),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
-                                color: Color(0xFFA39D93),
+                                color: palette.inkFaint,
                               ),
                             ),
                           ),
@@ -779,7 +814,7 @@ class _SeriesRow extends ConsumerWidget {
             child: IconButton(
               tooltip: 'Series actions',
               icon: const Icon(Icons.more_vert, size: 20),
-              color: const Color(0xFF8C877E),
+              color: palette.inkFaint,
               onPressed: () => showSeriesMenu(context, ref, group),
             ),
           ),
@@ -868,51 +903,54 @@ Future<bool> confirmArchiveSeries(
 
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
-      icon: const Icon(Icons.inventory_2, size: 26, color: Color(0xFF35606F)),
-      title: const Text('Archive this series?'),
-      content: Text.rich(
-        TextSpan(
-          style: const TextStyle(
-            fontSize: 13,
-            height: 1.55,
-            color: Color(0xFF5F5B54),
-          ),
-          children: [
-            const TextSpan(
-              text:
-                  'It leaves the library and stops being checked for '
-                  'updates. ',
+    builder: (context) {
+      final palette = AppPalette.of(context);
+      return AlertDialog(
+        icon: Icon(Icons.inventory_2, size: 26, color: palette.primary),
+        title: const Text('Archive this series?'),
+        content: Text.rich(
+          TextSpan(
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.55,
+              color: palette.inkMuted,
             ),
-            if (pendingCount > 0)
-              TextSpan(
+            children: [
+              const TextSpan(
                 text:
-                    'This cancels $pendingCount pending '
-                    'task${pendingCount == 1 ? '' : 's'}. ',
-                style: const TextStyle(
-                  color: Color(0xFF4A2F08),
-                  backgroundColor: Color(0xFFF8EEDA),
-                ),
+                    'It leaves the library and stops being checked for '
+                    'updates. ',
               ),
-            const TextSpan(
-              text:
-                  'Downloads stay on the device and you can restore it any '
-                  'time.',
-            ),
-          ],
+              if (pendingCount > 0)
+                TextSpan(
+                  text:
+                      'This cancels $pendingCount pending '
+                      'task${pendingCount == 1 ? '' : 's'}. ',
+                  style: TextStyle(
+                    color: palette.onWarnContainer,
+                    backgroundColor: palette.warnContainer,
+                  ),
+                ),
+              const TextSpan(
+                text:
+                    'Downloads stay on the device and you can restore it any '
+                    'time.',
+              ),
+            ],
+          ),
         ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Archive'),
-        ),
-      ],
-    ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Archive'),
+          ),
+        ],
+      );
+    },
   );
   if (confirmed != true) return false;
 
@@ -930,91 +968,98 @@ class _EmptyLibrary extends StatelessWidget {
   const _EmptyLibrary();
 
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(20, 10, 20, 10),
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 26),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF5F3EF),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: const Color(0xFFDFDAD2)),
-    ),
-    child: Column(
-      children: [
-        const Icon(Icons.travel_explore, size: 30, color: Color(0xFF9A948A)),
-        const SizedBox(height: 10),
-        Text(
-          'Nothing saved yet',
-          style: TextStyle(
-            fontSize: 16,
-            fontVariations: wght(600),
-            fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 26),
+      decoration: BoxDecoration(
+        color: palette.surfaceMuted,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: palette.border),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.travel_explore, size: 30, color: palette.inkFaint),
+          const SizedBox(height: 10),
+          Text(
+            'Nothing saved yet',
+            style: TextStyle(
+              fontSize: 16,
+              fontVariations: wght(600),
+              fontWeight: FontWeight.w600,
+              color: palette.ink,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Open a chapter in the browser and tap Capture. The app scrolls the '
-          'page, saves every panel, and the chapter shows up here — readable '
-          'offline.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 13,
-            height: 1.55,
-            color: Color(0xFF5F5B54),
+          const SizedBox(height: 4),
+          Text(
+            'Open a chapter in the browser and tap Capture. The app scrolls '
+            'the page, saves every panel, and the chapter shows up here — '
+            'readable offline.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.55,
+              color: palette.inkMuted,
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 class _LibrarySkeleton extends StatelessWidget {
   const _LibrarySkeleton();
 
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-    children: [
-      for (final w in const [0.62, 0.78, 0.54, 0.70, 0.58, 0.74])
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFECE7),
-                  borderRadius: BorderRadius.circular(12),
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      children: [
+        for (final w in const [0.62, 0.78, 0.54, 0.70, 0.58, 0.74])
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: palette.surfaceInset,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    FractionallySizedBox(
-                      widthFactor: w,
-                      child: Container(
-                        height: 12,
-                        color: const Color(0xFFEFECE7),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      FractionallySizedBox(
+                        widthFactor: w,
+                        child: Container(
+                          height: 12,
+                          color: palette.surfaceInset,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 7),
-                    FractionallySizedBox(
-                      widthFactor: w * 0.6,
-                      child: Container(
-                        height: 10,
-                        color: const Color(0xFFF3F1ED),
+                      const SizedBox(height: 7),
+                      FractionallySizedBox(
+                        widthFactor: w * 0.6,
+                        child: Container(
+                          height: 10,
+                          color: palette.surfaceMuted,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 class _LibraryError extends StatelessWidget {
@@ -1023,52 +1068,55 @@ class _LibraryError extends StatelessWidget {
   final String error;
 
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.all(16),
-    children: [
-      Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF7DDD8),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFEBC4BC)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.sd_card_alert, size: 26, color: Color(0xFF8E3B31)),
-            const SizedBox(height: 8),
-            Text(
-              "Can't read the local library",
-              style: TextStyle(
-                fontSize: 17,
-                fontVariations: wght(600),
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF4A140E),
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: palette.dangerContainer,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: palette.dangerBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.sd_card_alert, size: 26, color: palette.danger),
+              const SizedBox(height: 8),
+              Text(
+                "Can't read the local library",
+                style: TextStyle(
+                  fontSize: 17,
+                  fontVariations: wght(600),
+                  fontWeight: FontWeight.w600,
+                  color: palette.onDangerContainer,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'The library database did not open. Your downloaded chapters '
-              'are still on the device — nothing was deleted.',
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.5,
-                color: Color(0xFF5F3730),
+              const SizedBox(height: 4),
+              Text(
+                'The library database did not open. Your downloaded chapters '
+                'are still on the device — nothing was deleted.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: palette.onDangerContainer,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              error,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: monoStyle(color: const Color(0xFF7A4A42)),
-            ),
-          ],
+              const SizedBox(height: 10),
+              Text(
+                error,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: monoStyle(color: palette.danger),
+              ),
+            ],
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 class _ResumeCard extends ConsumerWidget {
@@ -1077,14 +1125,15 @@ class _ResumeCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
     final controller = ref.read(captureJobProvider);
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8EEDA),
+        color: palette.warnContainer,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE8D5B2)),
+        border: Border.all(color: palette.warnBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1095,24 +1144,24 @@ class _ResumeCard extends ConsumerWidget {
               fontSize: 13,
               fontVariations: wght(600),
               fontWeight: FontWeight.w600,
-              color: const Color(0xFF4A2F08),
+              color: palette.onWarnContainer,
             ),
           ),
           const SizedBox(height: 2),
           Text(
             '${job.completedChapters} of ${job.requestedChapters} chapters '
             'captured before the app closed.',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               height: 1.5,
-              color: Color(0xFF6B4A15),
+              color: palette.onWarnContainer,
             ),
           ),
           Text(
             job.currentUrl ?? job.startUrl,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: monoStyle(color: const Color(0xFF7A6034)),
+            style: monoStyle(color: palette.warn),
           ),
           const SizedBox(height: 10),
           Row(
@@ -1200,19 +1249,23 @@ class SeriesGroup {
 
   /// One line, worst first. Nothing wrong means no line at all — a row without
   /// a warning is the normal case and must not carry an empty slot.
-  SeriesWarning? get warningLine {
+  ///
+  /// Takes the palette rather than baking a colour in: this is view data, and
+  /// a model that names `0xFF8E3B31` decides what the dark theme looks like
+  /// from inside a getter nobody thinks of as presentation.
+  SeriesWarning? warningLine(AppPalette palette) {
     if (failedChapters > 0) {
       return SeriesWarning(
         Icons.error,
         '$failedChapters capture${failedChapters == 1 ? '' : 's'} failed',
-        const Color(0xFF8E3B31),
+        palette.danger,
       );
     }
     if (partialChapters > 0) {
       return SeriesWarning(
         Icons.arrow_circle_down,
         '$partialChapters chapter${partialChapters == 1 ? '' : 's'} partial',
-        const Color(0xFF8A5A1F),
+        palette.warn,
       );
     }
     return null;

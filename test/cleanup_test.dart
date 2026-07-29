@@ -260,44 +260,195 @@ void main() {
     },
   );
 
-  group('the after-finished preference', () {
-    test('defaults to ask', () async {
+  group('the per-series cleanup preference', () {
+    Future<SeriesCleanupPref?> prefOf(String id) async =>
+        seriesCleanupFromName((await db.libraryItemById(id))!.finishedCleanup);
+
+    Future<void> seedSecondSeries() => db.upsertLibraryItem(
+      LibraryItem(
+        lifecycle: 'active',
+        id: 's2',
+        title: 'Bar',
+        sourceUrl: 'https://x.example/manga/bar',
+        host: 'x.example',
+        seriesKey: '/manga/bar',
+        createdAt: DateTime(2026, 7, 2),
+      ),
+    );
+
+    test('a new series has no decision', () async {
+      await seedSeries();
+      expect(await prefOf('s1'), isNull);
+    });
+
+    test('stores, reads back, and resets to undecided', () async {
+      await seedSeries();
+      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
+      expect(await prefOf('s1'), SeriesCleanupPref.remove);
+
+      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.keep.name);
+      expect(await prefOf('s1'), SeriesCleanupPref.keep);
+
+      // "Ask again next time" — a null that must actually reach the column.
+      await db.setSeriesFinishedCleanup('s1', null);
+      expect(await prefOf('s1'), isNull);
+    });
+
+    test('each series carries its own, and resets independently', () async {
+      await seedSeries();
+      await seedSecondSeries();
+
+      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
+      await db.setSeriesFinishedCleanup('s2', SeriesCleanupPref.keep.name);
+      expect(await prefOf('s1'), SeriesCleanupPref.remove);
+      expect(await prefOf('s2'), SeriesCleanupPref.keep);
+
+      await db.setSeriesFinishedCleanup('s1', null);
+      expect(await prefOf('s1'), isNull);
       expect(
-        afterFinishedFromName(await db.getSetting(kAfterFinishedPrefKey)),
-        AfterFinishedPref.ask,
+        await prefOf('s2'),
+        SeriesCleanupPref.keep,
+        reason: 'resetting one series says nothing about another',
       );
     });
 
-    test('persists and reads back', () async {
-      await db.setSetting(kAfterFinishedPrefKey, AfterFinishedPref.remove.name);
-      expect(
-        afterFinishedFromName(await db.getSetting(kAfterFinishedPrefKey)),
-        AfterFinishedPref.remove,
-      );
-      // A fresh handle over the same store — the restart case.
-      expect(
-        afterFinishedFromName(await db.getSetting(kAfterFinishedPrefKey)),
-        AfterFinishedPref.remove,
-      );
+    test('an unknown or empty stored value reads as undecided', () async {
+      await seedSeries();
+      for (final stored in ['nonsense', '', 'ask', 'REMOVE']) {
+        await db.setSeriesFinishedCleanup('s1', stored);
+        expect(
+          await prefOf('s1'),
+          isNull,
+          reason: '"$stored" is not a decision; ask rather than guess',
+        );
+      }
     });
 
-    test('an unknown stored value degrades to ask', () async {
-      await db.setSetting(kAfterFinishedPrefKey, 'nonsense');
-      expect(
-        afterFinishedFromName(await db.getSetting(kAfterFinishedPrefKey)),
-        AfterFinishedPref.ask,
-      );
+    test('the obsolete global key is not a decision for any series', () async {
+      await seedSeries();
+      await seedSecondSeries();
+      for (final stale in ['remove', 'keep', 'ask', 'nonsense']) {
+        await db.setSetting('storage.afterFinished', stale);
+        expect(await prefOf('s1'), isNull);
+        expect(await prefOf('s2'), isNull);
+      }
     });
 
     test('changing it never touches already-stored chapters', () async {
       await seedSeries();
       final chapter = await seedChapter(1);
-      await db.setSetting(kAfterFinishedPrefKey, AfterFinishedPref.remove.name);
-      // The setting is a rule for future transitions, not a command.
+      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
+      // The decision is a rule for future transitions, not a command.
       expect((await db.chapterById(chapter.id))!.contentPath, isNotNull);
       expect(
         Directory(store.resolve(chapter.contentPath!)).existsSync(),
         isTrue,
+      );
+    });
+  });
+
+  group('across a restart', () {
+    test('each series keeps its own decision, on disk', () async {
+      final file = File(p.join(root.path, 'restart.sqlite'));
+      var reopened = AppDatabase.forTesting(NativeDatabase(file));
+      for (final (id, title) in [('s1', 'Foo'), ('s2', 'Bar')]) {
+        await reopened.upsertLibraryItem(
+          LibraryItem(
+            lifecycle: 'active',
+            id: id,
+            title: title,
+            sourceUrl: 'https://x.example/manga/$id',
+            host: 'x.example',
+            seriesKey: '/manga/$id',
+            createdAt: DateTime(2026, 7, 1),
+          ),
+        );
+      }
+      await reopened.setSeriesFinishedCleanup(
+        's1',
+        SeriesCleanupPref.remove.name,
+      );
+      await reopened.setSeriesFinishedCleanup(
+        's2',
+        SeriesCleanupPref.keep.name,
+      );
+      await reopened.close();
+
+      // A second process opening the same file — the restart case.
+      reopened = AppDatabase.forTesting(NativeDatabase(file));
+      expect(
+        (await reopened.libraryItemById('s1'))!.finishedCleanup,
+        SeriesCleanupPref.remove.name,
+      );
+      expect(
+        (await reopened.libraryItemById('s2'))!.finishedCleanup,
+        SeriesCleanupPref.keep.name,
+      );
+
+      await reopened.setSeriesFinishedCleanup('s2', null);
+      await reopened.close();
+
+      reopened = AppDatabase.forTesting(NativeDatabase(file));
+      expect(
+        (await reopened.libraryItemById('s2'))!.finishedCleanup,
+        isNull,
+        reason: 'a reset survives too — it is a stored null, not a gap',
+      );
+      await reopened.close();
+    });
+  });
+
+  group('the global preference model is gone', () {
+    /// A stale reader trusts what it finds. These names described an app-wide
+    /// cleanup default that no longer exists (D37), so the only safe number of
+    /// them in shipping code is zero.
+    test('no source file mentions it any more', () {
+      const obsolete = [
+        'storage.afterFinished',
+        'AfterFinishedPref',
+        'afterFinishedPrefProvider',
+        'setAfterFinishedPref',
+        'afterFinishedFromName',
+        'kAfterFinishedPrefKey',
+        'showAfterFinishedSheet',
+        'showFinishedChapterDialog',
+        'FinishedChapterChoice',
+        "Don't ask again",
+        'Ask each time',
+        'Remove automatically',
+        'After finishing a chapter',
+      ];
+      // The one legitimate mention left: the migration that deletes the
+      // obsolete row names the key it is deleting. Nothing reads it.
+      const allowed = {'storage.afterFinished': 'lib/storage/database.dart'};
+
+      final offenders = <String>[];
+      for (final file
+          in Directory('lib')
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.dart'))) {
+        final source = file.readAsStringSync();
+        for (final name in obsolete) {
+          if (!source.contains(name)) continue;
+          if (allowed[name] == file.path) continue;
+          offenders.add('${file.path}: $name');
+        }
+      }
+      expect(offenders, isEmpty);
+    });
+
+    test('the migration deletes the obsolete row rather than reading it', () {
+      final source = File('lib/storage/database.dart').readAsStringSync();
+      expect(
+        source,
+        contains("t.key.equals('storage.afterFinished')"),
+        reason: 'the only mention left is the one that removes it',
+      );
+      expect(
+        source.contains("getSetting('storage.afterFinished')") ||
+            source.contains("watchSetting('storage.afterFinished')"),
+        isFalse,
       );
     });
   });

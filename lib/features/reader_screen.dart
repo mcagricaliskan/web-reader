@@ -16,9 +16,10 @@ import '../storage/database.dart';
 import '../storage/file_store.dart';
 import '../storage/manifest.dart';
 import '../storage/manifest_repair.dart';
+import '../ui/palette.dart';
 import 'capture_queue_ui.dart';
 import 'cleanup_dialogs.dart';
-import 'library_screen.dart' show formatBytes, formatRelative;
+import 'library_screen.dart' show formatRelative;
 import 'series_detail_screen.dart' show sortChaptersForReading;
 
 /// How long the reader waits before writing a scroll position.
@@ -38,6 +39,20 @@ const double kReaderTopSpacer = 104;
 /// unknowable before layout — which is exactly what lets the reader open AT
 /// the saved position instead of jumping there afterwards.
 const double kPartialBannerExtent = 88;
+
+/// How long the transient reader notice stays on screen.
+///
+/// Deliberately inside [CleanupService.undoWindow] (6s), so Undo is still real
+/// for the whole time the notice offers it. Lengthening this without
+/// lengthening that window would put a dead button on screen.
+const Duration kReaderNoticeDuration = Duration(seconds: 5);
+
+/// Where the floating reader notice sits above the bottom chrome (a 48px
+/// control row plus its padding) — the same band the jump chip uses, and it is
+/// added to the safe-area inset rather than assuming one: Android's
+/// three-button navigation bar reports ~48px there, enough to push the chrome
+/// up under a fixed offset and cover the chapter controls.
+const double kReaderNoticeInset = 104;
 
 /// Vertical image reader over **local files only**.
 ///
@@ -96,6 +111,25 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   late final ReadingRepository _reading;
   late final CleanupService _cleanup;
 
+  /// The transient notice on screen, or null when there is none.
+  ///
+  /// Screen state and nothing else: never written to the database, never
+  /// restored. It is dropped when the chapter changes, when the app leaves the
+  /// foreground, when the user closes it, and with the screen itself — so a
+  /// notice can only ever be seen once, for as long as its own timeout.
+  _ReaderNotice? _notice;
+
+  /// Identity for the notice widget, so a second removal *replaces* the first
+  /// (fresh countdown, one notice) instead of reusing its element and
+  /// inheriting the timeout already half spent.
+  int _noticeSeq = 0;
+
+  /// The series whose cleanup question is on screen, or null when none is.
+  ///
+  /// Screen state, and the reason a burst of "next chapter" taps cannot open a
+  /// second dialog or race two decisions into the database.
+  String? _cleanupAskSeriesId;
+
   static const _policy = kDefaultCompletionPolicy;
 
   @override
@@ -130,6 +164,47 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     // Backgrounded or about to be killed: write now rather than hoping the
     // debounce fires first.
     if (state != AppLifecycleState.resumed) unawaited(_flush());
+    // A notice is a moment, not a state. Cleared on *every* transition rather
+    // than only on the way out, so coming back has nothing left to show even
+    // if the app was suspended before the timeout could run.
+    _clearNotice();
+  }
+
+  // --- transient notice ----------------------------------------------------
+
+  /// Show (or replace) the transient notice. There is at most one, ever.
+  void _showNotice(
+    String text, {
+    required IconData icon,
+    Future<void> Function()? undo,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      _notice = _ReaderNotice(
+        id: ++_noticeSeq,
+        text: text,
+        icon: icon,
+        undo: undo,
+      );
+    });
+  }
+
+  void _clearNotice() {
+    if (!mounted || _notice == null) return;
+    setState(() => _notice = null);
+  }
+
+  /// Put the files back, then say so — the confirmation is itself transient
+  /// and carries no action.
+  Future<void> _undoRemoval(_ReaderNotice notice) async {
+    final undo = notice.undo;
+    if (undo == null) return;
+    // Cleared first: the offer has been taken, and leaving the countdown
+    // running would let the timeout fire mid-restore.
+    _clearNotice();
+    await undo();
+    if (!mounted) return;
+    _showNotice('Chapter restored', icon: Icons.undo);
   }
 
   // --- loading -------------------------------------------------------------
@@ -265,48 +340,57 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return leaving;
   }
 
-  /// Apply the stored preference to the chapter just left behind.
+  /// Apply the series' cleanup decision to the chapter just left behind, and
+  /// ask for it once if the series has none (D37).
+  ///
+  /// The series is taken from the chapter being left and captured *before* any
+  /// await, so a decision can only ever be written to the series it was asked
+  /// about — even if the reader has moved on, or moved to another series,
+  /// while the dialog was open.
   Future<void> _afterFinished(Chapter leaving) async {
-    final pref = await ref
-        .read(databaseProvider)
-        .getSetting(kAfterFinishedPrefKey);
-    switch (afterFinishedFromName(pref)) {
-      case AfterFinishedPref.keep:
-        return;
-      case AfterFinishedPref.remove:
-        await _removeFinished(leaving);
-      case AfterFinishedPref.ask:
-        if (!mounted) return;
-        final choice = await showFinishedChapterDialog(
+    final db = ref.read(databaseProvider);
+    final seriesId = leaving.libraryItemId;
+    final item = await db.libraryItemById(seriesId);
+    if (item == null) return;
+
+    var decision = seriesCleanupFromName(item.finishedCleanup);
+    if (decision == null) {
+      // One question at a time. A second transition arriving while the dialog
+      // is open must not stack a duplicate or race a conflicting write; it
+      // keeps its files and asks nothing, and the answer being given now
+      // covers every transition after it.
+      if (_cleanupAskSeriesId != null || !mounted) return;
+      _cleanupAskSeriesId = seriesId;
+      try {
+        decision = await showSeriesCleanupDialog(
           context: context,
-          chapter: leaving,
+          seriesName: item.userTitle ?? item.title,
         );
-        if (choice == null) return; // dismissed: safest is to keep
-        if (choice.rememberChoice) {
-          await ref
-              .read(databaseProvider)
-              .setSetting(
-                kAfterFinishedPrefKey,
-                choice.remove
-                    ? AfterFinishedPref.remove.name
-                    : AfterFinishedPref.keep.name,
-              );
-        }
-        if (choice.remove) await _removeFinished(leaving);
+      } finally {
+        _cleanupAskSeriesId = null;
+      }
+      // Dismissed without saving: nothing is stored and nothing is removed.
+      // The question comes back on the next eligible transition.
+      if (decision == null) return;
+      await db.setSeriesFinishedCleanup(seriesId, decision.name);
     }
+    if (decision == SeriesCleanupPref.remove) await _removeFinished(leaving);
   }
 
   /// Remove and offer an undo. A failure here never blocks reading — the new
   /// chapter is already open; the worst case is that files stay.
+  ///
+  /// The notice is deliberately minimal: which chapter it was is obvious (the
+  /// user just left it) and how many megabytes came back is not a decision
+  /// anyone makes mid-read. What matters for five seconds is that something was
+  /// removed and that it can be put back.
   Future<void> _removeFinished(Chapter leaving) async {
     try {
       final result = await _cleanup.removeOffline([leaving.id]);
       if (!mounted || result.removed == 0) return;
-      showCleanupToast(
-        context,
-        text:
-            '${leaving.chapterLabel ?? leaving.title} removed offline · '
-            '${formatBytes(result.freedBytes)} freed',
+      _showNotice(
+        'Previous chapter removed offline',
+        icon: Icons.delete_outline,
         undo: result.canUndo ? result.undo.undo : null,
       );
     } catch (e) {
@@ -439,6 +523,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     // locked against its own cleanup.
     _cleanup.openReaderChapterId.value = target.id;
     setState(() {
+      // Anything the last transition had to say is about a chapter that is no
+      // longer on screen. A new removal will post its own notice.
+      _notice = null;
       _chapterId = target.id;
       _restored = false;
       _layout = null;
@@ -565,124 +652,157 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   @override
   Widget build(BuildContext context) {
+    final notice = _notice;
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: FutureBuilder<_ReaderData>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final data = snapshot.data;
-          if (data == null || data.unavailableReason != null) {
-            final missing = data?.unavailableChapter;
-            return _Unavailable(
-              message: data?.unavailableReason ?? 'Could not open the chapter.',
-              filesGone: data?.filesGone ?? false,
-              removedByUser: data?.removedByUser ?? false,
-              meta: data?.unavailableMeta,
-              onCaptureAgain: missing == null
-                  ? null
-                  : () => _captureAgain(missing),
-            );
-          }
-          if (data.pages.isEmpty) {
-            return const _Unavailable(
-              message: 'This chapter has no stored images.',
-            );
-          }
-
-          final manifest = data.manifest!;
-          final width = MediaQuery.of(context).size.width;
-          final controller = _controllerFor(data, width);
-
-          final partial = manifest.status == CaptureStatus.partial;
-          _leadingExtent =
-              kReaderTopSpacer + (partial ? kPartialBannerExtent : 0);
-
-          return Stack(
-            children: [
-              // Everything above panel 1 lives INSIDE the scroll view, so the
-              // banner scrolls away with the content instead of permanently
-              // eating a band of the page. Its extent is a known constant,
-              // and every offset conversion goes through [_leadingExtent].
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => setState(() => _chromeVisible = !_chromeVisible),
-                // Horizontal-only recogniser: it and the list's vertical drag
-                // enter the same arena, so a reading scroll never reaches it
-                // and a deliberate sideways drag never scrolls the page.
-                onHorizontalDragStart: _onDragStart,
-                onHorizontalDragUpdate: _onDragUpdate,
-                onHorizontalDragEnd: _onDragEnd,
-                child: ListView.builder(
-                  controller: controller,
-                  // The lead-in is list PADDING, not a child: padding adds its
-                  // extent exactly, while a short first child would skew
-                  // ListView's running estimate of total extent and leave the
-                  // scrollable's own maxScrollExtent short of the real bottom.
-                  padding: const EdgeInsets.only(top: kReaderTopSpacer),
-                  // One trailing row for the end-of-chapter block, plus the
-                  // partial banner when there is one.
-                  itemCount: data.pages.length + 1 + (partial ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (partial && index == 0) {
-                      return _PartialBanner(
-                        stored: manifest.storedImageCount,
-                        detected: manifest.detectedImageCount,
-                        reason: manifest.statusReason,
-                        onRetry: () => _retryMissing(data),
-                      );
-                    }
-                    final panel = index - (partial ? 1 : 0);
-                    if (panel == data.pages.length) {
-                      return _EndOfChapter(
-                        data: data,
-                        chapterId: _chapterId!,
-                        onGoTo: _goTo,
-                      );
-                    }
-                    return _PanelView(
-                      page: data.pages[panel],
-                      index: panel + 1,
-                      height: _layout?.heightOf(panel),
-                    );
-                  },
-                ),
+      // Near-black, not `#000000`: a pure-black canvas smears under this
+      // screen's continuous vertical scrolling on OLED and maximises the halo
+      // around the overlaid chrome (D62). Still dark enough that a panel's own
+      // black borders read as part of the artwork.
+      backgroundColor: ReaderColors.canvas,
+      // The notice sits outside the FutureBuilder: it is posted as the *next*
+      // chapter starts loading, and rebuilding it with the page would restart
+      // its countdown (or flicker it away) on every load state.
+      body: Stack(
+        children: [
+          _body(),
+          if (notice != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: kReaderNoticeInset + MediaQuery.paddingOf(context).bottom,
+              child: _TransientNotice(
+                // A new removal is a new notice, with a full countdown.
+                key: ValueKey(notice.id),
+                text: notice.text,
+                icon: notice.icon,
+                duration: kReaderNoticeDuration,
+                actionLabel: notice.undo == null ? null : 'Undo',
+                onAction: notice.undo == null
+                    ? null
+                    : () => unawaited(_undoRemoval(notice)),
+                onDismissed: _clearNotice,
               ),
-              // A jump back to where reading left off, offered only once the
-              // reader has actually wandered away from it — the app restores
-              // the position on open, so an always-on chip would point at
-              // where you already are.
-              _JumpToSavedChip(
-                visible: _chromeVisible && _showJump,
-                fraction: _restoredFraction,
-                onTap: () {
-                  final layout = _layout;
-                  if (layout == null) return;
-                  controller.animateTo(
-                    _leadingExtent +
-                        layout.offsetForPosition(_restoredPosition),
-                    duration: const Duration(milliseconds: 240),
-                    curve: Curves.easeOut,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _body() {
+    return FutureBuilder<_ReaderData>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final data = snapshot.data;
+        if (data == null || data.unavailableReason != null) {
+          final missing = data?.unavailableChapter;
+          return _Unavailable(
+            message: data?.unavailableReason ?? 'Could not open the chapter.',
+            filesGone: data?.filesGone ?? false,
+            removedByUser: data?.removedByUser ?? false,
+            meta: data?.unavailableMeta,
+            onCaptureAgain: missing == null
+                ? null
+                : () => _captureAgain(missing),
+          );
+        }
+        if (data.pages.isEmpty) {
+          return const _Unavailable(
+            message: 'This chapter has no stored images.',
+          );
+        }
+
+        final manifest = data.manifest!;
+        final width = MediaQuery.of(context).size.width;
+        final controller = _controllerFor(data, width);
+
+        final partial = manifest.status == CaptureStatus.partial;
+        _leadingExtent =
+            kReaderTopSpacer + (partial ? kPartialBannerExtent : 0);
+
+        return Stack(
+          children: [
+            // Everything above panel 1 lives INSIDE the scroll view, so the
+            // banner scrolls away with the content instead of permanently
+            // eating a band of the page. Its extent is a known constant,
+            // and every offset conversion goes through [_leadingExtent].
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _chromeVisible = !_chromeVisible),
+              // Horizontal-only recogniser: it and the list's vertical drag
+              // enter the same arena, so a reading scroll never reaches it
+              // and a deliberate sideways drag never scrolls the page.
+              onHorizontalDragStart: _onDragStart,
+              onHorizontalDragUpdate: _onDragUpdate,
+              onHorizontalDragEnd: _onDragEnd,
+              child: ListView.builder(
+                controller: controller,
+                // The lead-in is list PADDING, not a child: padding adds its
+                // extent exactly, while a short first child would skew
+                // ListView's running estimate of total extent and leave the
+                // scrollable's own maxScrollExtent short of the real bottom.
+                padding: const EdgeInsets.only(top: kReaderTopSpacer),
+                // One trailing row for the end-of-chapter block, plus the
+                // partial banner when there is one.
+                itemCount: data.pages.length + 1 + (partial ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (partial && index == 0) {
+                    return _PartialBanner(
+                      stored: manifest.storedImageCount,
+                      detected: manifest.detectedImageCount,
+                      reason: manifest.statusReason,
+                      onRetry: () => _retryMissing(data),
+                    );
+                  }
+                  final panel = index - (partial ? 1 : 0);
+                  if (panel == data.pages.length) {
+                    return _EndOfChapter(
+                      data: data,
+                      chapterId: _chapterId!,
+                      onGoTo: _goTo,
+                    );
+                  }
+                  return _PanelView(
+                    page: data.pages[panel],
+                    index: panel + 1,
+                    height: _layout?.heightOf(panel),
                   );
-                  setState(() => _showJump = false);
                 },
               ),
-              _ReaderChrome(
-                visible: _chromeVisible,
-                data: data,
-                chapterId: _chapterId!,
-                completed: _completed,
-                position: _livePosition,
-                panelCount: data.pages.length,
-                onGoTo: _goTo,
-                onToggleRead: _toggleRead,
-              ),
-            ],
-          );
-        },
-      ),
+            ),
+            // A jump back to where reading left off, offered only once the
+            // reader has actually wandered away from it — the app restores
+            // the position on open, so an always-on chip would point at
+            // where you already are.
+            _JumpToSavedChip(
+              visible: _chromeVisible && _showJump,
+              fraction: _restoredFraction,
+              onTap: () {
+                final layout = _layout;
+                if (layout == null) return;
+                controller.animateTo(
+                  _leadingExtent + layout.offsetForPosition(_restoredPosition),
+                  duration: const Duration(milliseconds: 240),
+                  curve: Curves.easeOut,
+                );
+                setState(() => _showJump = false);
+              },
+            ),
+            _ReaderChrome(
+              visible: _chromeVisible,
+              data: data,
+              chapterId: _chapterId!,
+              completed: _completed,
+              position: _livePosition,
+              panelCount: data.pages.length,
+              onGoTo: _goTo,
+              onToggleRead: _toggleRead,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -747,9 +867,9 @@ class _ReaderChrome extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Color(0xF2000000),
-                      Color(0xC0000000),
-                      Color(0x00000000),
+                      ReaderColors.chromeStrong,
+                      ReaderColors.chromeSoft,
+                      ReaderColors.chromeClear,
                     ],
                     stops: [0, 0.7, 1],
                   ),
@@ -759,7 +879,7 @@ class _ReaderChrome extends StatelessWidget {
                     IconButton(
                       tooltip: 'Back',
                       icon: const Icon(Icons.arrow_back, size: 24),
-                      color: const Color(0xFFEDEAE4),
+                      color: ReaderColors.ink,
                       onPressed: () => context.pop(),
                     ),
                     Expanded(
@@ -774,7 +894,7 @@ class _ReaderChrome extends StatelessWidget {
                             style: const TextStyle(
                               fontFamily: 'IBM Plex Mono',
                               fontSize: 14,
-                              color: Color(0xFFF2EFE9),
+                              color: ReaderColors.ink,
                             ),
                           ),
                           Text(
@@ -783,7 +903,7 @@ class _ReaderChrome extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 11,
-                              color: Color(0xFF8E8A83),
+                              color: ReaderColors.inkMuted,
                             ),
                           ),
                         ],
@@ -807,9 +927,9 @@ class _ReaderChrome extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Color(0x00000000),
-                      Color(0xC0000000),
-                      Color(0xF2000000),
+                      ReaderColors.chromeClear,
+                      ReaderColors.chromeSoft,
+                      ReaderColors.chromeStrong,
                     ],
                     stops: [0, 0.3, 1],
                   ),
@@ -819,8 +939,8 @@ class _ReaderChrome extends StatelessWidget {
                     IconButton(
                       tooltip: 'Previous saved chapter',
                       icon: const Icon(Icons.skip_previous, size: 22),
-                      color: const Color(0xFFDCD8D1),
-                      disabledColor: const Color(0xFF4A4741),
+                      color: ReaderColors.ink,
+                      disabledColor: ReaderColors.inkDisabled,
                       onPressed: previous == null
                           ? null
                           : () => onGoTo(previous),
@@ -844,8 +964,8 @@ class _ReaderChrome extends StatelessWidget {
                                 child: LinearProgressIndicator(
                                   value: live.fraction.clamp(0.0, 1.0),
                                   minHeight: 4,
-                                  backgroundColor: const Color(0xFF24272A),
-                                  color: const Color(0xFF9FC3CE),
+                                  backgroundColor: ReaderColors.track,
+                                  color: ReaderColors.accent,
                                 ),
                               ),
                               const SizedBox(height: 6),
@@ -871,8 +991,8 @@ class _ReaderChrome extends StatelessWidget {
                     IconButton(
                       tooltip: 'Next saved chapter',
                       icon: const Icon(Icons.skip_next, size: 22),
-                      color: const Color(0xFFDCD8D1),
-                      disabledColor: const Color(0xFF4A4741),
+                      color: ReaderColors.ink,
+                      disabledColor: ReaderColors.inkDisabled,
                       onPressed: next == null ? null : () => onGoTo(next),
                     ),
                   ],
@@ -889,7 +1009,7 @@ class _ReaderChrome extends StatelessWidget {
 const _readerMeta = TextStyle(
   fontFamily: 'IBM Plex Mono',
   fontSize: 10.5,
-  color: Color(0xFF7E7A73),
+  color: ReaderColors.inkFaint,
 );
 
 class _ReadPill extends StatelessWidget {
@@ -900,7 +1020,7 @@ class _ReadPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Material(
-    color: completed ? const Color(0xFF1E2426) : const Color(0xFF141416),
+    color: completed ? ReaderColors.pillActive : ReaderColors.pill,
     borderRadius: BorderRadius.circular(999),
     clipBehavior: Clip.antiAlias,
     child: InkWell(
@@ -913,9 +1033,7 @@ class _ReadPill extends StatelessWidget {
             Icon(
               completed ? Icons.check_circle : Icons.radio_button_unchecked,
               size: 17,
-              color: completed
-                  ? const Color(0xFF9FC3CE)
-                  : const Color(0xFFB8B4AD),
+              color: completed ? ReaderColors.accent : ReaderColors.ink,
             ),
             const SizedBox(width: 6),
             Text(
@@ -923,9 +1041,7 @@ class _ReadPill extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
-                color: completed
-                    ? const Color(0xFF9FC3CE)
-                    : const Color(0xFFB8B4AD),
+                color: completed ? ReaderColors.accent : ReaderColors.ink,
               ),
             ),
           ],
@@ -973,7 +1089,7 @@ class _EndOfChapter extends StatelessWidget {
               fontFamily: 'IBM Plex Mono',
               fontSize: 11,
               letterSpacing: 0.66,
-              color: Color(0xFF5E5A54),
+              color: ReaderColors.inkFaint,
             ),
           ),
           if (target != null) ...[
@@ -981,9 +1097,9 @@ class _EndOfChapter extends StatelessWidget {
             OutlinedButton(
               onPressed: () => onGoTo(target),
               style: OutlinedButton.styleFrom(
-                backgroundColor: const Color(0xFF14181A),
-                foregroundColor: const Color(0xFFDCE6E9),
-                side: const BorderSide(color: Color(0xFF2C3134)),
+                backgroundColor: ReaderColors.buttonSurface,
+                foregroundColor: ReaderColors.buttonInk,
+                side: const BorderSide(color: ReaderColors.buttonBorder),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 22,
                   vertical: 13,
@@ -1014,11 +1130,14 @@ class _PanelView extends StatelessWidget {
     if (!page.exists) {
       return Container(
         height: height ?? 160,
-        color: const Color(0xFF201010),
+        color: ReaderColors.brokenPanel,
         alignment: Alignment.center,
         child: Text(
           'Image $index is missing from local storage',
-          style: const TextStyle(color: Colors.orangeAccent, fontSize: 12),
+          style: const TextStyle(
+            color: ReaderColors.brokenPanelInk,
+            fontSize: 12,
+          ),
         ),
       );
     }
@@ -1044,11 +1163,14 @@ class _PanelView extends StatelessWidget {
       gaplessPlayback: true,
       errorBuilder: (context, error, _) => Container(
         height: height ?? 160,
-        color: const Color(0xFF201010),
+        color: ReaderColors.brokenPanel,
         alignment: Alignment.center,
         child: Text(
           'Image $index could not be decoded',
-          style: const TextStyle(color: Colors.orangeAccent, fontSize: 12),
+          style: const TextStyle(
+            color: ReaderColors.brokenPanelInk,
+            fontSize: 12,
+          ),
         ),
       ),
     );
@@ -1084,9 +1206,9 @@ class _PartialBanner extends StatelessWidget {
         margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         decoration: BoxDecoration(
-          color: const Color(0xFF24190A),
+          color: ReaderColors.warnSurface,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFF4A3411)),
+          border: Border.all(color: ReaderColors.warnBorder),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1094,7 +1216,7 @@ class _PartialBanner extends StatelessWidget {
             const Icon(
               Icons.arrow_circle_down,
               size: 19,
-              color: Color(0xFFE0B463),
+              color: ReaderColors.warn,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -1106,7 +1228,7 @@ class _PartialBanner extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFFF0D9A9),
+                      color: ReaderColors.warnInk,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -1119,7 +1241,7 @@ class _PartialBanner extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 11.5,
                       height: 1.45,
-                      color: Color(0xFFBFA478),
+                      color: ReaderColors.warnInkMuted,
                     ),
                   ),
                 ],
@@ -1129,8 +1251,8 @@ class _PartialBanner extends StatelessWidget {
             FilledButton(
               onPressed: onRetry,
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFE0B463),
-                foregroundColor: const Color(0xFF2A1D06),
+                backgroundColor: ReaderColors.warn,
+                foregroundColor: ReaderColors.onWarn,
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 11,
@@ -1146,6 +1268,195 @@ class _PartialBanner extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// What the reader currently has to say, for as long as its notice lasts.
+class _ReaderNotice {
+  const _ReaderNotice({
+    required this.id,
+    required this.text,
+    required this.icon,
+    this.undo,
+  });
+
+  final int id;
+  final String text;
+  final IconData icon;
+
+  /// Present only while the removal can genuinely be taken back.
+  final Future<void> Function()? undo;
+}
+
+/// A short-lived notice that owns its own timeout and shows it draining.
+///
+/// Deliberately **not** a `SnackBar`: the messenger's queue lives above the
+/// router, outlives this screen and survives being backgrounded, so a snack bar
+/// posted here can resurface on a later page or after a resume. This lives and
+/// dies inside the reader — when the owner drops it, it is gone, and there is
+/// nowhere for it to come back from.
+///
+/// It owns exactly one controller and no timers, and the controller goes with
+/// the widget.
+class _TransientNotice extends StatefulWidget {
+  const _TransientNotice({
+    super.key,
+    required this.text,
+    required this.icon,
+    required this.duration,
+    required this.onDismissed,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String text;
+  final IconData icon;
+  final Duration duration;
+
+  /// Called once, when the notice is finished with itself — the timeout ran
+  /// out, or the user closed it. The owner drops it from the tree.
+  final VoidCallback onDismissed;
+
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  State<_TransientNotice> createState() => _TransientNoticeState();
+}
+
+class _TransientNoticeState extends State<_TransientNotice>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _timeout;
+  bool _closed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timeout = AnimationController(vsync: this, duration: widget.duration)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) _close();
+      })
+      ..forward();
+  }
+
+  @override
+  void dispose() {
+    _timeout.dispose();
+    super.dispose();
+  }
+
+  /// Idempotent: the timeout and the close button race by design, and the
+  /// loser must not report a second dismissal.
+  void _close() {
+    if (_closed) return;
+    _closed = true;
+    widget.onDismissed();
+  }
+
+  void _act() {
+    if (_closed) return;
+    _closed = true;
+    widget.onAction?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // The reader is a permanently dark surface whatever the app appearance is,
+    // so the notice reads from the dark palette rather than the ambient one.
+    const palette = AppPalette.dark;
+
+    return AnimatedBuilder(
+      animation: _timeout,
+      builder: (context, _) {
+        // Fades in over the first moments and out over the last, so it neither
+        // appears nor vanishes as a hard cut.
+        final t = _timeout.value;
+        final opacity = t < 0.06 ? t / 0.06 : (t > 0.94 ? (1 - t) / 0.06 : 1.0);
+        return Opacity(
+          opacity: opacity.clamp(0.0, 1.0),
+          child: Material(
+            color: palette.toastSurface,
+            borderRadius: BorderRadius.circular(12),
+            elevation: 8,
+            shadowColor: Colors.black,
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(13, 10, 6, 10),
+                  child: Row(
+                    children: [
+                      Icon(widget.icon, size: 18, color: palette.toastAccent),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          widget.text,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.35,
+                            color: palette.toastInk,
+                          ),
+                        ),
+                      ),
+                      if (widget.actionLabel != null) ...[
+                        const SizedBox(width: 6),
+                        TextButton(
+                          onPressed: _act,
+                          style: TextButton.styleFrom(
+                            foregroundColor: palette.toastAccent,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            minimumSize: const Size(0, 34),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: Text(
+                            widget.actionLabel!,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                      IconButton(
+                        tooltip: 'Dismiss',
+                        onPressed: _close,
+                        icon: const Icon(Icons.close, size: 17),
+                        color: palette.inkFaint,
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 34,
+                          height: 34,
+                        ),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ],
+                  ),
+                ),
+                // The timeout, made visible: a hairline that empties as the
+                // notice runs out. Painted directly rather than with
+                // LinearProgressIndicator, whose Material 3 track and stop dot
+                // read as progress towards something.
+                SizedBox(
+                  height: 2,
+                  width: double.infinity,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: FractionallySizedBox(
+                      widthFactor: (1 - t).clamp(0.0, 1.0),
+                      heightFactor: 1,
+                      child: ColoredBox(color: palette.toastAccent),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1169,7 +1480,7 @@ class _JumpToSavedChip extends StatelessWidget {
       right: 14,
       bottom: 104,
       child: Material(
-        color: const Color(0xFFE8F1F4),
+        color: ReaderColors.chipSurface,
         borderRadius: BorderRadius.circular(999),
         elevation: 6,
         shadowColor: Colors.black,
@@ -1181,14 +1492,14 @@ class _JumpToSavedChip extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.south, size: 18, color: Color(0xFF133845)),
+                const Icon(Icons.south, size: 18, color: ReaderColors.chipInk),
                 const SizedBox(width: 7),
                 Text(
                   'Continue · ${(fraction * 100).round()}%',
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF133845),
+                    color: ReaderColors.chipInk,
                   ),
                 ),
               ],
@@ -1238,7 +1549,7 @@ class _Unavailable extends StatelessWidget {
                 ? Icons.cloud
                 : (filesGone ? Icons.folder_off : Icons.cloud_off),
             size: 34,
-            color: const Color(0xFF7E7A73),
+            color: ReaderColors.inkFaint,
           ),
           const SizedBox(height: 10),
           if (filesGone)
@@ -1250,7 +1561,7 @@ class _Unavailable extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
-                color: Colors.white,
+                color: ReaderColors.ink,
               ),
             ),
           const SizedBox(height: 6),
@@ -1268,7 +1579,7 @@ class _Unavailable extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 13,
                 height: 1.6,
-                color: Color(0xFF9C978F),
+                color: ReaderColors.inkMuted,
               ),
             ),
           ),
@@ -1280,7 +1591,7 @@ class _Unavailable extends StatelessWidget {
               style: const TextStyle(
                 fontFamily: 'IBM Plex Mono',
                 fontSize: 11,
-                color: Color(0xFF6A665F),
+                color: ReaderColors.inkFaint,
               ),
             ),
           ],
@@ -1293,8 +1604,8 @@ class _Unavailable extends StatelessWidget {
                   FilledButton(
                     onPressed: onCaptureAgain,
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE8F1F4),
-                      foregroundColor: const Color(0xFF133845),
+                      backgroundColor: ReaderColors.chipSurface,
+                      foregroundColor: ReaderColors.chipInk,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 18,
                         vertical: 12,
@@ -1307,8 +1618,8 @@ class _Unavailable extends StatelessWidget {
                 OutlinedButton(
                   onPressed: () => context.pop(),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFE4E1DA),
-                    side: const BorderSide(color: Color(0xFF3A3833)),
+                    foregroundColor: ReaderColors.outlineInk,
+                    side: const BorderSide(color: ReaderColors.outlineBorder),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 18,
                       vertical: 12,

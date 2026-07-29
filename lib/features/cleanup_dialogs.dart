@@ -3,117 +3,204 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers.dart';
 import '../storage/cleanup.dart';
-import '../storage/database.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
-import 'library_screen.dart' show formatBytes;
 
-/// What the finished-chapter dialog returned.
-class FinishedChapterChoice {
-  const FinishedChapterChoice({
-    required this.remove,
-    required this.rememberChoice,
-  });
+/// The one-time cleanup question for a series (D37).
+///
+/// Asked on the first eligible forward transition inside a series that has no
+/// stored decision, and never again unless the decision is reset. It is a
+/// choice between two named outcomes with an explicit *Save choice* — not a
+/// yes/no about the chapter in hand, because what is being saved is a rule for
+/// the series.
+///
+/// `Remove after continuing` is preselected, always. The preselection is a
+/// constant of this widget: no global setting, no other series and no previous
+/// answer can reach it. Dismissing without saving returns null, which stores
+/// nothing and keeps the files.
+Future<SeriesCleanupPref?> showSeriesCleanupDialog({
+  required BuildContext context,
+  required String seriesName,
+}) => showDialog<SeriesCleanupPref>(
+  context: context,
+  builder: (context) => _SeriesCleanupDialog(seriesName: seriesName),
+);
 
-  final bool remove;
+class _SeriesCleanupDialog extends StatefulWidget {
+  const _SeriesCleanupDialog({required this.seriesName});
 
-  /// "Don't ask again" was ticked — the choice becomes the persistent
-  /// preference (keep → keep offline, remove → remove automatically).
-  final bool rememberChoice;
+  final String seriesName;
+
+  @override
+  State<_SeriesCleanupDialog> createState() => _SeriesCleanupDialogState();
 }
 
-/// Asked after finishing a chapter and continuing forward, when the stored
-/// preference is `ask`.
-///
-/// Keep is the highlighted (primary) action deliberately: the safest default
-/// preserves files. Dismissing the dialog keeps too.
-Future<FinishedChapterChoice?> showFinishedChapterDialog({
-  required BuildContext context,
-  required Chapter chapter,
-}) {
-  var remember = false;
-  final label = chapter.chapterLabel ?? chapter.title;
+class _SeriesCleanupDialogState extends State<_SeriesCleanupDialog> {
+  /// The preselected answer, fixed by the product model (D37).
+  SeriesCleanupPref _choice = SeriesCleanupPref.remove;
 
-  return showDialog<FinishedChapterChoice>(
-    context: context,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setState) => AlertDialog(
-        icon: const Icon(
-          Icons.library_add_check,
-          size: 26,
-          color: Color(0xFF5F5B54),
-        ),
-        title: const Text('Remove the finished chapter?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'You finished $label. Removing its offline files frees '
-              '${formatBytes(chapter.byteSize)}. It stays in your library '
-              'with your reading history — you can capture it again any time.',
-              style: const TextStyle(
-                fontSize: 13,
-                height: 1.55,
-                color: Color(0xFF5F5B54),
-              ),
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return AlertDialog(
+      // Two option rows and their explanations are taller than a short phone
+      // in landscape: the content scrolls rather than overflowing.
+      scrollable: true,
+      icon: Icon(Icons.folder_open, size: 26, color: palette.inkMuted),
+      title: const Text('Downloaded chapters in this series'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.seriesName,
+            style: TextStyle(
+              fontSize: 12,
+              fontVariations: wght(600),
+              fontWeight: FontWeight.w600,
+              color: palette.inkStrong,
             ),
-            InkWell(
-              onTap: () => setState(() => remember = !remember),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(2, 14, 2, 4),
-                child: Row(
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "What should happen to a finished chapter's downloaded files "
+            'after you continue to the next chapter?',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.55,
+              color: palette.inkMuted,
+            ),
+          ),
+          const SizedBox(height: 13),
+          for (final option in _cleanupOptions) ...[
+            CleanupPrefOption(
+              optionKey: 'seriesCleanup-${option.$1?.name ?? 'ask'}',
+              label: option.$2,
+              sub: option.$3,
+              selected: _choice == option.$1,
+              onTap: () => setState(() => _choice = option.$1!),
+            ),
+            const SizedBox(height: 7),
+          ],
+          const SizedBox(height: 3),
+          Text(
+            'This choice applies only to this series. You can change it later '
+            'from the series settings.',
+            style: TextStyle(
+              fontSize: 11.5,
+              height: 1.5,
+              color: palette.inkFaint,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        FilledButton(
+          key: const ValueKey('saveSeriesCleanup'),
+          onPressed: () => Navigator.pop(context, _choice),
+          child: const Text('Save choice'),
+        ),
+      ],
+    );
+  }
+}
+
+/// The two outcomes, in the order they are offered. Shared by the dialog and
+/// the series sheet so a rename can never drift between them.
+const _cleanupOptions = <(SeriesCleanupPref?, String, String)>[
+  (
+    SeriesCleanupPref.remove,
+    'Remove after continuing',
+    'When you move on to the next chapter, the finished one\'s downloaded '
+        'files are removed. It stays in your library with your reading '
+        'history, and you can capture it again any time.',
+  ),
+  (
+    SeriesCleanupPref.keep,
+    'Keep downloaded files',
+    'Finished chapters stay on this device until you remove them yourself.',
+  ),
+];
+
+/// Settings-sheet-shaped radio row. Public because the series sheet and the
+/// first-transition dialog draw the same control.
+class CleanupPrefOption extends StatelessWidget {
+  const CleanupPrefOption({
+    super.key,
+    required this.optionKey,
+    required this.label,
+    required this.sub,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String optionKey;
+  final String label;
+  final String sub;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Material(
+      color: selected ? palette.primaryContainer : palette.surfaceMuted,
+      borderRadius: BorderRadius.circular(13),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: ValueKey(optionKey),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
+              color: selected ? palette.primaryBorder : palette.border,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 20,
+                color: selected ? palette.primary : palette.inkMuted,
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      remember
-                          ? Icons.check_box
-                          : Icons.check_box_outline_blank,
-                      size: 21,
-                      color: remember
-                          ? const Color(0xFF35606F)
-                          : const Color(0xFF5F5B54),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontVariations: wght(500),
+                        fontWeight: FontWeight.w500,
+                        color: palette.ink,
+                      ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        remember
-                            ? "Don't ask again — your next choice becomes the "
-                                  'default for every finished chapter (change '
-                                  'it in Settings › Storage)'
-                            : "Don't ask again — this choice applies to "
-                                  '$label only',
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          height: 1.45,
-                          color: Color(0xFF3E3A34),
-                        ),
+                    const SizedBox(height: 2),
+                    Text(
+                      sub,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        height: 1.45,
+                        color: palette.inkMuted,
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(
-              context,
-              FinishedChapterChoice(remove: true, rememberChoice: remember),
-            ),
-            child: const Text('Remove offline files'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(
-              context,
-              FinishedChapterChoice(remove: false, rememberChoice: remember),
-            ),
-            child: const Text('Keep offline'),
-          ),
-        ],
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// One removal confirmation for every scope: a single chapter, a selection,
@@ -145,90 +232,90 @@ Future<bool> showRemovalConfirm({
 }) async {
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
-      icon: const Icon(Icons.delete_sweep, size: 26, color: Color(0xFF5F5B54)),
-      title: Text(summary.title),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            summary.body,
-            style: const TextStyle(
-              fontSize: 13,
-              height: 1.55,
-              color: Color(0xFF5F5B54),
+    builder: (context) {
+      final palette = AppPalette.of(context);
+      return AlertDialog(
+        icon: Icon(Icons.delete_sweep, size: 26, color: palette.inkMuted),
+        title: Text(summary.title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              summary.body,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.55,
+                color: palette.inkMuted,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF5F3EF),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE7E3DC)),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+              decoration: BoxDecoration(
+                color: palette.surfaceMuted,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: palette.border),
+              ),
+              child: Column(
+                children: [
+                  for (final (k, v) in summary.facts)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            k,
+                            style: monoStyle(
+                              size: 11.5,
+                              color: palette.inkMuted,
+                            ),
+                          ),
+                          Text(
+                            v,
+                            style: monoStyle(size: 11.5, color: palette.ink),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ),
-            child: Column(
-              children: [
-                for (final (k, v) in summary.facts)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          k,
-                          style: monoStyle(
-                            size: 11.5,
-                            color: const Color(0xFF4A463F),
-                          ),
-                        ),
-                        Text(
-                          v,
-                          style: monoStyle(
-                            size: 11.5,
-                            color: const Color(0xFF4A463F),
-                          ),
-                        ),
-                      ],
+            if (summary.lockNote != null) ...[
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.lock, size: 15, color: palette.warn),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      summary.lockNote!,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        height: 1.45,
+                        color: palette.warn,
+                      ),
                     ),
                   ),
-              ],
-            ),
-          ),
-          if (summary.lockNote != null) ...[
-            const SizedBox(height: 10),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.lock, size: 15, color: Color(0xFF8A5A1F)),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    summary.lockNote!,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      height: 1.45,
-                      color: Color(0xFF8A5A1F),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(summary.cta),
+          ),
         ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: Text(summary.cta),
-        ),
-      ],
-    ),
+      );
+    },
   );
   return confirmed ?? false;
 }
@@ -242,22 +329,29 @@ void showCleanupToast(
 }) {
   final messenger = ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return;
+  final palette = AppPalette.of(context);
   messenger.clearSnackBars();
   messenger.showSnackBar(
     SnackBar(
       duration: const Duration(milliseconds: 4200),
-      backgroundColor: const Color(0xFF201F1C),
+      // `SnackBar.persist` defaults to `action != null`, which means a snack
+      // bar with an Undo NEVER times out — [duration] is ignored and it sits
+      // there until something dismisses it. Only a screen reader has a real
+      // claim on that behaviour (reaching the action takes longer), so that is
+      // the only case where it is kept.
+      persist: MediaQuery.maybeOf(context)?.accessibleNavigation ?? false,
+      backgroundColor: palette.toastSurface,
       content: Row(
         children: [
-          Icon(icon, size: 19, color: const Color(0xFF9FC3CE)),
+          Icon(icon, size: 19, color: palette.toastAccent),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12.5,
                 height: 1.4,
-                color: Color(0xFFF2EFE9),
+                color: palette.toastInk,
               ),
             ),
           ),
@@ -267,7 +361,7 @@ void showCleanupToast(
           ? null
           : SnackBarAction(
               label: 'Undo',
-              textColor: const Color(0xFF9FC3CE),
+              textColor: palette.toastAccent,
               onPressed: () async {
                 await undo();
                 if (context.mounted) {
@@ -283,172 +377,142 @@ void showCleanupToast(
   );
 }
 
-/// Settings › Storage › "After finishing a chapter": the three-option sheet.
-Future<void> showAfterFinishedSheet(BuildContext context, WidgetRef ref) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    builder: (sheetContext) => Consumer(
-      builder: (context, ref, _) {
-        final current =
-            ref.watch(afterFinishedPrefProvider).value ?? AfterFinishedPref.ask;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('After finishing a chapter', style: serifStyle(size: 20)),
-                const SizedBox(height: 5),
-                const Text(
-                  'Applies when you continue from a finished chapter to the '
-                  'next one. Changing this never removes anything you '
-                  'already have.',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    height: 1.5,
-                    color: Color(0xFF5F5B54),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                for (final option in const [
-                  (
-                    AfterFinishedPref.ask,
-                    'Ask each time',
-                    'When you finish a chapter and continue, the app asks. '
-                        'Keeping the files is always the highlighted answer.',
-                  ),
-                  (
-                    AfterFinishedPref.keep,
-                    'Keep offline',
-                    'Never ask. Finished chapters stay on the device until '
-                        'you remove them.',
-                  ),
-                  (
-                    AfterFinishedPref.remove,
-                    'Remove automatically',
-                    'After you continue past a finished chapter, its files '
-                        'are removed. Read marks and history are kept. Never '
-                        'touches the open chapter or anything mid-capture.',
-                  ),
-                ]) ...[
-                  _PrefOption(
-                    label: option.$2,
-                    sub: option.$3,
-                    selected: current == option.$1,
-                    onTap: () => setAfterFinishedPref(ref, option.$1),
-                  ),
-                  const SizedBox(height: 7),
-                ],
-                const SizedBox(height: 3),
-                Text(
-                  current == AfterFinishedPref.remove
-                      ? 'Applies to chapters you finish from now on. '
-                            'Already-downloaded chapters are not touched — use '
-                            'Storage › Remove finished offline chapters for '
-                            'those.'
-                      : 'You can change this any time.',
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    height: 1.5,
-                    color: Color(0xFF8C877E),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(sheetContext),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: const Text('Done'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    ),
-  );
-}
+/// Series detail › "Downloaded chapters": change or reset this series'
+/// decision (D37).
+///
+/// Three options, because a decision that cannot be un-made is a trap: the two
+/// outcomes, plus *Ask again next time*, which clears the stored value so the
+/// question comes back on the next eligible transition. There is no "use the
+/// global setting" — no global setting exists.
+///
+/// Each tap writes immediately and only ever to [seriesId], captured when the
+/// sheet was opened.
+Future<void> showSeriesCleanupSheet({
+  required BuildContext context,
+  required WidgetRef ref,
+  required String seriesId,
+  required String seriesName,
+  required SeriesCleanupPref? current,
+}) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  builder: (sheetContext) => _SeriesCleanupSheet(
+    seriesId: seriesId,
+    seriesName: seriesName,
+    initial: current,
+  ),
+);
 
-class _PrefOption extends StatelessWidget {
-  const _PrefOption({
-    required this.label,
-    required this.sub,
-    required this.selected,
-    required this.onTap,
+class _SeriesCleanupSheet extends ConsumerStatefulWidget {
+  const _SeriesCleanupSheet({
+    required this.seriesId,
+    required this.seriesName,
+    required this.initial,
   });
 
-  final String label;
-  final String sub;
-  final bool selected;
-  final VoidCallback onTap;
+  final String seriesId;
+  final String seriesName;
+  final SeriesCleanupPref? initial;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: selected ? const Color(0xFFEAF1F4) : const Color(0xFFF5F3EF),
-    borderRadius: BorderRadius.circular(14),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? const Color(0xFFD2E2E8) : const Color(0xFFE7E3DC),
-          ),
-        ),
-        child: Row(
+  ConsumerState<_SeriesCleanupSheet> createState() =>
+      _SeriesCleanupSheetState();
+}
+
+class _SeriesCleanupSheetState extends ConsumerState<_SeriesCleanupSheet> {
+  late SeriesCleanupPref? _value = widget.initial;
+
+  Future<void> _select(SeriesCleanupPref? pref) async {
+    setState(() => _value = pref);
+    // Writes a rule, never a command: nothing already downloaded moves because
+    // of this tap.
+    await ref
+        .read(databaseProvider)
+        .setSeriesFinishedCleanup(widget.seriesId, pref?.name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              selected
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_unchecked,
-              size: 20,
-              color: selected
-                  ? const Color(0xFF35606F)
-                  : const Color(0xFF5F5B54),
+            Text(
+              'Downloaded chapters',
+              style: serifStyle(size: 20, color: palette.ink),
             ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontVariations: wght(500),
-                      fontWeight: FontWeight.w500,
-                    ),
+            const SizedBox(height: 5),
+            Text(
+              'What happens to a finished chapter\'s downloaded files in '
+              '${widget.seriesName} when you continue to the next chapter. '
+              'Changing this never removes anything you already have.',
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.5,
+                color: palette.inkMuted,
+              ),
+            ),
+            const SizedBox(height: 14),
+            for (final option in const [
+              ..._cleanupOptions,
+              (
+                null,
+                'Ask again next time',
+                'Clears this choice. The next time you finish a chapter here '
+                    'and continue, the question comes back.',
+              ),
+            ]) ...[
+              CleanupPrefOption(
+                optionKey: 'seriesCleanupPref-${option.$1?.name ?? 'ask'}',
+                label: option.$2,
+                sub: option.$3,
+                selected: _value == option.$1,
+                onTap: () => _select(option.$1),
+              ),
+              const SizedBox(height: 7),
+            ],
+            const SizedBox(height: 3),
+            Text(
+              'This applies to this series only. Other series keep their own '
+              'choice.',
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.5,
+                color: palette.inkFaint,
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(context),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    sub,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      height: 1.45,
-                      color: Color(0xFF5F5B54),
-                    ),
-                  ),
-                ],
+                ),
+                child: const Text('Done'),
               ),
             ),
           ],
         ),
       ),
-    ),
-  );
+    );
+  }
 }
+
+/// The one-line summary of a series' decision, for the menu row that opens
+/// [showSeriesCleanupSheet].
+String seriesCleanupSummary(SeriesCleanupPref? pref) => switch (pref) {
+  SeriesCleanupPref.remove => 'Remove after continuing',
+  SeriesCleanupPref.keep => 'Keep downloaded files',
+  null => 'Not set · asked when you finish a chapter',
+};
 
 /// The design's leave-Browser modal. Returns true when the user chose
 /// "Leave and pause".
@@ -458,52 +522,58 @@ Future<bool> showLeaveBrowserDialog({
 }) async {
   final leave = await showDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
-      icon: const Icon(Icons.public, size: 26, color: Color(0xFF35606F)),
-      title: const Text('Leave the Browser?'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Capture needs the Browser to stay open. Leaving now pauses it — '
-            'nothing captured so far is lost, and it resumes when you come '
-            'back.',
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.55,
-              color: Color(0xFF5F5B54),
-            ),
-          ),
-          if (progressLine.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF5F3EF),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE7E3DC)),
-              ),
-              child: Text(
-                progressLine,
-                style: monoStyle(size: 11.5, color: const Color(0xFF4A463F)),
+    builder: (context) {
+      final palette = AppPalette.of(context);
+      return AlertDialog(
+        icon: Icon(Icons.public, size: 26, color: palette.primary),
+        title: const Text('Leave the Browser?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Capture needs the Browser to stay open. Leaving now pauses it — '
+              'nothing captured so far is lost, and it resumes when you come '
+              'back.',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.55,
+                color: palette.inkMuted,
               ),
             ),
+            if (progressLine.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: palette.surfaceMuted,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: palette.border),
+                ),
+                child: Text(
+                  progressLine,
+                  style: monoStyle(size: 11.5, color: palette.inkMuted),
+                ),
+              ),
+            ],
           ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Leave and pause'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Stay in Browser'),
+          ),
         ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Leave and pause'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Stay in Browser'),
-        ),
-      ],
-    ),
+      );
+    },
   );
   return leave ?? false;
 }

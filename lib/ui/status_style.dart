@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../reading/reading_position.dart';
 import '../storage/database.dart';
+import 'palette.dart';
 import 'theme.dart';
 
 /// The two status vocabularies the design keeps strictly apart.
@@ -14,6 +15,11 @@ import 'theme.dart';
 /// Read state owns the checkmark and nothing else does. Mixing them is the
 /// single worst thing this UI could do, so they live in one file where the
 /// separation is visible.
+///
+/// Everything here reads from an [AppPalette]. These are the pieces every
+/// screen draws — a chip, a glyph, a section label, a monogram — so a literal
+/// colour in this file becomes a literal colour on every page at once, which
+/// is a large part of how the dark appearance broke (D62).
 
 // ─── capture state ──────────────────────────────────────────────────────────
 
@@ -28,19 +34,18 @@ class CaptureLook {
   final bool dimTitle;
 }
 
-const _primary = Color(0xFF35606F);
-const _warn = Color(0xFF8A5A1F);
-const _error = Color(0xFF8E3B31);
-const _muted = Color(0xFFB3ADA3);
-
 /// Presentation for a chapter's capture state. [filesMissing] is decided by
 /// the caller (the manifest is on disk but its images are not), because the
 /// database has no such status — the files simply stopped existing.
-CaptureLook captureLook(Chapter chapter, {bool filesMissing = false}) {
+CaptureLook captureLook(
+  Chapter chapter,
+  AppPalette palette, {
+  bool filesMissing = false,
+}) {
   if (filesMissing) {
-    return const CaptureLook(
+    return CaptureLook(
       Icons.folder_off,
-      _error,
+      palette.danger,
       'Files missing',
       dimTitle: true,
     );
@@ -48,18 +53,22 @@ CaptureLook captureLook(Chapter chapter, {bool filesMissing = false}) {
   // A chapter whose files the USER removed is not an error and not a
   // discovery — it is a known chapter that simply is not downloaded.
   if (chapter.contentPath == null && chapter.offlineRemovedAt != null) {
-    return const CaptureLook(Icons.cloud, _muted, 'Not downloaded');
+    return CaptureLook(Icons.cloud, palette.inkFaint, 'Not downloaded');
   }
   return switch (chapter.captureStatus) {
-    'knownRemote' => const CaptureLook(Icons.cloud, _muted, 'On source only'),
-    'complete' => const CaptureLook(
+    'knownRemote' => CaptureLook(
+      Icons.cloud,
+      palette.inkFaint,
+      'On source only',
+    ),
+    'complete' => CaptureLook(
       Icons.download_for_offline,
-      _primary,
+      palette.primary,
       'Saved offline',
     ),
-    'partial' => const CaptureLook(Icons.arrow_circle_down, _warn, 'Partial'),
-    'capturing' => const CaptureLook(Icons.downloading, _primary, 'Capturing'),
-    _ => const CaptureLook(Icons.error, _error, 'Failed', dimTitle: true),
+    'partial' => CaptureLook(Icons.arrow_circle_down, palette.warn, 'Partial'),
+    'capturing' => CaptureLook(Icons.downloading, palette.primary, 'Capturing'),
+    _ => CaptureLook(Icons.error, palette.danger, 'Failed', dimTitle: true),
   };
 }
 
@@ -110,41 +119,42 @@ class StorageLook {
   final String label;
 }
 
-StorageLook storageLook(StorageLevel level) => switch (level) {
-  StorageLevel.critical => const StorageLook(
-    ink: Color(0xFF8E3B31),
-    track: Color(0xFFEBC4BC),
-    fill: Color(0xFFB4483A),
-    bg: Color(0xFFF7DDD8),
-    border: Color(0xFFEBC4BC),
-    label: 'Almost full',
-  ),
-  StorageLevel.warning => const StorageLook(
-    ink: Color(0xFF8A5A1F),
-    track: Color(0xFFE8D5B2),
-    fill: Color(0xFFC08A3E),
-    bg: Color(0xFFF8EEDA),
-    border: Color(0xFFE8D5B2),
-    label: 'Filling up',
-  ),
-  // Quiet by belonging: the same ink as every other header glyph.
-  StorageLevel.normal => const StorageLook(
-    ink: kHeaderIconColor,
-    track: Color(0xFFE7E3DC),
-    fill: Color(0xFF35606F),
-    bg: Color(0xFFF3F1ED),
-    border: Color(0xFFE7E3DC),
-    label: 'Healthy',
-  ),
-  StorageLevel.unknown => const StorageLook(
-    ink: kHeaderIconColor,
-    track: Color(0xFFE7E3DC),
-    fill: Color(0xFFC4BFB5),
-    bg: Color(0xFFF3F1ED),
-    border: Color(0xFFE7E3DC),
-    label: 'Unavailable',
-  ),
-};
+StorageLook storageLook(StorageLevel level, AppPalette palette) =>
+    switch (level) {
+      StorageLevel.critical => StorageLook(
+        ink: palette.onDangerContainer,
+        track: palette.dangerBorder,
+        fill: palette.danger,
+        bg: palette.dangerContainer,
+        border: palette.dangerBorder,
+        label: 'Almost full',
+      ),
+      StorageLevel.warning => StorageLook(
+        ink: palette.onWarnContainer,
+        track: palette.warnBorder,
+        fill: palette.warn,
+        bg: palette.warnContainer,
+        border: palette.warnBorder,
+        label: 'Filling up',
+      ),
+      // Quiet by belonging: the same ink as every other header glyph.
+      StorageLevel.normal => StorageLook(
+        ink: palette.inkMuted,
+        track: palette.border,
+        fill: palette.primary,
+        bg: palette.surfaceHigh,
+        border: palette.border,
+        label: 'Healthy',
+      ),
+      StorageLevel.unknown => StorageLook(
+        ink: palette.inkMuted,
+        track: palette.border,
+        fill: palette.inkDisabled,
+        bg: palette.surfaceHigh,
+        border: palette.border,
+        label: 'Unavailable',
+      ),
+    };
 
 // ─── screen header ──────────────────────────────────────────────────────────
 
@@ -158,7 +168,10 @@ StorageLook storageLook(StorageLevel level) => switch (level) {
 /// row must be [kHeaderActionSize] tall and use [kHeaderIconSize].
 const double kHeaderActionSize = 40;
 const double kHeaderIconSize = 22;
-const Color kHeaderIconColor = Color(0xFF5F5B54);
+
+/// The one ink every header glyph wears. A function rather than a constant:
+/// it has to answer differently in the two appearances.
+Color headerIconColor(AppPalette palette) => palette.inkMuted;
 
 /// A header action. Deliberately tighter than a stock [IconButton] (48pt):
 /// four actions plus a 28pt serif title do not fit across a 320pt screen at
@@ -185,7 +198,11 @@ class HeaderIconButton extends StatelessWidget {
         child: InkWell(
           onTap: onPressed,
           customBorder: const CircleBorder(),
-          child: Icon(icon, size: kHeaderIconSize, color: kHeaderIconColor),
+          child: Icon(
+            icon,
+            size: kHeaderIconSize,
+            color: headerIconColor(AppPalette.of(context)),
+          ),
         ),
       ),
     ),
@@ -222,6 +239,7 @@ class ChapterProgressRing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final value = completed ? 1.0 : fraction.clamp(0.0, 1.0);
     final percent = (value * 100).round();
     return Semantics(
@@ -237,21 +255,19 @@ class ChapterProgressRing extends StatelessWidget {
           painter: _ProgressRingPainter(
             fraction: value,
             completed: completed,
-            track: _ringTrack,
-            fill: _ringFill,
+            // The unfilled part. Present at 0% so an unread chapter reads as
+            // "nothing yet", not as "no indicator".
+            track: palette.borderStrong,
+            // The filled wedge: body ink, so a finished chapter is the
+            // strongest mark on its row without borrowing a colour that
+            // already means something else.
+            fill: palette.ink,
           ),
         ),
       ),
     );
   }
 }
-
-/// The unfilled part of the ring: present at 0% so an unread chapter reads as
-/// "nothing yet", not as "no indicator".
-const Color _ringTrack = Color(0xFFD7D2C9);
-
-/// The filled wedge. Near-black, per the design.
-const Color _ringFill = Color(0xFF1B1A18);
 
 class _ProgressRingPainter extends CustomPainter {
   const _ProgressRingPainter({
@@ -319,6 +335,7 @@ class ReadGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final status = readStatusFromName(chapter.readStatus);
     final pct =
         (readProgressFor(
@@ -334,14 +351,7 @@ class ReadGlyph extends StatelessWidget {
         if (status == ReadStatus.inProgress)
           Padding(
             padding: const EdgeInsets.only(right: 6),
-            child: Text(
-              '$pct%',
-              style: const TextStyle(
-                fontFamily: 'IBM Plex Mono',
-                fontSize: 11,
-                color: Color(0xFF5F5B54),
-              ),
-            ),
+            child: Text('$pct%', style: monoStyle(color: palette.inkMuted)),
           ),
         // One component for all three states: the ring IS the state, so an
         // unread chapter cannot render as finished by picking a wrong icon.
@@ -372,51 +382,44 @@ class CheckLook {
   final Color border;
 }
 
-const _pc = Color(0xFFEAF1F4);
-const _pcb = Color(0xFFD2E2E8);
-const _onPc = Color(0xFF133845);
-const _neutralBg = Color(0xFFF3F1ED);
-const _neutralBd = Color(0xFFE4E0D8);
-const _osv = Color(0xFF5F5B54);
-
 CheckLook checkLook({
+  required AppPalette palette,
   required bool checking,
   required bool failed,
   required DateTime? checkedAt,
   required int newCount,
   required String checkedLabel,
 }) {
-  if (checking) {
-    return const CheckLook(Icons.sync, 'Checking', _pc, _onPc, _pcb);
-  }
+  CheckLook accent(IconData icon, String label) => CheckLook(
+    icon,
+    label,
+    palette.primaryContainer,
+    palette.onPrimaryContainer,
+    palette.primaryBorder,
+  );
+  CheckLook neutral(IconData icon, String label) => CheckLook(
+    icon,
+    label,
+    palette.surfaceHigh,
+    palette.inkMuted,
+    palette.border,
+  );
+
+  if (checking) return accent(Icons.sync, 'Checking');
   if (failed) {
-    return const CheckLook(
+    return CheckLook(
       Icons.sync_problem,
       'Check failed',
-      Color(0xFFF7DDD8),
-      Color(0xFF4A140E),
-      Color(0xFFEBC4BC),
+      palette.dangerContainer,
+      palette.onDangerContainer,
+      palette.dangerBorder,
     );
   }
   if (checkedAt == null) {
-    return const CheckLook(
-      Icons.history_toggle_off,
-      'Not checked yet',
-      _neutralBg,
-      _osv,
-      _neutralBd,
-    );
+    return neutral(Icons.history_toggle_off, 'Not checked yet');
   }
-  if (newCount > 0) {
-    return CheckLook(Icons.cloud, '$newCount new', _pc, _onPc, _pcb);
-  }
-  return CheckLook(
-    Icons.update,
-    'Checked $checkedLabel',
-    _neutralBg,
-    _osv,
-    _neutralBd,
-  );
+  if (newCount > 0) return accent(Icons.cloud, '$newCount new');
+  return neutral(Icons.update, 'Checked $checkedLabel');
 }
 
 /// A small pill: icon + label, used for check state and for run phase.
@@ -484,7 +487,7 @@ class MonogramTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (bg, fg) = monogramFor(id);
+    final (bg, fg) = monogramFor(id, AppPalette.of(context));
     return Container(
       width: size,
       height: size,
@@ -528,12 +531,12 @@ class SectionLabel extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               letterSpacing: 0.84,
-              fontVariations: [FontVariation('wght', 600)],
+              fontVariations: wght(600),
               fontWeight: FontWeight.w600,
-              color: _osv,
+              color: AppPalette.of(context).inkMuted,
             ),
           ),
         ),
@@ -543,10 +546,18 @@ class SectionLabel extends StatelessWidget {
   );
 }
 
-/// Monospace metadata line.
+// ─── shared text styles ─────────────────────────────────────────────────────
+//
+// Both take a **nullable** colour, and null means "inherit". That resolves to
+// the ambient `DefaultTextStyle` — the theme's `onSurface` — so a caller that
+// does not care about tone can no longer pin one appearance's ink by
+// accident, which is what the old light-only defaults did on every screen.
+
+/// Monospace metadata line. Pass [color] for anything quieter than body ink;
+/// `monoStyle()` on its own inherits.
 TextStyle monoStyle({
   double size = 11,
-  Color color = const Color(0xFF7A756C),
+  Color? color,
   FontWeight weight = FontWeight.w400,
 }) => TextStyle(
   fontFamily: 'IBM Plex Mono',
@@ -556,10 +567,7 @@ TextStyle monoStyle({
 );
 
 /// Serif display/title style.
-TextStyle serifStyle({
-  double size = 28,
-  Color color = const Color(0xFF1B1A18),
-}) => TextStyle(
+TextStyle serifStyle({double size = 28, Color? color}) => TextStyle(
   fontFamily: 'Newsreader',
   fontSize: size,
   height: 1.18,

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../capture/capture_preflight.dart';
+import '../core/config.dart';
+import '../ui/palette.dart';
+import 'capture_range_sheet.dart';
 
 /// What the user chose when told a chapter already exists.
 enum PreflightChoice {
@@ -23,6 +26,72 @@ class PreflightDecision {
   final PreflightChoice choice;
   final DuplicatePolicy? policy;
   final int? chapterLimit;
+}
+
+/// A resolved request: what to capture, under what policy, and — unchanged
+/// from the sheet the user came from — **how it should be launched**.
+class CaptureLaunchPlan {
+  const CaptureLaunchPlan({
+    required this.action,
+    required this.chapterLimit,
+    required this.policy,
+    required this.range,
+  });
+
+  /// The launch the user chose before the preflight interrupted. Carried, not
+  /// re-asked: a duplicate is a question about *this chapter*, not about
+  /// whether the user still wants it now (D58).
+  final CaptureSheetAction action;
+
+  final int chapterLimit;
+  final DuplicatePolicy policy;
+  final CaptureRangeMode range;
+}
+
+/// Turn a preflight answer into the request to launch, or null when the
+/// answer was not a capture at all (open the saved chapter, remove the record,
+/// resume the existing job, cancel).
+///
+/// Pure on purpose: "Start Capture that became Re-download still starts" is
+/// the kind of rule that quietly stops being true inside a 90-line switch.
+CaptureLaunchPlan? planAfterPreflight({
+  required CaptureSheetAction action,
+  required PreflightChoice choice,
+  required int requestedLimit,
+  required CaptureRangeMode requestedRange,
+  DuplicatePolicy? policy,
+}) {
+  switch (choice) {
+    case PreflightChoice.openExisting:
+    case PreflightChoice.removeRecord:
+    case PreflightChoice.resumeJob:
+    case PreflightChoice.cancel:
+      return null;
+
+    case PreflightChoice.captureFollowing:
+    case PreflightChoice.captureNow:
+    case PreflightChoice.discardJobAndRestart:
+      return CaptureLaunchPlan(
+        action: action,
+        chapterLimit: requestedLimit,
+        policy: policy ?? DuplicatePolicy.skipComplete,
+        range: requestedRange,
+      );
+
+    case PreflightChoice.redownload:
+    case PreflightChoice.retryMissing:
+    case PreflightChoice.restartCapture:
+    case PreflightChoice.repair:
+      // A repair of *this* chapter is one chapter, even when the sheet was
+      // opened from a larger request: the user asked for this chapter, not a
+      // run starting at it.
+      return CaptureLaunchPlan(
+        action: action,
+        chapterLimit: 1,
+        policy: policy ?? DuplicatePolicy.skipComplete,
+        range: CaptureRangeMode.currentChapter,
+      );
+  }
 }
 
 /// Explains what already exists and asks what to do about it.
@@ -109,7 +178,10 @@ class _PreflightBody extends StatelessWidget {
             '${preflight.chapter!.chapterLabel ?? preflight.chapter!.title}  ·  '
             '${preflight.chapter!.storedImageCount}/'
             '${preflight.chapter!.detectedImageCount} images',
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+            style: TextStyle(
+              fontSize: 11,
+              color: AppPalette.of(context).inkFaint,
+            ),
           ),
         ],
 
@@ -136,7 +208,7 @@ class _PreflightBody extends StatelessWidget {
                       'reached.',
                       style: TextStyle(
                         fontSize: 11,
-                        color: Colors.grey.shade700,
+                        color: AppPalette.of(context).inkFaint,
                       ),
                     ),
                   ),
@@ -389,7 +461,7 @@ class _Action extends StatelessWidget {
                           detail!,
                           style: TextStyle(
                             fontSize: 11,
-                            color: Colors.grey.shade700,
+                            color: AppPalette.of(context).inkFaint,
                           ),
                         ),
                     ],

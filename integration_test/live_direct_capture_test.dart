@@ -123,7 +123,8 @@ void main() {
       activePageKey: job.activePageKey,
       activeState: job.progress.state,
       needsRenderedBrowser: job.needsRenderedBrowser,
-      awaitingUser: job.pendingSelection != null || job.pendingDuplicate != null,
+      awaitingUser:
+          job.pendingSelection != null || job.pendingDuplicate != null,
       pausedForBrowser: job.pauseReason == kPauseBrowserHidden,
       checkerRunning: false,
       lastRun: job.lastRun,

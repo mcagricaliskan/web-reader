@@ -800,6 +800,10 @@ void _continueReadingTests() {
     await tester.pump(const Duration(milliseconds: 10));
   }
 
+  /// The card's progress line is a `Text.rich`, so it is found by its plain
+  /// text rather than by a `Text.data`.
+  Finder progressLine(String text) => find.text(text, findRichText: true);
+
   testWidgets('a partly read chapter puts the series in Continue Reading', (
     tester,
   ) async {
@@ -810,8 +814,88 @@ void _continueReadingTests() {
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.text('CONTINUE READING'));
 
-    expect(find.text('45%'), findsOneWidget);
+    // Percentage and what is left after this chapter — never a total, and
+    // never a bar.
+    expect(progressLine('45% • 2 chapters remaining'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
     expect(find.text('Chapter 1'), findsOneWidget);
+
+    final ring = tester.widget<ChapterProgressRing>(
+      find.byKey(const ValueKey('continueRing-s1-c1')),
+    );
+    expect(ring.fraction, closeTo(0.45, 0.001));
+    expect(ring.completed, isFalse);
+    await settleDown(tester);
+  });
+
+  testWidgets('the last readable chapter says so instead of "0 remaining"', (
+    tester,
+  ) async {
+    await seed(chapters: 2);
+    await reading.markRead('s1-c1');
+    await reading.saveProgress('s1-c2', const ReadingPosition(fraction: 0.68));
+
+    usePhoneSurface(tester);
+    await tester.pumpWidget(harness());
+    await pumpUntil(tester, find.text('CONTINUE READING'));
+
+    expect(progressLine('68% • Latest available chapter'), findsOneWidget);
+    await settleDown(tester);
+  });
+
+  testWidgets('one later chapter is singular', (tester) async {
+    await seed(chapters: 2);
+    await reading.saveProgress('s1-c1', const ReadingPosition(fraction: 0.1));
+
+    usePhoneSurface(tester);
+    await tester.pumpWidget(harness());
+    await pumpUntil(tester, find.text('CONTINUE READING'));
+
+    expect(progressLine('10% • 1 chapter remaining'), findsOneWidget);
+    await settleDown(tester);
+  });
+
+  testWidgets('the remaining count ignores chapters that are not readable', (
+    tester,
+  ) async {
+    await seed(chapters: 3);
+    // Discovered by an update check but never captured, and one whose files
+    // were removed: neither is something the user can open next.
+    await db.upsertChapter(
+      Chapter(
+        id: 's1-c4',
+        libraryItemId: 's1',
+        title: 'Series s1 Chapter 4',
+        sourceUrl: 'https://x.example/manga/s1/4',
+        urlKey: 'https://x.example/manga/s1/4',
+        captureStatus: 'knownRemote',
+        detectedImageCount: 0,
+        storedImageCount: 0,
+        sequence: 4,
+        byteSize: 0,
+        chapterNumber: 4,
+        chapterLabel: 'Chapter 4',
+        readStatus: 'unread',
+        progressFraction: 0,
+        progressImageIndex: 0,
+        progressOffsetInImage: 0,
+      ),
+    );
+    await db.writeChapterReading(
+      's1-c3',
+      ChaptersCompanion(
+        contentPath: const Value(null),
+        byteSize: const Value(0),
+        offlineRemovedAt: Value(DateTime(2026, 7, 26)),
+      ),
+    );
+    await reading.saveProgress('s1-c1', const ReadingPosition(fraction: 0.2));
+
+    usePhoneSurface(tester);
+    await tester.pumpWidget(harness());
+    await pumpUntil(tester, find.text('CONTINUE READING'));
+
+    expect(progressLine('20% • 1 chapter remaining'), findsOneWidget);
     await settleDown(tester);
   });
 
@@ -821,8 +905,8 @@ void _continueReadingTests() {
 
     usePhoneSurface(tester);
     await tester.pumpWidget(harness());
-    await pumpUntil(tester, find.text('45%'));
-    await tester.tap(find.text('45%'));
+    await pumpUntil(tester, find.byKey(const ValueKey('continueCard-s1-c1')));
+    await tester.tap(find.byKey(const ValueKey('continueCard-s1-c1')));
     await pumpUntil(tester, find.textContaining('READER'));
 
     expect(find.text('READER s1-c1'), findsOneWidget);
@@ -949,9 +1033,9 @@ void _continueReadingTests() {
 
     // Same app instance, no rebuild triggered by hand.
     await reading.saveProgress('s1-c1', const ReadingPosition(fraction: 0.5));
-    await pumpUntil(tester, find.text('50%'));
+    await pumpUntil(tester, progressLine('50% • 2 chapters remaining'));
 
-    expect(find.text('50%'), findsOneWidget);
+    expect(progressLine('50% • 2 chapters remaining'), findsOneWidget);
     await settleDown(tester);
   });
 

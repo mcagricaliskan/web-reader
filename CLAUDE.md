@@ -60,8 +60,11 @@ flutter test integration_test/live_asura_smoke_test.dart -d <udid>  # asura, 2 c
 flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only, both sites
 flutter test integration_test/live_queue_start_test.dart -d <udid>  # queue-first flow
 flutter test integration_test/live_browser_test.dart     -d <udid>  # browser UX (M18)
+flutter test integration_test/live_direct_capture_test.dart -d <udid> # direct capture (M19)
 #   ^ manual navigation creates history · the same site captured creates
 #     none · Browser Home preserves the loaded page · saved-site seeding
+#   ^ Add to Queue starts nothing · Start Capture runs in the visible Browser ·
+#     the pending queue is untouched · the next page comes up clean (D58/D59)
 #   ^ two groups: one chapter page per site (extraction + next-detection),
 #     and one series index page per site (chapter-list ordering, D40).
 ```
@@ -72,12 +75,12 @@ flutter test integration_test/live_browser_test.dart     -d <udid>  # browser UX
 |---|---|---|
 | Series | Efsanevi Büyü İmparatoru | The Nebula's Civilization |
 | Example URL | `https://uzaymanga.com/manga/efsanevi-buyu-imparatoru/885-bolum-oku` | `https://asurascans.com/comics/the-nebulas-civilization-059befe1/chapter/137` |
-| Purpose | Real single-chapter capture · Referer-gated AVIF CDN · very tall panels (800×16000) · MIME/extension verification · next-chapter detection · aspect-ratio/manifest repair · adaptive scroll on a long lazy chapter · chapter-list ordering on the series index page · **manual navigation → history, capture over the same site → none (D53), Browser Home preserves the page (D52)** | Very long eager-rendered chapter (~146k px, ~31 panels) · fast traversal over loaded content · hidden-WebView pause protection · comment-avatar false-positive rejection · JPEG bytes under `.webp` URLs · next-chapter detection · bounded multi-chapter chain · large-chapter downloads (15–40 MB) · chapter-list ordering on the series index page · queue-first start flow (D46/D47) |
+| Purpose | Real single-chapter capture · Referer-gated AVIF CDN · very tall panels (800×16000) · MIME/extension verification · next-chapter detection · aspect-ratio/manifest repair · adaptive scroll on a long lazy chapter · chapter-list ordering on the series index page · **manual navigation → history, capture over the same site → none (D53), Browser Home preserves the page (D52)** · **direct start vs queue, and a clean capture state on the next chapter (D58/D59)** | Very long eager-rendered chapter (~146k px, ~31 panels) · fast traversal over loaded content · hidden-WebView pause protection · comment-avatar false-positive rejection · JPEG bytes under `.webp` URLs · next-chapter detection · bounded multi-chapter chain · large-chapter downloads (15–40 MB) · chapter-list ordering on the series index page · queue-first start flow (D46/D47) |
 | Download allowed | Yes — 1 chapter (~1.4 MB) | Yes — max 2 chapters (~30–80 MB) |
 | Max chapters | 1 | 2 |
 | Content type | Webtoon, AVIF strips, no HTML size attrs | Webtoon, WebP/JPEG strips via Astro/React island (panels absent from static HTML; hydrate eagerly) |
-| Test file | `integration_test/live_capture_test.dart` (+ probe) | `integration_test/live_asura_smoke_test.dart` (+ probe) |
-| Last verified | 2026-07-28 (browser UX: manual history, capture-leaves-no-history, Home preserves page — see report) · 2026-07-27 (capture+dims+extensions; series-page list read-only: 500 links, 483 chapters, `newestFirst`, confident) | 2026-07-27 (2-chapter smoke incl. pause/resume; series-page list read-only: 141 links, 103 chapters, `newestFirst`, confident) |
+| Test file | `integration_test/live_capture_test.dart` (+ probe, `live_browser_test.dart`, `live_direct_capture_test.dart`) | `integration_test/live_asura_smoke_test.dart` (+ probe) |
+| Last verified | 2026-07-28 (direct capture: Add-to-Queue starts nothing · Start Capture ran 1 chapter in the visible Browser · 2 queued rows untouched · next chapter came up clean, session=2, result cleared, second start began — PASSED) · 2026-07-28 (browser UX: manual history, capture-leaves-no-history, Home preserves page — see report) · 2026-07-27 (capture+dims+extensions; series-page list read-only: 500 links, 483 chapters, `newestFirst`, confident) | 2026-07-27 (2-chapter smoke incl. pause/resume; series-page list read-only: 141 links, 103 chapters, `newestFirst`, confident) |
 | Caveats | Series page carries *İlk Bölüm* / *En Son Bölüm* jump links above the list (D40); Turkish titles; site occasionally slow; CDN 503s single assets (partial-capture path) | Cloudflare-fronted; comment avatars sit pending forever; URL slugs contain content hashes and may rot; a hidden-but-once-painted WebView keeps live metrics on the Simulator (run continues — correct); the pause fires only on broken metrics |
 
 > **Coding-agent rule:** when a change affects an area covered by a matrix
@@ -183,9 +186,14 @@ flutter test integration_test/live_browser_test.dart     -d <udid>  # browser UX
 - **Leaving the Browser during a WebView-dependent capture phase pauses it**
   (D36) — never cancels, never continues blind. Downloading/saving phases do
   not trigger the confirmation.
-- **The after-finished cleanup preference defaults to Ask** (D37);
-  "Don't ask again" is the only thing that changes the persistent setting.
-  Changing the setting never removes anything retroactively.
+- **Finished-chapter cleanup is a per-series decision** (D37), stored on the
+  library item (`finished_cleanup`: `remove` | `keep` | null). Null asks once,
+  on that series' first eligible forward transition, with **Remove after
+  continuing** preselected — a constant, never inherited from another series
+  or any setting. Saving applies to that transition and is never asked again;
+  Series detail › Downloaded chapters changes it or resets it to *Ask again
+  next time*. There is **no global cleanup preference**. Changing a decision
+  never removes anything retroactively, and only downloaded files ever go.
 - **Browser Home is a layer, not a route** (D52). One `InAppWebView`, built in
   one place, mounted for the whole session; Home and the URL editor are drawn
   over it. Closing them reveals the same page — scroll, cookies, in-page state
@@ -221,6 +229,18 @@ flutter test integration_test/live_browser_test.dart     -d <udid>  # browser UX
 - **`AppPalette` is the one token layer** (D56) — a narrow amendment to D28,
   because a literal colour cannot be "the quiet surface" in both appearances.
   Dark values are *derived*, not designed: the design artifact is light-only.
+- **The palette is the *only* source of colour** (D62). No widget file may name
+  a `Color(0x…)` or any Material swatch except `Colors.transparent` and
+  `Colors.black`; `test/theme_palette_test.dart` scans `lib/` and fails if one
+  appears. The reader's fixed dark set lives in `ReaderColors`, in the same
+  file, for the one screen that is outside the appearance preference. Both
+  ramps are tuned against **measured** contrast — WCAG 2.x as the floor, APCA
+  Lc for the judgement, since WCAG 2 overstates contrast near black — and the
+  same test pins them: four text levels ≥ 4.5:1 on *every* surface, body ink
+  inside 7–15:1 at both ends, cards separated but under 1.9:1, borders
+  perceptible, and accents that stay distinct from the neutral inks in L\*
+  after a simulated device warm filter. Never add a colour by editing a
+  screen; add or reuse a role.
 - **"Open in Browser" goes through one coordinator** (D60): `openInBrowser`.
   Validate → confirm with a running capture → store the request → **pop back
   to the shell** → select the Browser tab → drain when mounted and attached.
@@ -228,6 +248,31 @@ flutter test integration_test/live_browser_test.dart     -d <udid>  # browser UX
   from a route pushed *above* the shell, so switching the tab underneath one
   changes nothing the user can see. Never `go('/')` — that rebuilds the shell
   and the WebView with it.
+- **The reader's cleanup notice is screen state, not a snack bar** (D61).
+  `_TransientNotice` lives inside the reader: *Previous chapter removed
+  offline*, a trash glyph, **Undo** while the undo window is open, its timeout
+  drawn as an emptying hairline, five seconds and gone. No byte count — that
+  belongs on Settings › Storage. One nullable field holds it, keyed so a second
+  removal restarts the countdown; it is dropped on chapter change, on **every**
+  lifecycle transition (the resume included), on close, and with the screen, and
+  nothing about it is persisted. `ScaffoldMessenger` is deliberately not used
+  here: its queue outlives the route, its animation resumes with the app, and
+  `SnackBar.persist` defaults to `action != null` — which is what made a
+  transient notice permanent. `showCleanupToast` keeps the snack bar for the
+  list screens and now persists only for a screen reader.
+- **The app mark is generated, never hand-edited** (D63). One CoreGraphics
+  script — `tool/brand/generate_brand_assets.swift`, run with `swift` from the
+  repo root — emits every iOS icon slot, both Android icon layers, both launch
+  images and `assets/brand/app_mark.png`. Its colours are `AppPalette`'s, so a
+  palette change means re-running it. Editing a PNG is always the wrong fix.
+- **Startup is a screen, and it tells the truth** (D63). The work between
+  launch and a usable library runs as named `StartupStep`s inside the tree,
+  under the splash, not before `runApp`. Only "Opening your library" is
+  `critical`; every later step logs a warning and lets the user in, because a
+  failing backfill must never be why someone cannot read. Adding boot work
+  means adding a step with a user-facing label — never a silent `await` in
+  `main()`. The splash follows the *system* appearance (it continues the
+  native launch window); the persisted preference applies once the app is up.
 - **drift trap:** `insertOnConflictUpdate` treats a null field on a data
   class as *absent*, so nullable columns survive an upsert. Anything that
   must be cleared needs its own narrow writer (`clearOfflineRemovedMark`,

@@ -123,6 +123,11 @@ BrowserCaptureState resolveBrowserCaptureState({
   /// True while an update check owns the WebView.
   required bool checkerRunning,
 
+  /// Whether the user is what put this page on screen. False when automation
+  /// navigated here — in which case the run that navigated here owns the page,
+  /// whatever the two keys say about each other mid-hop.
+  bool pageEnteredManually = true,
+
   /// The last finished run, whatever page it belonged to.
   required CaptureRunRecord? lastRun,
 
@@ -133,7 +138,13 @@ BrowserCaptureState resolveBrowserCaptureState({
   required bool pageIsQueued,
 }) {
   if (hasActiveRun) {
-    final isThisPage = activePageKey.isNotEmpty && activePageKey == pageKey;
+    // Three ways this page can be the run's page, and all three are needed:
+    // the keys agree; the run is *between* pages, where they are supposed to
+    // disagree; or automation put this page here, which only the run does.
+    final isThisPage =
+        (activePageKey.isNotEmpty && activePageKey == pageKey) ||
+        activeState == CaptureState.navigating ||
+        !pageEnteredManually;
     if (isThisPage) {
       if (awaitingUser) {
         return const BrowserCaptureState(

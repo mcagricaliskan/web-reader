@@ -266,12 +266,21 @@ class _UndoEntry {
   final int bytes;
 }
 
-/// The persisted "after finishing a chapter" preference (design: cleanup
-/// preference sheet). Stored in the settings KV table — no schema change.
-enum AfterFinishedPref { ask, keep, remove }
+/// What a series does with a finished chapter's downloaded files when the
+/// reader moves forward (D37).
+///
+/// Persisted on the library item itself — `library_items.finished_cleanup` —
+/// because the decision belongs to the series being read. There is no global
+/// default: a series that has not been asked stores null, and null is a
+/// question, not a value.
+enum SeriesCleanupPref { remove, keep }
 
-const kAfterFinishedPrefKey = 'storage.afterFinished';
-
-AfterFinishedPref afterFinishedFromName(String? name) => AfterFinishedPref
-    .values
-    .firstWhere((v) => v.name == name, orElse: () => AfterFinishedPref.ask);
+/// Parses a stored value. Null, empty and anything unrecognised all read as
+/// "not decided yet", so the user is asked instead of a wrong guess being
+/// applied to their files.
+SeriesCleanupPref? seriesCleanupFromName(String? name) {
+  for (final value in SeriesCleanupPref.values) {
+    if (value.name == name) return value;
+  }
+  return null;
+}

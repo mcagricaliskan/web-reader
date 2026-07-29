@@ -653,7 +653,7 @@ class _EditSavedSiteState extends ConsumerState<_EditSavedSite> {
     return InputDecoration(
       isDense: true,
       filled: true,
-      fillColor: palette.isDark ? palette.surfaceInset : Colors.white,
+      fillColor: palette.surfaceInset,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
       border: border(borderColor ?? palette.borderStrong),
       enabledBorder: border(borderColor ?? palette.borderStrong),

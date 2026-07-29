@@ -815,7 +815,11 @@ Implements the verified audit recommendations (see D30–D34):
 - **Finished-chapter flow** — `_finishedChapterLeavingFor` applies every
   guard (completed · forward · different chapter · files present · target
   openable) *before* navigating; cleanup runs *after* the next chapter is
-  loading and the reader lock has moved (D37).
+  loading and the reader lock has moved (D37). The decision itself is
+  **per series** (`library_items.finished_cleanup`, schema v12): null asks
+  once, with *Remove after continuing* preselected; `remove`/`keep` apply
+  silently. Changed or reset from Series detail › Downloaded chapters. No
+  app-wide preference exists.
 - **Storage screen** — real totals derived from the same library stream the
   shelf uses (chapter `byteSize`, no file-tree walk per rebuild); free space
   and temp-file size as one `FutureProvider` per visit. Per-series rows with
@@ -961,6 +965,69 @@ ordinary queue work.
 Unfinished-capture card and the preflight's *Resume existing capture* both go
 through `TaskQueueController.resumeInterruptedCapture`, which applies the same
 ownership and visibility checks and records the outcome.
+
+**Live verification (2026-07-28, uzaymanga, PASSED).**
+`integration_test/live_direct_capture_test.dart`, one chapter downloaded:
+
+```
+[LIVE][uzaymanga] queued-only: control=queued pending=3 running=false
+[LIVE][uzaymanga] direct start: origin=direct state=inspecting pendingUntouched=2
+[LIVE][uzaymanga] direct run finished=true state=complete stored=1
+[LIVE][uzaymanga] activity: direct row state=completed outcome=1 captured
+[LIVE][uzaymanga] after capture on the same page: control=availableOffline result=true
+[LIVE][uzaymanga] new page: session=2 control=capture result=false canStart=true
+[LIVE][uzaymanga] RESULT: PASSED … staleStateCleared=true secondPageStarted=true
+```
+
+The last two lines are the bug that started this: on the captured page the
+result is shown and the control reads *available offline*; one real navigation
+later the result is gone, the control is plain `capture`, and the new page
+starts its own run.
+
+---
+
+### App identity and startup screen (D63)
+
+**The mark.** `tool/brand/generate_brand_assets.swift` (run with `swift`, no
+package dependency) renders one design — an open book with a download arrow —
+into every raster the platforms need: 15 iOS `AppIcon` slots, Android legacy
+mipmaps at five densities, the adaptive-icon foreground plus a vector gradient
+background (`mipmap-anydpi-v26/ic_launcher.xml`, with `monochrome` for themed
+icons), both launch images, and `assets/brand/app_mark.png`. Colours are the
+palette's, so re-running it after a palette change is how they stay in step.
+The Android application label was `web_reader`; it is now `Web Reader`, which
+is what iOS already displayed.
+
+**Launch windows.** iOS: `LaunchImage` on a `LaunchBackground` colour set with
+a dark variant, referenced by name from `LaunchScreen.storyboard`. Android:
+`launch_background.xml` (and the `-v21` copy) draw the mark on
+`@color/launch_background`, which has a `values-night` variant. Both colours
+are the app's `surface`, so the OS window and the app's first frame are the
+same picture.
+
+**Startup sequence.** `main()` now renders on the first frame; the work runs
+inside the tree under `StartupSplash` (`lib/features/splash_screen.dart`),
+driven by `StartupController` (`lib/core/startup.dart`) over five steps:
+
+| Step | Work | Critical |
+|---|---|---|
+| Opening your library | `AppDatabase`, `FileStore`, `BrowserController`, `CaptureJobController`, `AppServices`, the history hook, backup exclusion | **yes** |
+| Recovering interrupted captures | replacement restore, staging sweep, in-flight reset, manifest reconciliation | no |
+| Repairing library records | series backfill, `source_url` repair, completed-progress repair | no |
+| Restoring browser data | saved-site seed (D54), history prune | no |
+| Checking pending tasks | `taskQueue.restore()` — an offer, never an auto-run (Q24) | no |
+
+Order and semantics are the same as the pre-`runApp` blocks they replace. A
+non-critical failure is recorded as a warning and the boot continues; a
+critical failure shows the failed step, the error and **Try again**. The
+splash is shown for at least 850 ms and fades out over 340 ms with the app
+already mounted and painted underneath it.
+
+Covered by `test/startup_test.dart` (order, progress, non-critical failure
+continues, critical failure stops and stays fatal, `run()` is idempotent,
+pacing). The splash itself was rendered offline in light, dark and failure
+states during implementation; it has **not** yet been seen on a device or
+Simulator — see §8.
 
 ---
 
@@ -1284,6 +1351,16 @@ sheets — still writes literal light colours and will look wrong under Dark.
 The Reader is deliberately exempt: it is pure black in every appearance.
 Converting the rest is a mechanical but wide pass (~200 call sites, most of
 them `const`), tracked as the recommended next task.
+
+**The startup screen has not been seen on a device (2026-07-29).** The mark,
+the launch windows and the staged splash (D63) are implemented and unit-tested,
+and the splash was rendered offline in light, dark and failure states. Nothing
+has been launched on a Simulator or a phone yet, because the working tree does
+not compile — the in-flight `AppPalette` (D62) rename left `browser_ui.dart`,
+`library_screen.dart`, `series_detail_screen.dart` and `storage_screen.dart`
+calling the old `captureLook`/`storageLook`/`faviconColorsFor` signatures. Once
+that compiles, launch once per appearance and confirm the OS launch window and
+the first Flutter frame are indistinguishable.
 
 **Favicons need the network.** A first-run list shows hostname-initial
 fallbacks until icons are fetched; that is the designed fallback, not a bug,

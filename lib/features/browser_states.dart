@@ -263,7 +263,9 @@ class _ActionWrap extends StatelessWidget {
                     fontSize: large ? 13 : 11.5,
                     fontVariations: wght(600),
                     fontWeight: FontWeight.w600,
-                    color: action.primary ? Colors.white : palette.inkStrong,
+                    color: action.primary
+                        ? palette.onPrimary
+                        : palette.inkStrong,
                   ),
                 ),
               ),

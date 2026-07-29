@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon (API 26+). The legacy mipmap-*/ic_launcher.png files stay for
+     older launchers, which mask the pre-rounded tile themselves. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <!-- Themed icons tint by alpha, so the book and the arrow collapse into one
+         silhouette — which is the mark's outline, and still reads. -->
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

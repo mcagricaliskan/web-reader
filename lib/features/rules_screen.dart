@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../capture/rule_repository.dart';
 import '../capture/site_rule.dart';
 import '../providers.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 
@@ -29,10 +30,10 @@ class RulesScreen extends ConsumerWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.ads_click,
                       size: 30,
-                      color: Color(0xFF9A948A),
+                      color: AppPalette.of(context).inkFaint,
                     ),
                     const SizedBox(height: 10),
                     Text(
@@ -44,7 +45,7 @@ class RulesScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'When automatic detection is not confident, the capture '
                       'job asks you to point at the next-chapter button or the '
                       'reader area, and remembers what you picked here.',
@@ -52,7 +53,7 @@ class RulesScreen extends ConsumerWidget {
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.55,
-                        color: Color(0xFF5F5B54),
+                        color: AppPalette.of(context).inkMuted,
                       ),
                     ),
                   ],
@@ -64,8 +65,8 @@ class RulesScreen extends ConsumerWidget {
             padding: const EdgeInsets.only(bottom: 24),
             children: [
               for (final rule in rules) _RuleCard(rule: rule, repo: repo),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 10, 20, 0),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
                 child: Text(
                   'Rules are matched most-specific first: series, then path '
                   'pattern, then site. Deleting a rule only means the app '
@@ -73,7 +74,7 @@ class RulesScreen extends ConsumerWidget {
                   style: TextStyle(
                     fontSize: 12,
                     height: 1.5,
-                    color: Color(0xFF8C877E),
+                    color: AppPalette.of(context).inkFaint,
                   ),
                 ),
               ),
@@ -111,18 +112,19 @@ class _RuleCard extends StatelessWidget {
       RuleScope.host => Icons.language,
     };
 
+    final palette = AppPalette.of(context);
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8F6F3),
+        color: palette.surfaceMuted,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE7E3DC)),
+        border: Border.all(color: palette.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(scopeIcon, size: 21, color: const Color(0xFF5F5B54)),
+          Icon(scopeIcon, size: 21, color: palette.inkMuted),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -136,6 +138,7 @@ class _RuleCard extends StatelessWidget {
                     fontSize: 14,
                     fontVariations: wght(600),
                     fontWeight: FontWeight.w600,
+                    color: palette.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -145,17 +148,14 @@ class _RuleCard extends StatelessWidget {
                   '${rule.seriesPath != null ? ' · ${rule.seriesPath}' : ''}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    color: Color(0xFF5F5B54),
-                  ),
+                  style: TextStyle(fontSize: 11.5, color: palette.inkMuted),
                 ),
                 const SizedBox(height: 5),
                 Text(
                   signals.join(' · '),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: monoStyle(size: 11, color: const Color(0xFF3E3A34)),
+                  style: monoStyle(size: 11, color: palette.inkStrong),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -166,9 +166,7 @@ class _RuleCard extends StatelessWidget {
                   ].join(' · '),
                   style: TextStyle(
                     fontSize: 11,
-                    color: loc.isWeak
-                        ? const Color(0xFF8A5A1F)
-                        : const Color(0xFF8C877E),
+                    color: loc.isWeak ? palette.warn : palette.inkFaint,
                   ),
                 ),
               ],
@@ -176,7 +174,7 @@ class _RuleCard extends StatelessWidget {
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline, size: 20),
-            color: const Color(0xFF5F5B54),
+            color: palette.inkMuted,
             tooltip: 'Forget this rule',
             onPressed: () => _confirmForget(context),
           ),

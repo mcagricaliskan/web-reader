@@ -942,8 +942,8 @@ archived-exclusion clause activates when M16 lands (M15 itself does not wait for
 **2026-07-27 (storage cleanup + Browser-leave, design v2).** Schema v9
 (`offlineRemovedAt`, `pauseReason`). Offline-file removal as a first-class,
 non-destructive operation (D35) with undo; the leave-the-Browser confirmation
-and pause/resume semantics (D36); the after-finished cleanup preference with
-exact "Don't ask again" behaviour (D37); a functional Storage screen with a
+and pause/resume semantics (D36); the after-finished cleanup preference (D37,
+since replaced by the per-series decision); a functional Storage screen with a
 minimal Library entry; selection mode in Series detail; bulk cleanup through
 the activity queue with live progress. 419/419 tests.
 

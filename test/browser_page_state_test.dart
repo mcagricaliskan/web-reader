@@ -56,6 +56,7 @@ void main() {
     bool awaitingUser = false,
     bool pausedForBrowser = false,
     bool checkerRunning = false,
+    bool pageEnteredManually = true,
     CaptureRunRecord? lastRun,
     ChapterLocalState? pageChapterState,
     bool pageIsQueued = false,
@@ -69,6 +70,7 @@ void main() {
     awaitingUser: awaitingUser,
     pausedForBrowser: pausedForBrowser,
     checkerRunning: checkerRunning,
+    pageEnteredManually: pageEnteredManually,
     lastRun: lastRun,
     pageChapterState: pageChapterState,
     pageIsQueued: pageIsQueued,
@@ -220,9 +222,37 @@ void main() {
         activePageKey: keyB,
         activeState: CaptureState.extracting,
         needsRenderedBrowser: true,
+        pageEnteredManually: false,
       );
       expect(ui.status, BrowserCaptureStatus.capturing);
       expect(ui.showsRunPanel, isTrue);
+    });
+
+    test('mid-hop, the run is still the run', () {
+      // While navigating, the job's page is the *target* and the Browser is
+      // still showing the page it is leaving. They are supposed to disagree,
+      // and the panel must not blink out of existence for it.
+      final ui = resolve(
+        pageKey: keyA,
+        hasActiveRun: true,
+        activePageKey: keyB,
+        activeState: CaptureState.navigating,
+        needsRenderedBrowser: true,
+      );
+      expect(ui.status, BrowserCaptureStatus.capturing);
+      expect(ui.showsRunPanel, isTrue);
+    });
+
+    test('a page automation put here belongs to the run that put it there', () {
+      final ui = resolve(
+        pageKey: keyB,
+        hasActiveRun: true,
+        activePageKey: '',
+        activeState: CaptureState.inspecting,
+        needsRenderedBrowser: true,
+        pageEnteredManually: false,
+      );
+      expect(ui.status, BrowserCaptureStatus.capturing);
     });
 
     test('a run working elsewhere is not this page state', () {

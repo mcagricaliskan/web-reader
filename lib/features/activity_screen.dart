@@ -5,6 +5,7 @@ import '../capture/capture_job.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../storage/database.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 import 'capture_queue_ui.dart';
@@ -18,6 +19,7 @@ class ActivityScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
     final queue = ref.watch(taskQueueProvider);
     final tasks = ref.watch(queueTasksProvider);
     final job = ref.watch(captureJobProvider);
@@ -106,7 +108,7 @@ class ActivityScreen extends ConsumerWidget {
                   trailing: Text(
                     '${waitingToStart.length} capture'
                     '${waitingToStart.length == 1 ? '' : 's'}',
-                    style: monoStyle(color: const Color(0xFFA39D93)),
+                    style: monoStyle(color: palette.inkFaint),
                   ),
                 ),
                 _QueueControls(count: waitingToStart.length),
@@ -124,7 +126,7 @@ class ActivityScreen extends ConsumerWidget {
                     label,
                     trailing: Text(
                       '${group.length} $note',
-                      style: monoStyle(color: const Color(0xFFA39D93)),
+                      style: monoStyle(color: palette.inkFaint),
                     ),
                   ),
                   for (final task in group)
@@ -148,48 +150,55 @@ class _ResumeOffer extends StatelessWidget {
   final TaskQueueController queue;
 
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-    padding: const EdgeInsets.all(13),
-    decoration: BoxDecoration(
-      color: const Color(0xFFEAF1F4),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xFFD2E2E8)),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Work was waiting when the app closed',
-          style: TextStyle(
-            fontSize: 13,
-            fontVariations: wght(600),
-            fontWeight: FontWeight.w600,
-            color: const Color(0xFF133845),
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: palette.primaryContainer,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.primaryBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Work was waiting when the app closed',
+            style: TextStyle(
+              fontSize: 13,
+              fontVariations: wght(600),
+              fontWeight: FontWeight.w600,
+              color: palette.onPrimaryContainer,
+            ),
           ),
-        ),
-        const SizedBox(height: 2),
-        const Text(
-          'Nothing has run on its own. Start it when you are ready.',
-          style: TextStyle(fontSize: 12, height: 1.5, color: Color(0xFF3F5A63)),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            FilledButton(
-              onPressed: queue.resumeQueue,
-              child: const Text('Resume queue'),
+          const SizedBox(height: 2),
+          Text(
+            'Nothing has run on its own. Start it when you are ready.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.5,
+              color: palette.onPrimaryContainer,
             ),
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: queue.clearHistory,
-              child: const Text('Clear history'),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              FilledButton(
+                onPressed: queue.resumeQueue,
+                child: const Text('Resume queue'),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: queue.clearHistory,
+                child: const Text('Clear history'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The capture the user started from the Browser, while it runs.
@@ -205,6 +214,7 @@ class _DirectCaptureRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
     final p = job.progress;
     final browserRequired = job.pauseReason == kPauseBrowserHidden;
     return Container(
@@ -212,19 +222,19 @@ class _DirectCaptureRow extends ConsumerWidget {
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF1F4),
+        color: palette.primaryContainer,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD2E2E8)),
+        border: Border.all(color: palette.primaryBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.download_for_offline,
                 size: 20,
-                color: Color(0xFF133845),
+                color: palette.onPrimaryContainer,
               ),
               const SizedBox(width: 9),
               Expanded(
@@ -236,7 +246,7 @@ class _DirectCaptureRow extends ConsumerWidget {
                     fontSize: 13,
                     fontVariations: wght(600),
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF133845),
+                    color: palette.onPrimaryContainer,
                   ),
                 ),
               ),
@@ -249,10 +259,10 @@ class _DirectCaptureRow extends ConsumerWidget {
                 : '${p.state.label} · ${job.progressSummary}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               height: 1.5,
-              color: Color(0xFF3F5A63),
+              color: palette.onPrimaryContainer,
             ),
           ),
           const SizedBox(height: 10),
@@ -297,26 +307,24 @@ class _TaskRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
     final state = queueTaskStateFromName(task.state);
     final type = queueTaskTypeFromName(task.taskType);
     if (_browserRequired) return _browserRequiredRow(context, ref);
     final (icon, color) = switch (state) {
       QueueTaskState.running =>
         type == QueueTaskType.removeOfflineFiles
-            ? (Icons.delete_sweep, const Color(0xFF5F5B54))
-            : (Icons.downloading, const Color(0xFF35606F)),
-      QueueTaskState.queued => (Icons.schedule, const Color(0xFF5F5B54)),
+            ? (Icons.delete_sweep, palette.inkMuted)
+            : (Icons.downloading, palette.primary),
+      QueueTaskState.queued => (Icons.schedule, palette.inkMuted),
       QueueTaskState.failed => (
         type == QueueTaskType.seriesCheck ||
                 type == QueueTaskType.checkAllSeries
             ? Icons.sync_problem
             : Icons.error,
-        const Color(0xFF8E3B31),
+        palette.danger,
       ),
-      QueueTaskState.cancelled => (
-        Icons.do_not_disturb_on,
-        const Color(0xFF8C877E),
-      ),
+      QueueTaskState.cancelled => (Icons.do_not_disturb_on, palette.inkFaint),
       QueueTaskState.completed => (
         switch (type) {
           QueueTaskType.seriesCheck ||
@@ -324,7 +332,7 @@ class _TaskRow extends ConsumerWidget {
           QueueTaskType.removeOfflineFiles => Icons.cleaning_services,
           _ => Icons.download_for_offline,
         },
-        const Color(0xFF35606F),
+        palette.primary,
       ),
     };
 
@@ -347,6 +355,7 @@ class _TaskRow extends ConsumerWidget {
                     fontSize: 13.5,
                     fontVariations: wght(500),
                     fontWeight: FontWeight.w500,
+                    color: palette.ink,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -354,10 +363,10 @@ class _TaskRow extends ConsumerWidget {
                   _subtitle(state, task),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     height: 1.4,
-                    color: Color(0xFF5F5B54),
+                    color: palette.inkMuted,
                   ),
                 ),
               ],
@@ -367,7 +376,7 @@ class _TaskRow extends ConsumerWidget {
             IconButton(
               tooltip: control.$2,
               icon: Icon(control.$1, size: 20),
-              color: const Color(0xFF5F5B54),
+              color: palette.inkMuted,
               onPressed: control.$3,
             ),
         ],
@@ -390,62 +399,66 @@ class _TaskRow extends ConsumerWidget {
 
   /// The design's "paused — Browser required" row: grey, no progress bar,
   /// and one action that actually solves it.
-  Widget _browserRequiredRow(BuildContext context, WidgetRef ref) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Icon(Icons.public, size: 21, color: Color(0xFF5F5B54)),
-        const SizedBox(width: 11),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _title(queueTaskTypeFromName(task.taskType), task),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontVariations: wght(500),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 3),
-              const Text(
-                'paused — Browser required',
-                style: TextStyle(fontSize: 12, color: Color(0xFF5F5B54)),
-              ),
-              if (job != null && job!.progressSummary.isNotEmpty) ...[
-                const SizedBox(height: 2),
+  Widget _browserRequiredRow(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.public, size: 21, color: palette.inkMuted),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  job!.progressSummary,
-                  maxLines: 1,
+                  _title(queueTaskTypeFromName(task.taskType), task),
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: monoStyle(size: 11, color: const Color(0xFF8C877E)),
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontVariations: wght(500),
+                    fontWeight: FontWeight.w500,
+                    color: palette.ink,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'paused — Browser required',
+                  style: TextStyle(fontSize: 12, color: palette.inkMuted),
+                ),
+                if (job != null && job!.progressSummary.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    job!.progressSummary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: monoStyle(size: 11, color: palette.inkFaint),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: () {
+                    ref.read(shellTabRequestProvider).value = 1;
+                    Navigator.of(context).maybePop();
+                  },
+                  icon: const Icon(Icons.open_in_browser, size: 18),
+                  label: const Text('Open Browser to resume'),
                 ),
               ],
-              const SizedBox(height: 8),
-              FilledButton.icon(
-                onPressed: () {
-                  ref.read(shellTabRequestProvider).value = 1;
-                  Navigator.of(context).maybePop();
-                },
-                icon: const Icon(Icons.open_in_browser, size: 18),
-                label: const Text('Open Browser to resume'),
-              ),
-            ],
+            ),
           ),
-        ),
-        IconButton(
-          tooltip: 'Stop',
-          icon: const Icon(Icons.close, size: 20),
-          color: const Color(0xFF5F5B54),
-          onPressed: () => queue.cancelTask(task.id),
-        ),
-      ],
-    ),
-  );
+          IconButton(
+            tooltip: 'Stop',
+            icon: const Icon(Icons.close, size: 20),
+            color: palette.inkMuted,
+            onPressed: () => queue.cancelTask(task.id),
+          ),
+        ],
+      ),
+    );
+  }
 
   String _subtitle(QueueTaskState state, QueueTask task) {
     final when = switch (state) {
@@ -489,6 +502,7 @@ class _BatchSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final s = QueueSummary.of(tasks);
     if (s.remaining == 0 && s.failed == 0) return const SizedBox.shrink();
     final facts = <(String, int)>[
@@ -504,9 +518,9 @@ class _BatchSummary extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 2),
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F5F1),
+        color: palette.surfaceMuted,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE7E3DC)),
+        border: Border.all(color: palette.border),
       ),
       child: Wrap(
         spacing: 14,
@@ -515,7 +529,7 @@ class _BatchSummary extends StatelessWidget {
           for (final (label, count) in facts)
             Text(
               '$count $label',
-              style: monoStyle(size: 12, color: const Color(0xFF3E3A34)),
+              style: monoStyle(size: 12, color: palette.inkStrong),
             ),
         ],
       ),
@@ -606,6 +620,7 @@ class _QueuedCaptureRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final palette = AppPalette.of(context);
     final url = task.startUrl?.trim() ?? '';
     final uri = Uri.tryParse(url);
     final knowsSource = url.isNotEmpty && (uri?.host.isNotEmpty ?? false);
@@ -630,7 +645,7 @@ class _QueuedCaptureRow extends ConsumerWidget {
             child: Text(
               '$position',
               textAlign: TextAlign.center,
-              style: monoStyle(size: 12, color: const Color(0xFF8C877E)),
+              style: monoStyle(size: 12, color: palette.inkFaint),
             ),
           ),
           const SizedBox(width: 6),
@@ -646,6 +661,7 @@ class _QueuedCaptureRow extends ConsumerWidget {
                     fontSize: 13.5,
                     fontVariations: wght(500),
                     fontWeight: FontWeight.w500,
+                    color: palette.ink,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -655,17 +671,17 @@ class _QueuedCaptureRow extends ConsumerWidget {
                   ' · added ${formatRelative(task.queuedAt)}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     height: 1.4,
-                    color: Color(0xFF5F5B54),
+                    color: palette.inkMuted,
                   ),
                 ),
                 if (!knowsSource) ...[
                   const SizedBox(height: 3),
-                  const Text(
+                  Text(
                     'No source page — this cannot be captured automatically',
-                    style: TextStyle(fontSize: 11.5, color: Color(0xFF8A5A1F)),
+                    style: TextStyle(fontSize: 11.5, color: palette.warn),
                   ),
                 ],
               ],
@@ -721,51 +737,58 @@ class _MiniAction extends StatelessWidget {
   final VoidCallback? onPressed;
 
   @override
-  Widget build(BuildContext context) => IconButton(
-    tooltip: tooltip,
-    icon: Icon(icon, size: 18),
-    visualDensity: VisualDensity.compact,
-    constraints: const BoxConstraints.tightFor(width: 34, height: 34),
-    padding: EdgeInsets.zero,
-    color: const Color(0xFF5F5B54),
-    disabledColor: const Color(0xFFC4BFB5),
-    onPressed: onPressed,
-  );
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon, size: 18),
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+      padding: EdgeInsets.zero,
+      color: palette.inkMuted,
+      disabledColor: palette.inkDisabled,
+      onPressed: onPressed,
+    );
+  }
 }
 
 class _NothingHappening extends StatelessWidget {
   const _NothingHappening();
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.schedule, size: 30, color: Color(0xFF9A948A)),
-          const SizedBox(height: 10),
-          Text(
-            'Nothing running',
-            style: TextStyle(
-              fontSize: 16,
-              fontVariations: wght(600),
-              fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.schedule, size: 30, color: palette.inkFaint),
+            const SizedBox(height: 10),
+            Text(
+              'Nothing running',
+              style: TextStyle(
+                fontSize: 16,
+                fontVariations: wght(600),
+                fontWeight: FontWeight.w600,
+                color: palette.ink,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Captures and update checks you start show up here, with what '
-            'happened and how to retry it.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.55,
-              color: Color(0xFF5F5B54),
+            const SizedBox(height: 4),
+            Text(
+              'Captures and update checks you start show up here, with what '
+              'happened and how to retry it.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.55,
+                color: palette.inkMuted,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }

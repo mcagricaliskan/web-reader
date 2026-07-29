@@ -687,30 +687,64 @@ is the wrong fix; pausing costs nothing and loses nothing.
 
 ---
 
-### D37 — The after-finished cleanup preference, and "Don't ask again"
+### D37 — The finished-chapter cleanup decision belongs to the series
 
-**Decision.** One persisted setting (`storage.afterFinished`, default **ask**)
-with exactly three values: *Ask each time* · *Keep offline* · *Remove
-automatically*. It applies **only** when the user finishes a chapter and
-moves forward to a different, openable chapter whose files exist and are not
-in use. Closing the reader, moving backward, re-opening, partial reads and
-file-less chapters never trigger it.
+**Decision.** Cleanup is configured **per series and nowhere else**. Each
+library item carries `finished_cleanup` (schema v12): `remove` · `keep`, or
+**null** meaning the series has not been asked. There is no app-wide default,
+no per-chapter memory and no settings key — the series row is the single
+source of truth, and null is a question rather than a value.
 
-`Don't ask again` semantics are exact: without it, the answer applies to that
-chapter only and the next finished chapter asks again; with it, the answer
-*becomes* the preference (Keep → keep offline, Remove → remove
-automatically). Dismissing the dialog keeps the files — the safe default is
-always the preserving one, and Keep is the highlighted action.
+**Asked once, per series.** On a series' first *eligible* forward transition,
+the reader shows the decision dialog: **Downloaded chapters in this series**,
+two radio options — *Remove after continuing* / *Keep downloaded files* — and
+an explicit **Save choice**. **Remove after continuing is preselected,
+always**: it is a constant of the widget, reachable from no setting, no other
+series and no previous answer. Saving stores the choice on that series and
+applies it to the transition in hand; the series is never asked again unless
+the decision is reset. Dismissing without saving stores nothing, removes
+nothing, and leaves the question for next time.
 
-*Safeguards on automatic removal.* Cleanup runs only after the next chapter
-is loading and the reader's lock has moved, so the chapter now on screen can
-never be the one removed; the open chapter and anything mid-capture are
-locked; a failure is logged and never blocks reading; a soft delete (rename
-into `tmp/undo-*`) backs the Undo in the toast, and the existing startup
-staging sweep collects anything a crash leaves behind.
+Eligibility is unchanged: only a *completed* chapter, only *forward* movement
+to a different, openable chapter whose files exist and are not in use. Closing
+the reader, moving backward, re-opening, partial reads and file-less chapters
+never trigger it.
 
-*Changing the preference never removes anything retroactively* — bulk removal
-of already-downloaded chapters is a separate, explicit action in Storage.
+**Changed and reset from the series.** Series detail › *Series actions* ›
+**Downloaded chapters** offers the two outcomes plus **Ask again next time**,
+which writes null and brings the question back on the next eligible
+transition — where *Remove after continuing* is preselected again. It is
+deliberately not called "use the global setting": there is no global setting.
+
+*The decision follows the chapter being left.* The series id is read from that
+chapter and captured before any await, so a dialog that resolves after the
+reader has moved on — even to another series — still writes to the series it
+asked about. One question is open at a time (`_cleanupAskSeriesId`), so a burst
+of forward taps cannot stack dialogs or race two writes.
+
+*Safeguards on removal are unchanged.* Cleanup runs only after the next
+chapter is loading and the reader's lock has moved, so the chapter now on
+screen can never be the one removed; the open chapter and anything mid-capture
+are locked; a failure is logged and never blocks reading; a soft delete
+(rename into `tmp/undo-*`) backs the Undo in the reader notice (D61), and the
+startup staging sweep collects anything a crash leaves behind. Only downloaded
+files go — the chapter row, its source URL, read marks, progress and the
+library item all survive (D35).
+
+*Changing a decision never removes anything retroactively*, and it reaches no
+other series. Bulk removal of already-downloaded chapters is a separate,
+explicit action in Storage.
+
+*Supersedes the previous global model.* Until v12 this was one app-wide
+setting (`storage.afterFinished`: *Ask each time* · *Keep offline* · *Remove
+automatically*) with a "Don't ask again" checkbox that turned a single answer
+into the default for every series. It was wrong in the way that matters: the
+checkbox copy described a *chapter* while writing a *global*, and one tap
+while reading one series enabled silent deletion across the whole library. The
+migration adds the column, leaves every existing series **null** — no
+backfill, because the old answer was never given per series — and deletes the
+obsolete row. Existing installs are simply asked once per series, on their
+next eligible transition.
 
 ---
 
@@ -1393,3 +1427,155 @@ no layout, so moving the page costs them nothing.
 the path this action uses, and auto-resuming there would restart the run one
 frame before the page is navigated out from under it. Only a user tapping the
 Browser tab (`_select`) resumes.
+
+### D61 — A reader notice is screen state, and it says one thing
+
+**Decision.** The notice the reader shows after the finished-chapter cleanup
+(D37) is a widget inside the reader, not a `SnackBar`. It reads *Previous
+chapter removed offline*, carries a trash glyph, offers **Undo** while the undo
+window is genuinely open, shows its own timeout as a hairline that empties, and
+is gone five seconds later.
+
+*Why not a SnackBar.* `ScaffoldMessenger` lives above the router. Its queue
+outlives the reader route, its animations are ticker-driven — so a snack bar
+that was mid-entrance when the app was suspended finishes entering on resume
+and starts its dwell *then* — and `SnackBar.persist` defaults to
+`action != null`, which makes any snack bar carrying an Undo ignore its own
+`duration` and stay until something dismisses it. Together those are what made
+one deletion notice read as a permanent one that came back after every
+switch away. A notice owned by the screen has nowhere to come back from.
+`showCleanupToast` keeps the snack bar for the list screens, with `persist`
+reduced to the one case that earns it (a screen reader).
+
+*One at a time, replaced never queued.* One nullable field holds it, keyed by a
+sequence number so a second removal restarts the countdown instead of
+inheriting a half-spent one. It is dropped when the chapter changes, on **every**
+app lifecycle transition (including the resume, so returning has nothing left
+to replay), when the user closes it, and with the screen. Nothing about it is
+persisted — there is no state for a later page or a later launch to restore.
+
+*No byte count.* How much space came back is not a decision anyone makes
+mid-read; it belongs on Settings › Storage. What matters for five seconds is
+that something was removed and that it can be put back. The wording stays
+"removed offline" rather than "deleted" because nothing was deleted (D35).
+
+*It never covers a control.* The notice floats above the bottom chrome, offset
+from the safe-area inset rather than a fixed distance — Android's three-button
+navigation bar reports ~48px there, which a fixed offset would let it eat.
+Reading, scrolling and chapter movement are untouched while it is up.
+
+---
+
+### D62 — Both appearances are measured, and the palette is the only source
+
+**Decision.** `AppPalette` is the *only* place a colour value exists outside
+`ReaderColors`. No widget file may name a `Color(0x…)` or a Material swatch
+other than `Colors.transparent` / `Colors.black`, and both ramps are tuned
+against measured contrast rather than chosen by eye. Two tests in
+[`test/theme_palette_test.dart`](../test/theme_palette_test.dart) enforce both
+halves.
+
+*What was actually wrong.* Nothing in `AppPalette` was mis-valued. D56 added
+the token layer for the browser work, but the screens written before it —
+Library, Series detail, Reader, Capture panel, Activity, Storage, the selection
+overlay, the duplicate panel, the cleanup dialogs — plus the shared component
+file `status_style.dart` still carried the prototype's **light-only literals**
+from D28. Around four hundred of them, `Color(0xFF5F5B54)` alone appearing
+sixty-three times. In the dark appearance every one of those painted the light
+design on a near-black page: `serifStyle()` defaulted to `#1B1A18`, so the
+Library title was near-black on near-black; `kHeaderIconColor` was a constant,
+so header glyphs were too; `monogramPairs` had no dark variant at all, so cover
+stand-ins stayed pastel; `SeriesGroup.warningLine` baked `0xFF8E3B31` into a
+*model getter*. A dark theme cannot be fixed screen by screen when the thing
+that is broken is that the screens were never asking.
+
+*Measured, not eyeballed.* WCAG 2.x is the compliance floor; APCA Lc is the
+judgement, because WCAG 2 overstates contrast near black badly enough that it
+cannot be used to design a dark theme at all. The app is for hour-long reading,
+so the target is the comfort band and both of its edges matter. The old dark
+body ink (`#F2EFE9` on `#161513`) measured 15.9:1 / Lc −97 — past APCA's Lc 90
+"preferred for fluent body text", which is what "glowing" was. The old light
+body ink measured 16.7:1 / Lc +101 on a page at L\* 98, which is glare. Both
+ends moved inwards: 13.4:1 dark, 14.0:1 light, on a page that is a warm
+near-black at one end and an off-white at the other.
+
+*Four accessible text levels, then decoration.* `ink`, `inkStrong`, `inkMuted`
+and `inkFaint` clear 4.5:1 on **every** surface they are drawn on, not just on
+the page — the check that caught `inkFaint` failing at 4.24:1 on a card while
+passing at 4.55:1 on the page. `inkGhost` sits below 4.5:1 deliberately and is
+documented as decoration only; `inkDisabled` is the disabled tone. Hierarchy is
+carried by weight and size as well as tone, because five near-identical greys on
+one row is what brightness-only hierarchy produces.
+
+*Borders exist.* The old dark border measured 1.37:1 — Lc 0, literally
+imperceptible. Cards now separate twice, by a surface step *and* an edge, and
+the card step is bounded above (< 1.9:1) so a card is not a lit rectangle.
+
+*Accents survive a warm filter.* A device night-light filter crushes the blue
+channel, which collapses a teal accent toward the neutral inks — a link becomes
+grey text. The old light `primary` and `inkMuted` sat at L\* 38.2 and 37.6:
+under the filter, indistinguishable. Both appearances' accents were re-levelled
+so they differ in lightness as well as hue, and the test asserts that in L\*
+*after* simulating the filter. Every accent surface also carries a border, so
+tinting is never the only signal.
+
+*The reader is outside the preference, but not pure black.* `ReaderColors` is a
+fixed set for one screen that is dark in every appearance. Its canvas moved from
+`#000000` to `#0C0B0A`: on OLED a pure-black background smears visibly under the
+continuous vertical scrolling this screen exists for, and it maximises halation
+around the overlaid chrome. It is still dark enough that a panel's own black
+borders read as artwork.
+
+*The rule is enforced by a test, not by discipline.* A source scan over `lib/`
+fails on any colour literal outside `ui/palette.dart` and on any Material swatch
+beyond the two that mean the same thing in both appearances. That check is the
+one that would have caught the original bug, and it is cheaper than noticing it
+again in a screenshot.
+
+---
+
+### D63 — The app has one generated mark, and startup is a screen
+
+**Decision.** The identity is a single piece of artwork produced by
+[`tool/brand/generate_brand_assets.swift`](../tool/brand/generate_brand_assets.swift),
+and the work between launch and a usable library is presented as a named,
+observable sequence rather than hidden behind a blank window.
+
+*One generator, every raster.* The mark — an open book with a download arrow
+descending into the centrefold, cream and `toastAccent` on a teal ground
+derived from `AppPalette.primary` — is defined once, in CoreGraphics, and
+emitted at every size the platforms ask for: the 15 iOS `AppIcon` slots, the
+Android legacy mipmaps *and* the adaptive foreground, both launch images, and
+`assets/brand/app_mark.png` for the splash. Hand-editing a PNG is therefore
+always wrong; edit the generator and re-run it. No package was added to draw
+two shapes, and no icon-generator dependency sits in `pubspec.yaml`.
+
+*The launch window is the same picture as the first frame.* iOS draws the
+tile on a `LaunchBackground` colour set (light/dark) and Android on
+`@color/launch_background` (`values` / `values-night`) — both the app's own
+`surface`. The Flutter splash then draws the same mark at the same 96pt on the
+same colour, so the hand-off from the OS window to the app is not a visible
+cut. The splash follows the *system* appearance, like the launch window it
+continues; the persisted preference (D56) applies once the app is up.
+
+*Startup moved into the tree.* `main()` used to run recovery, backfills,
+repairs, the saved-site seed, history pruning and the queue restore **before**
+`runApp` — correct, but invisible: a library with thousands of chapters spent
+that time on a blank window that is indistinguishable from a hang. The same
+work now runs as five [`StartupStep`](../lib/core/startup.dart)s under the
+splash, which reports the step being worked on and its position in the
+sequence. Ordering and semantics are unchanged; the app still mounts only
+after the sequence ends, so nothing observes a half-repaired database.
+
+*Only the first step is fatal.* Storage and the controllers built on it are
+`critical: true` — without them there is no app, and the splash says which
+step failed, shows the error and offers **Try again** (which reuses the
+already-open database rather than opening a second connection). Every later
+step is maintenance: it logs, records a warning and lets the user into their
+library, exactly as the old `try`/`catch` blocks did. A backfill that throws
+must never be the reason someone cannot read.
+
+*The report is paced, the work is not.* `minStepDuration` (130 ms) and an
+850 ms floor on the splash exist because five steps that each take four
+milliseconds are one unreadable flicker. Neither delays any step: the pause
+happens after the work has already returned.

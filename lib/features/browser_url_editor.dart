@@ -443,7 +443,7 @@ class _EditorHeader extends StatelessWidget {
               height: 42,
               padding: const EdgeInsets.only(left: 11, right: 2),
               decoration: BoxDecoration(
-                color: palette.isDark ? palette.surfaceInset : Colors.white,
+                color: palette.surfaceInset,
                 borderRadius: BorderRadius.circular(13),
                 border: Border.all(color: palette.primary, width: 1.5),
               ),

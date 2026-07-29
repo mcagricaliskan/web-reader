@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../capture/capture_job.dart';
 import '../capture/capture_state.dart';
 import '../ui/palette.dart';
+import '../ui/status_style.dart';
 import '../ui/theme.dart';
 
 /// Status and controls for the running capture job, docked under the WebView.
@@ -25,6 +26,7 @@ class CapturePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final p = job.progress;
     if (p.state == CaptureState.idle && !expanded) {
       return const SizedBox.shrink();
@@ -35,9 +37,9 @@ class CapturePanel extends StatelessWidget {
         : 0.0;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFFFBFAF8),
-        border: Border(top: BorderSide(color: Color(0xFFDFDAD2))),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        border: Border(top: BorderSide(color: palette.border)),
       ),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
       child: Column(
@@ -55,11 +57,7 @@ class CapturePanel extends StatelessWidget {
                   '${p.skippedChapters > 0 ? ' · ${p.skippedChapters} skipped' : ''}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: 'IBM Plex Mono',
-                    fontSize: 11.5,
-                    color: Color(0xFF5F5B54),
-                  ),
+                  style: monoStyle(size: 11.5, color: palette.inkMuted),
                 ),
               ),
               InkWell(
@@ -79,13 +77,13 @@ class CapturePanel extends StatelessWidget {
                           fontSize: 11.5,
                           fontVariations: wght(500),
                           fontWeight: FontWeight.w500,
-                          color: const Color(0xFF35606F),
+                          color: palette.primary,
                         ),
                       ),
                       Icon(
                         expanded ? Icons.expand_more : Icons.expand_less,
                         size: 16,
-                        color: const Color(0xFF35606F),
+                        color: palette.primary,
                       ),
                     ],
                   ),
@@ -99,7 +97,7 @@ class CapturePanel extends StatelessWidget {
               p.message,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: Color(0xFF3E3A34)),
+              style: TextStyle(fontSize: 12, color: palette.inkStrong),
             ),
           ],
           const SizedBox(height: 10),
@@ -108,10 +106,8 @@ class CapturePanel extends StatelessWidget {
             child: LinearProgressIndicator(
               value: p.state == CaptureState.scrolling ? null : pct,
               minHeight: 5,
-              backgroundColor: const Color(0xFFE7E3DC),
-              color: job.isPaused
-                  ? const Color(0xFF5F5B54)
-                  : const Color(0xFF35606F),
+              backgroundColor: palette.border,
+              color: job.isPaused ? palette.inkMuted : palette.primary,
             ),
           ),
           const SizedBox(height: 7),
@@ -121,22 +117,14 @@ class CapturePanel extends StatelessWidget {
               Text(
                 '${p.storedImages} / ${p.detectedImages} images'
                 '${p.failedImages > 0 ? ' · ${p.failedImages} failed' : ''}',
-                style: TextStyle(
-                  fontFamily: 'IBM Plex Mono',
-                  fontSize: 11,
-                  color: p.failedImages > 0
-                      ? const Color(0xFF8E3B31)
-                      : const Color(0xFF5F5B54),
+                style: monoStyle(
+                  color: p.failedImages > 0 ? palette.danger : palette.inkMuted,
                 ),
               ),
               Text(
                 'scroll ${(p.scrollPercent * 100).round()}%'
                 '${p.retryCount > 0 ? ' · retry ${p.retryCount}' : ''}',
-                style: const TextStyle(
-                  fontFamily: 'IBM Plex Mono',
-                  fontSize: 11,
-                  color: Color(0xFF5F5B54),
-                ),
+                style: monoStyle(color: palette.inkMuted),
               ),
             ],
           ),
@@ -146,16 +134,16 @@ class CapturePanel extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
               decoration: BoxDecoration(
-                color: const Color(0xFFF7DDD8),
+                color: palette.dangerContainer,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFEBC4BC)),
+                border: Border.all(color: palette.dangerBorder),
               ),
               child: Text(
                 p.lastError!,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11.5,
                   height: 1.45,
-                  color: Color(0xFF4A140E),
+                  color: palette.onDangerContainer,
                 ),
               ),
             ),
@@ -166,7 +154,7 @@ class CapturePanel extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(11, 10, 11, 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF201F1C),
+                color: palette.toastSurface,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
@@ -186,8 +174,8 @@ class CapturePanel extends StatelessWidget {
                                 fontSize: 10.5,
                                 height: 1.7,
                                 color: line.contains('fail')
-                                    ? const Color(0xFFE0A79E)
-                                    : const Color(0xFFC9C4BC),
+                                    ? AppPalette.dark.danger
+                                    : palette.toastInk,
                               ),
                             ),
                         ],
@@ -197,20 +185,20 @@ class CapturePanel extends StatelessWidget {
                   const SizedBox(height: 6),
                   InkWell(
                     onTap: () => _copyLog(context, job),
-                    child: const Row(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
                           Icons.content_copy,
                           size: 14,
-                          color: Color(0xFF9FC3CE),
+                          color: palette.toastAccent,
                         ),
-                        SizedBox(width: 5),
+                        const SizedBox(width: 5),
                         Text(
                           'Copy log',
                           style: TextStyle(
                             fontSize: 11,
-                            color: Color(0xFF9FC3CE),
+                            color: palette.toastAccent,
                           ),
                         ),
                       ],
@@ -404,55 +392,60 @@ class _PhaseChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    // Three vocabularies, and only three: neutral for "not running", accent
+    // for "working", and the warn/danger containers for the two outcomes that
+    // need to be told apart at a glance.
+    final neutral = (palette.surfaceHigh, palette.inkMuted, palette.border);
+    final accent = (
+      palette.primaryContainer,
+      palette.onPrimaryContainer,
+      palette.primaryBorder,
+    );
     final (icon, bg, fg, bd) = switch (state) {
       CaptureState.paused => (
         Icons.pause_circle,
-        const Color(0xFFF3F1ED),
-        const Color(0xFF5F5B54),
-        const Color(0xFFE4E0D8),
+        neutral.$1,
+        neutral.$2,
+        neutral.$3,
       ),
       CaptureState.complete => (
         Icons.download_for_offline,
-        const Color(0xFFEAF1F4),
-        const Color(0xFF133845),
-        const Color(0xFFD2E2E8),
+        accent.$1,
+        accent.$2,
+        accent.$3,
       ),
       CaptureState.partial => (
         Icons.arrow_circle_down,
-        const Color(0xFFF8EEDA),
-        const Color(0xFF4A2F08),
-        const Color(0xFFE8D5B2),
+        palette.warnContainer,
+        palette.onWarnContainer,
+        palette.warnBorder,
       ),
       CaptureState.failed => (
         Icons.error,
-        const Color(0xFFF7DDD8),
-        const Color(0xFF4A140E),
-        const Color(0xFFEBC4BC),
+        palette.dangerContainer,
+        palette.onDangerContainer,
+        palette.dangerBorder,
       ),
       CaptureState.cancelled => (
         Icons.do_not_disturb_on,
-        const Color(0xFFF3F1ED),
-        const Color(0xFF5F5B54),
-        const Color(0xFFE4E0D8),
+        neutral.$1,
+        neutral.$2,
+        neutral.$3,
       ),
       CaptureState.scrolling => (
         Icons.swipe_vertical,
-        const Color(0xFFEAF1F4),
-        const Color(0xFF133845),
-        const Color(0xFFD2E2E8),
+        accent.$1,
+        accent.$2,
+        accent.$3,
       ),
       CaptureState.inspecting || CaptureState.navigating => (
         Icons.travel_explore,
-        const Color(0xFFEAF1F4),
-        const Color(0xFF133845),
-        const Color(0xFFD2E2E8),
+        accent.$1,
+        accent.$2,
+        accent.$3,
       ),
-      _ => (
-        Icons.downloading,
-        const Color(0xFFEAF1F4),
-        const Color(0xFF133845),
-        const Color(0xFFD2E2E8),
-      ),
+      _ => (Icons.downloading, accent.$1, accent.$2, accent.$3),
     };
 
     return Container(
@@ -515,8 +508,8 @@ class _PillCtl extends StatelessWidget {
     style: OutlinedButton.styleFrom(
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      foregroundColor: const Color(0xFF3E3A34),
-      side: const BorderSide(color: Color(0xFFC9C3B9)),
+      foregroundColor: AppPalette.of(context).inkStrong,
+      side: BorderSide(color: AppPalette.of(context).borderStrong),
     ),
   );
 }

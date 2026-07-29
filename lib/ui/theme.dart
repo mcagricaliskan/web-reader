@@ -1,8 +1,10 @@
-/// App theme, taken directly from the Claude Design prototype.
+/// App theme, built from [AppPalette].
 ///
-/// Deliberately flat: colours and sizes live as literal values here and in the
-/// widgets that use them, the same way the prototype expresses them. There is
-/// no token/ThemeExtension indirection layer.
+/// Every colour a widget can reach comes from the palette: the [ColorScheme],
+/// the component themes below, and the shared text styles at the bottom of
+/// this file. A literal `Color(0x…)` in a screen is a bug — it renders the
+/// light design on a dark page, which is exactly how this app ended up with a
+/// dark mode that looked like a light mode with the lamp switched off (D62).
 ///
 /// Everything here is plain Material — no Cupertino widgets and no iOS-only
 /// chrome — so the same UI renders on iOS and Android.
@@ -31,18 +33,18 @@ ThemeMode themeModeFor(AppearanceMode mode) => switch (mode) {
   AppearanceMode.dark => ThemeMode.dark,
 };
 
-/// Series monogram tile colours (background, foreground), cycled by index so a
-/// series keeps the same tile colour wherever it appears.
-const monogramPairs = <(Color, Color)>[
-  (Color(0xFFDDE7EA), Color(0xFF254E5C)),
-  (Color(0xFFE6E3DA), Color(0xFF4E4A3F)),
-  (Color(0xFFEDE1DA), Color(0xFF5C4034)),
-  (Color(0xFFDEE6E0), Color(0xFF37503F)),
-  (Color(0xFFE9E1E8), Color(0xFF4E3B4C)),
-];
+/// Series monogram tile colours (background, foreground), keyed so a series
+/// keeps the same tile colour wherever it appears.
+///
+/// One table with the site favicons, because they are the same object — a
+/// generated stand-in for artwork that does not exist — and two tables meant
+/// the monograms had no dark variant at all.
+(Color, Color) monogramFor(String id, AppPalette palette) =>
+    palette.tilePairs[id.hashCode.abs() % palette.tilePairs.length];
 
-(Color, Color) monogramFor(String id) =>
-    monogramPairs[id.hashCode.abs() % monogramPairs.length];
+/// Site favicon fallback tile, keyed by host.
+(Color, Color) faviconColorsFor(String host, {required AppPalette palette}) =>
+    tileColorsFor(host, palette: palette);
 
 /// Two-letter monogram for a title, matching the prototype's tiles.
 String monogramText(String title) {
@@ -70,40 +72,36 @@ ThemeData appTheme({AppPalette palette = AppPalette.light}) {
   final scheme = ColorScheme(
     brightness: palette.brightness,
     primary: palette.primary,
-    onPrimary: dark ? const Color(0xFF10222A) : Colors.white,
+    onPrimary: palette.onPrimary,
     primaryContainer: palette.primaryContainer,
     onPrimaryContainer: palette.onPrimaryContainer,
     secondary: palette.inkMuted,
-    onSecondary: dark ? const Color(0xFF171614) : Colors.white,
+    onSecondary: dark ? palette.surface : palette.onPrimary,
     secondaryContainer: palette.surfaceHigh,
     onSecondaryContainer: palette.inkStrong,
     tertiary: palette.warn,
-    onTertiary: dark ? const Color(0xFF241A08) : Colors.white,
+    onTertiary: palette.onWarn,
     tertiaryContainer: palette.warnContainer,
     onTertiaryContainer: palette.onWarnContainer,
     error: palette.danger,
-    onError: dark ? const Color(0xFF2A0E0A) : Colors.white,
+    onError: palette.onDanger,
     errorContainer: palette.dangerContainer,
     onErrorContainer: palette.onDangerContainer,
     surface: palette.surface,
     onSurface: palette.ink,
-    surfaceContainerLowest: dark
-        ? const Color(0xFF121110)
-        : const Color(0xFFFCFBF9),
-    surfaceContainerLow: dark
-        ? const Color(0xFF1A1917)
-        : const Color(0xFFF8F6F3),
+    surfaceContainerLowest: palette.surfaceSunken,
+    surfaceContainerLow: palette.surfaceMuted,
     surfaceContainer: palette.surfaceMuted,
     surfaceContainerHigh: palette.surfaceHigh,
-    surfaceContainerHighest: palette.divider,
+    surfaceContainerHighest: palette.surfaceInset,
     onSurfaceVariant: palette.inkMuted,
     outline: palette.borderStrong,
     outlineVariant: palette.border,
-    shadow: Colors.black,
+    shadow: palette.shadow,
     scrim: palette.scrim,
-    inverseSurface: dark ? const Color(0xFFF2EFE9) : const Color(0xFF1B1A18),
-    onInverseSurface: dark ? const Color(0xFF1B1A18) : const Color(0xFFFBFAF8),
-    inversePrimary: const Color(0xFF9FC3CE),
+    inverseSurface: palette.toastSurface,
+    onInverseSurface: palette.toastInk,
+    inversePrimary: palette.toastAccent,
   );
 
   final base = ThemeData(
@@ -111,24 +109,31 @@ ThemeData appTheme({AppPalette palette = AppPalette.light}) {
     brightness: palette.brightness,
     colorScheme: scheme,
     fontFamily: 'IBM Plex Sans',
-    scaffoldBackgroundColor: scheme.surface,
+    scaffoldBackgroundColor: palette.surface,
+    canvasColor: palette.surface,
     extensions: [palette],
   );
 
   return base.copyWith(
     textTheme: base.textTheme.apply(
-      bodyColor: scheme.onSurface,
-      displayColor: scheme.onSurface,
+      bodyColor: palette.ink,
+      displayColor: palette.ink,
       fontFamily: 'IBM Plex Sans',
     ),
+    iconTheme: IconThemeData(color: palette.inkMuted),
+    primaryIconTheme: IconThemeData(color: palette.inkMuted),
+    dividerColor: palette.divider,
     dividerTheme: DividerThemeData(
       color: palette.divider,
       thickness: 1,
       space: 1,
     ),
     appBarTheme: AppBarTheme(
-      backgroundColor: scheme.surface,
+      backgroundColor: palette.surface,
       foregroundColor: palette.inkStrong,
+      surfaceTintColor: Colors.transparent,
+      iconTheme: IconThemeData(color: palette.inkMuted),
+      actionsIconTheme: IconThemeData(color: palette.inkMuted),
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
@@ -137,13 +142,15 @@ ThemeData appTheme({AppPalette palette = AppPalette.light}) {
         fontSize: 15,
         fontVariations: wght(600),
         fontWeight: FontWeight.w600,
-        color: scheme.onSurface,
+        color: palette.ink,
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: scheme.primary,
-        foregroundColor: scheme.onPrimary,
+        backgroundColor: palette.primary,
+        foregroundColor: palette.onPrimary,
+        disabledBackgroundColor: palette.surfaceInset,
+        disabledForegroundColor: palette.inkDisabled,
         shape: const StadiumBorder(),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         textStyle: TextStyle(
@@ -157,7 +164,8 @@ ThemeData appTheme({AppPalette palette = AppPalette.light}) {
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: palette.inkStrong,
-        side: BorderSide(color: scheme.outline),
+        disabledForegroundColor: palette.inkDisabled,
+        side: BorderSide(color: palette.borderStrong),
         shape: const StadiumBorder(),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
         textStyle: TextStyle(
@@ -170,7 +178,8 @@ ThemeData appTheme({AppPalette palette = AppPalette.light}) {
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: scheme.primary,
+        foregroundColor: palette.primary,
+        disabledForegroundColor: palette.inkDisabled,
         textStyle: TextStyle(
           fontFamily: 'IBM Plex Sans',
           fontSize: 13,
@@ -179,25 +188,77 @@ ThemeData appTheme({AppPalette palette = AppPalette.light}) {
         ),
       ),
     ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        foregroundColor: palette.inkMuted,
+        disabledForegroundColor: palette.inkDisabled,
+      ),
+    ),
     bottomSheetTheme: BottomSheetThemeData(
-      backgroundColor: scheme.surface,
+      backgroundColor: palette.surface,
       surfaceTintColor: Colors.transparent,
+      dragHandleColor: palette.borderStrong,
       showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
       ),
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: scheme.surface,
+      backgroundColor: palette.surface,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-    ),
-    snackBarTheme: SnackBarThemeData(
-      backgroundColor: scheme.inverseSurface,
+      iconColor: palette.inkMuted,
+      titleTextStyle: TextStyle(
+        fontFamily: 'IBM Plex Sans',
+        fontSize: 17,
+        fontVariations: wght(600),
+        fontWeight: FontWeight.w600,
+        color: palette.ink,
+      ),
       contentTextStyle: TextStyle(
         fontFamily: 'IBM Plex Sans',
         fontSize: 13,
-        color: scheme.onInverseSurface,
+        height: 1.55,
+        color: palette.inkMuted,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: palette.surfaceMuted,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: palette.border),
+      ),
+      textStyle: TextStyle(
+        fontFamily: 'IBM Plex Sans',
+        fontSize: 13.5,
+        color: palette.ink,
+      ),
+    ),
+    menuTheme: MenuThemeData(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(palette.surfaceMuted),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      ),
+    ),
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: palette.toastSurface,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      textStyle: TextStyle(
+        fontFamily: 'IBM Plex Sans',
+        fontSize: 11.5,
+        color: palette.toastInk,
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: palette.toastSurface,
+      actionTextColor: palette.toastAccent,
+      contentTextStyle: TextStyle(
+        fontFamily: 'IBM Plex Sans',
+        fontSize: 13,
+        color: palette.toastInk,
       ),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -205,10 +266,85 @@ ThemeData appTheme({AppPalette palette = AppPalette.light}) {
     listTileTheme: ListTileThemeData(
       iconColor: palette.inkMuted,
       textColor: palette.ink,
+      subtitleTextStyle: TextStyle(
+        fontFamily: 'IBM Plex Sans',
+        fontSize: 12.5,
+        height: 1.4,
+        color: palette.inkFaint,
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: palette.surfaceHigh,
+      selectedColor: palette.primaryContainer,
+      disabledColor: palette.surfaceInset,
+      side: BorderSide(color: palette.border),
+      labelStyle: TextStyle(
+        fontFamily: 'IBM Plex Sans',
+        fontSize: 12,
+        color: palette.inkStrong,
+      ),
+      iconTheme: IconThemeData(color: palette.inkMuted, size: 15),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: palette.surfaceInset,
+      hintStyle: TextStyle(color: palette.inkGhost),
+      labelStyle: TextStyle(color: palette.inkMuted),
+      floatingLabelStyle: TextStyle(color: palette.primary),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: palette.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: palette.primary, width: 1.5),
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: palette.border),
+      ),
+    ),
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: palette.primary,
+      selectionColor: palette.primary.withValues(alpha: dark ? 0.34 : 0.22),
+      selectionHandleColor: palette.primary,
+    ),
+    checkboxTheme: CheckboxThemeData(
+      fillColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? palette.primary
+            : Colors.transparent,
+      ),
+      checkColor: WidgetStatePropertyAll(palette.onPrimary),
+      side: BorderSide(color: palette.borderStrong, width: 1.5),
+    ),
+    radioTheme: RadioThemeData(
+      fillColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? palette.primary
+            : palette.borderStrong,
+      ),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? palette.onPrimary
+            : palette.inkFaint,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? palette.primary
+            : palette.surfaceInset,
+      ),
+      trackOutlineColor: WidgetStatePropertyAll(palette.border),
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
-      color: scheme.primary,
+      color: palette.primary,
       linearTrackColor: palette.border,
+      circularTrackColor: Colors.transparent,
+    ),
+    scrollbarTheme: ScrollbarThemeData(
+      thumbColor: WidgetStatePropertyAll(palette.borderStrong),
     ),
   );
 }

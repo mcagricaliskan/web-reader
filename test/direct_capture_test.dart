@@ -7,6 +7,8 @@ import 'package:web_reader/capture/capture_job.dart';
 import 'package:web_reader/capture/capture_preflight.dart';
 import 'package:web_reader/capture/capture_state.dart';
 import 'package:web_reader/core/config.dart';
+import 'package:web_reader/features/capture_preflight_sheet.dart';
+import 'package:web_reader/features/capture_range_sheet.dart';
 import 'package:web_reader/library/update_checker.dart';
 import 'package:web_reader/queue/task_queue.dart';
 import 'package:web_reader/storage/database.dart';
@@ -304,6 +306,97 @@ void main() {
         job.debugSetRunning(false);
       },
     );
+  });
+
+  group('the launch survives the duplicate preflight', () {
+    CaptureLaunchPlan? plan(
+      CaptureSheetAction action,
+      PreflightChoice choice, {
+      DuplicatePolicy? policy,
+      int limit = 5,
+      CaptureRangeMode range = CaptureRangeMode.fixedCount,
+    }) => planAfterPreflight(
+      action: action,
+      choice: choice,
+      requestedLimit: limit,
+      requestedRange: range,
+      policy: policy,
+    );
+
+    test('a direct re-download stays direct, and is one chapter', () {
+      final result = plan(
+        CaptureSheetAction.startNow,
+        PreflightChoice.redownload,
+        policy: DuplicatePolicy.replaceAll,
+      );
+      expect(result!.action, CaptureSheetAction.startNow);
+      expect(result.chapterLimit, 1);
+      expect(result.range, CaptureRangeMode.currentChapter);
+      expect(result.policy, DuplicatePolicy.replaceAll);
+    });
+
+    test('a queued re-download stays queued', () {
+      final result = plan(
+        CaptureSheetAction.addToQueue,
+        PreflightChoice.redownload,
+        policy: DuplicatePolicy.replaceAll,
+      );
+      expect(result!.action, CaptureSheetAction.addToQueue);
+      expect(result.chapterLimit, 1);
+    });
+
+    test('every repair-shaped answer is a single chapter', () {
+      for (final choice in const [
+        PreflightChoice.redownload,
+        PreflightChoice.retryMissing,
+        PreflightChoice.restartCapture,
+        PreflightChoice.repair,
+      ]) {
+        final result = plan(CaptureSheetAction.startNow, choice)!;
+        expect(result.chapterLimit, 1, reason: choice.name);
+        expect(result.range, CaptureRangeMode.currentChapter);
+        expect(result.action, CaptureSheetAction.startNow);
+      }
+    });
+
+    test('capturing what follows keeps the requested range and launch', () {
+      for (final action in CaptureSheetAction.values) {
+        final result = plan(
+          action,
+          PreflightChoice.captureFollowing,
+          limit: 7,
+          range: CaptureRangeMode.untilEnd,
+        )!;
+        expect(result.action, action);
+        expect(result.chapterLimit, 7);
+        expect(result.range, CaptureRangeMode.untilEnd);
+      }
+    });
+
+    test('a restart after discarding keeps the launch too', () {
+      final result = plan(
+        CaptureSheetAction.startNow,
+        PreflightChoice.discardJobAndRestart,
+        limit: 3,
+      );
+      expect(result!.action, CaptureSheetAction.startNow);
+      expect(result.chapterLimit, 3);
+    });
+
+    test('answers that are not captures launch nothing', () {
+      for (final choice in const [
+        PreflightChoice.openExisting,
+        PreflightChoice.removeRecord,
+        PreflightChoice.resumeJob,
+        PreflightChoice.cancel,
+      ]) {
+        expect(
+          plan(CaptureSheetAction.startNow, choice),
+          isNull,
+          reason: choice.name,
+        );
+      }
+    });
   });
 
   group('recovery', () {

@@ -8,9 +8,9 @@ import 'browser_ui.dart';
 
 /// The design's three-up appearance control.
 ///
-/// The reader is deliberately excluded: it is pure black in every
-/// appearance, because it is built for night reading and a "light reader"
-/// nobody asked for would be a regression, not a feature.
+/// The reader is deliberately excluded: it is dark in every appearance,
+/// because it is built for night reading and a "light reader" nobody asked for
+/// would be a regression, not a feature.
 class AppearanceSelector extends ConsumerWidget {
   const AppearanceSelector({super.key});
 
@@ -32,7 +32,7 @@ class AppearanceSelector extends ConsumerWidget {
           ),
           const SizedBox(height: 9),
           Text(
-            "The reader is pure black in every theme — it's built for night "
+            "The reader stays dark in every theme — it's built for night "
             'reading.',
             style: TextStyle(
               fontSize: 12,

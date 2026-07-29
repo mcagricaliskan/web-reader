@@ -236,6 +236,17 @@ class $LibraryItemsTable extends LibraryItems
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _finishedCleanupMeta = const VerificationMeta(
+    'finishedCleanup',
+  );
+  @override
+  late final GeneratedColumn<String> finishedCleanup = GeneratedColumn<String>(
+    'finished_cleanup',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -259,6 +270,7 @@ class $LibraryItemsTable extends LibraryItems
     lastCheckResult,
     lifecycle,
     archivedAt,
+    finishedCleanup,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -438,6 +450,15 @@ class $LibraryItemsTable extends LibraryItems
         archivedAt.isAcceptableOrUnknown(data['archived_at']!, _archivedAtMeta),
       );
     }
+    if (data.containsKey('finished_cleanup')) {
+      context.handle(
+        _finishedCleanupMeta,
+        finishedCleanup.isAcceptableOrUnknown(
+          data['finished_cleanup']!,
+          _finishedCleanupMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -531,6 +552,10 @@ class $LibraryItemsTable extends LibraryItems
         DriftSqlType.dateTime,
         data['${effectivePrefix}archived_at'],
       ),
+      finishedCleanup: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}finished_cleanup'],
+      ),
     );
   }
 
@@ -597,6 +622,16 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
   /// When the series was archived; null while active. Presentation only
   /// ("archived 2 weeks ago") — [lifecycle] is the source of truth.
   final DateTime? archivedAt;
+
+  /// What to do with a finished chapter's downloaded files when the reader
+  /// moves forward inside this series: `remove` · `keep`, or **null** while
+  /// the series has never been asked.
+  ///
+  /// The only source of truth for the behaviour. There is no global default
+  /// and no per-chapter copy: null means "ask on the next eligible
+  /// transition", and an unrecognised value reads as null, which asks rather
+  /// than guessing at removal.
+  final String? finishedCleanup;
   const LibraryItem({
     required this.id,
     required this.title,
@@ -619,6 +654,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     this.lastCheckResult,
     required this.lifecycle,
     this.archivedAt,
+    this.finishedCleanup,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -676,6 +712,9 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     if (!nullToAbsent || archivedAt != null) {
       map['archived_at'] = Variable<DateTime>(archivedAt);
     }
+    if (!nullToAbsent || finishedCleanup != null) {
+      map['finished_cleanup'] = Variable<String>(finishedCleanup);
+    }
     return map;
   }
 
@@ -732,6 +771,9 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       archivedAt: archivedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(archivedAt),
+      finishedCleanup: finishedCleanup == null && nullToAbsent
+          ? const Value.absent()
+          : Value(finishedCleanup),
     );
   }
 
@@ -770,6 +812,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       lastCheckResult: serializer.fromJson<String?>(json['lastCheckResult']),
       lifecycle: serializer.fromJson<String>(json['lifecycle']),
       archivedAt: serializer.fromJson<DateTime?>(json['archivedAt']),
+      finishedCleanup: serializer.fromJson<String?>(json['finishedCleanup']),
     );
   }
   @override
@@ -799,6 +842,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       'lastCheckResult': serializer.toJson<String?>(lastCheckResult),
       'lifecycle': serializer.toJson<String>(lifecycle),
       'archivedAt': serializer.toJson<DateTime?>(archivedAt),
+      'finishedCleanup': serializer.toJson<String?>(finishedCleanup),
     };
   }
 
@@ -824,6 +868,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     Value<String?> lastCheckResult = const Value.absent(),
     String? lifecycle,
     Value<DateTime?> archivedAt = const Value.absent(),
+    Value<String?> finishedCleanup = const Value.absent(),
   }) => LibraryItem(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -862,6 +907,9 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
         : this.lastCheckResult,
     lifecycle: lifecycle ?? this.lifecycle,
     archivedAt: archivedAt.present ? archivedAt.value : this.archivedAt,
+    finishedCleanup: finishedCleanup.present
+        ? finishedCleanup.value
+        : this.finishedCleanup,
   );
   LibraryItem copyWithCompanion(LibraryItemsCompanion data) {
     return LibraryItem(
@@ -910,6 +958,9 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       archivedAt: data.archivedAt.present
           ? data.archivedAt.value
           : this.archivedAt,
+      finishedCleanup: data.finishedCleanup.present
+          ? data.finishedCleanup.value
+          : this.finishedCleanup,
     );
   }
 
@@ -936,7 +987,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           ..write('lastCheckError: $lastCheckError, ')
           ..write('lastCheckResult: $lastCheckResult, ')
           ..write('lifecycle: $lifecycle, ')
-          ..write('archivedAt: $archivedAt')
+          ..write('archivedAt: $archivedAt, ')
+          ..write('finishedCleanup: $finishedCleanup')
           ..write(')'))
         .toString();
   }
@@ -964,6 +1016,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     lastCheckResult,
     lifecycle,
     archivedAt,
+    finishedCleanup,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -989,7 +1042,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           other.lastCheckError == this.lastCheckError &&
           other.lastCheckResult == this.lastCheckResult &&
           other.lifecycle == this.lifecycle &&
-          other.archivedAt == this.archivedAt);
+          other.archivedAt == this.archivedAt &&
+          other.finishedCleanup == this.finishedCleanup);
 }
 
 class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
@@ -1014,6 +1068,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
   final Value<String?> lastCheckResult;
   final Value<String> lifecycle;
   final Value<DateTime?> archivedAt;
+  final Value<String?> finishedCleanup;
   final Value<int> rowid;
   const LibraryItemsCompanion({
     this.id = const Value.absent(),
@@ -1037,6 +1092,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.lastCheckResult = const Value.absent(),
     this.lifecycle = const Value.absent(),
     this.archivedAt = const Value.absent(),
+    this.finishedCleanup = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   LibraryItemsCompanion.insert({
@@ -1061,6 +1117,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.lastCheckResult = const Value.absent(),
     this.lifecycle = const Value.absent(),
     this.archivedAt = const Value.absent(),
+    this.finishedCleanup = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        title = Value(title),
@@ -1089,6 +1146,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     Expression<String>? lastCheckResult,
     Expression<String>? lifecycle,
     Expression<DateTime>? archivedAt,
+    Expression<String>? finishedCleanup,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1116,6 +1174,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       if (lastCheckResult != null) 'last_check_result': lastCheckResult,
       if (lifecycle != null) 'lifecycle': lifecycle,
       if (archivedAt != null) 'archived_at': archivedAt,
+      if (finishedCleanup != null) 'finished_cleanup': finishedCleanup,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1142,6 +1201,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     Value<String?>? lastCheckResult,
     Value<String>? lifecycle,
     Value<DateTime?>? archivedAt,
+    Value<String?>? finishedCleanup,
     Value<int>? rowid,
   }) {
     return LibraryItemsCompanion(
@@ -1167,6 +1227,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       lastCheckResult: lastCheckResult ?? this.lastCheckResult,
       lifecycle: lifecycle ?? this.lifecycle,
       archivedAt: archivedAt ?? this.archivedAt,
+      finishedCleanup: finishedCleanup ?? this.finishedCleanup,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1243,6 +1304,9 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     if (archivedAt.present) {
       map['archived_at'] = Variable<DateTime>(archivedAt.value);
     }
+    if (finishedCleanup.present) {
+      map['finished_cleanup'] = Variable<String>(finishedCleanup.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1273,6 +1337,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
           ..write('lastCheckResult: $lastCheckResult, ')
           ..write('lifecycle: $lifecycle, ')
           ..write('archivedAt: $archivedAt, ')
+          ..write('finishedCleanup: $finishedCleanup, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -7449,6 +7514,7 @@ typedef $$LibraryItemsTableCreateCompanionBuilder =
       Value<String?> lastCheckResult,
       Value<String> lifecycle,
       Value<DateTime?> archivedAt,
+      Value<String?> finishedCleanup,
       Value<int> rowid,
     });
 typedef $$LibraryItemsTableUpdateCompanionBuilder =
@@ -7474,6 +7540,7 @@ typedef $$LibraryItemsTableUpdateCompanionBuilder =
       Value<String?> lastCheckResult,
       Value<String> lifecycle,
       Value<DateTime?> archivedAt,
+      Value<String?> finishedCleanup,
       Value<int> rowid,
     });
 
@@ -7612,6 +7679,11 @@ class $$LibraryItemsTableFilterComposer
 
   ColumnFilters<DateTime> get archivedAt => $composableBuilder(
     column: $table.archivedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get finishedCleanup => $composableBuilder(
+    column: $table.finishedCleanup,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7754,6 +7826,11 @@ class $$LibraryItemsTableOrderingComposer
     column: $table.archivedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get finishedCleanup => $composableBuilder(
+    column: $table.finishedCleanup,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$LibraryItemsTableAnnotationComposer
@@ -7852,6 +7929,11 @@ class $$LibraryItemsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get finishedCleanup => $composableBuilder(
+    column: $table.finishedCleanup,
+    builder: (column) => column,
+  );
+
   Expression<T> chaptersRefs<T extends Object>(
     Expression<T> Function($$ChaptersTableAnnotationComposer a) f,
   ) {
@@ -7927,6 +8009,7 @@ class $$LibraryItemsTableTableManager
                 Value<String?> lastCheckResult = const Value.absent(),
                 Value<String> lifecycle = const Value.absent(),
                 Value<DateTime?> archivedAt = const Value.absent(),
+                Value<String?> finishedCleanup = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LibraryItemsCompanion(
                 id: id,
@@ -7950,6 +8033,7 @@ class $$LibraryItemsTableTableManager
                 lastCheckResult: lastCheckResult,
                 lifecycle: lifecycle,
                 archivedAt: archivedAt,
+                finishedCleanup: finishedCleanup,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -7975,6 +8059,7 @@ class $$LibraryItemsTableTableManager
                 Value<String?> lastCheckResult = const Value.absent(),
                 Value<String> lifecycle = const Value.absent(),
                 Value<DateTime?> archivedAt = const Value.absent(),
+                Value<String?> finishedCleanup = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LibraryItemsCompanion.insert(
                 id: id,
@@ -7998,6 +8083,7 @@ class $$LibraryItemsTableTableManager
                 lastCheckResult: lastCheckResult,
                 lifecycle: lifecycle,
                 archivedAt: archivedAt,
+                finishedCleanup: finishedCleanup,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

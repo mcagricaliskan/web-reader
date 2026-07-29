@@ -335,11 +335,14 @@ open in the reader or mid-capture are **kept**, and the confirmation says so rat
 Single and small removals offer an Undo; bulk work runs as an Activity task with live progress.
 *Delete item* remains unbuilt and out of scope.
 
-**After finishing a chapter (D37).** A persisted preference — *Ask each time* (default) · *Keep
-offline* · *Remove automatically* — applies **only** when the reader moves forward from a finished
-chapter to a different, openable one. In *Ask* mode the dialog's highlighted answer is always the
-preserving one, and only an explicit *"Don't ask again"* changes the stored preference. Changing the
-preference never removes anything already downloaded.
+**After finishing a chapter (D37).** Configured **per series**, never app-wide. The first time you
+finish a chapter in a series and continue to the next one, that series asks: *Remove after
+continuing* (preselected) or *Keep downloaded files*, saved with **Save choice**. The answer is
+stored on that series, applies to that transition, and is not asked again; every other series keeps
+its own answer and is asked separately. It applies **only** when the reader moves forward from a
+finished chapter to a different, openable one. Series detail › *Downloaded chapters* changes the
+answer or resets it to **Ask again next time**. Only downloaded files are ever removed, and changing
+an answer never removes anything already downloaded.
 
 ---
 

@@ -6,6 +6,7 @@ import '../browser/browser_controller.dart';
 import '../capture/next_page.dart';
 import '../capture/selection_request.dart';
 import '../capture/site_rule.dart';
+import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 
@@ -52,10 +53,11 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final request = widget.request;
 
     return Material(
-      color: const Color(0xFFFBFAF8),
+      color: palette.surface,
       elevation: 12,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
       clipBehavior: Clip.antiAlias,
@@ -73,7 +75,7 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFDFDAD2),
+                    color: palette.borderStrong,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -89,10 +91,10 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                 '${request.isRuleFailure ? 'A saved rule stopped working' : 'Automatic detection was not confident'}'
                 ': ${request.reason}. '
                 '${_isLink ? 'Tap the control that opens the next chapter — taps will not navigate while you are choosing.' : 'Tap the area that contains the chapter images — the app remembers it.'}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   height: 1.55,
-                  color: Color(0xFF5F5B54),
+                  color: palette.inkMuted,
                 ),
               ),
 
@@ -105,16 +107,16 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                     vertical: 9,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF7DDD8),
+                    color: palette.dangerContainer,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFEBC4BC)),
+                    border: Border.all(color: palette.dangerBorder),
                   ),
                   child: Text(
                     request.errorMessage!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       height: 1.45,
-                      color: Color(0xFF4A140E),
+                      color: palette.onDangerContainer,
                     ),
                   ),
                 ),
@@ -124,9 +126,9 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                 const SizedBox(height: 14),
                 Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF5F3EF),
+                    color: palette.surfaceMuted,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE7E3DC)),
+                    border: Border.all(color: palette.border),
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Column(
@@ -138,9 +140,9 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                           horizontal: 12,
                           vertical: 9,
                         ),
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           border: Border(
-                            bottom: BorderSide(color: Color(0xFFE7E3DC)),
+                            bottom: BorderSide(color: palette.border),
                           ),
                         ),
                         child: Text(
@@ -150,7 +152,7 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                             letterSpacing: 0.58,
                             fontVariations: wght(600),
                             fontWeight: FontWeight.w600,
-                            color: const Color(0xFF5F5B54),
+                            color: palette.inkMuted,
                           ),
                         ),
                       ),
@@ -160,17 +162,17 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                             horizontal: 12,
                             vertical: 9,
                           ),
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             border: Border(
-                              bottom: BorderSide(color: Color(0xFFEDEAE4)),
+                              bottom: BorderSide(color: palette.hairline),
                             ),
                           ),
                           child: Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.help_outline,
                                 size: 17,
-                                color: Color(0xFF8A5A1F),
+                                color: palette.warn,
                               ),
                               const SizedBox(width: 10),
                               Expanded(
@@ -178,19 +180,18 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                                   c.href,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontFamily: 'IBM Plex Mono',
-                                    fontSize: 11.5,
-                                    color: Color(0xFF3E3A34),
+                                  style: monoStyle(
+                                    size: 11.5,
+                                    color: palette.inkStrong,
                                   ),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Text(
                                 c.strategy.label,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 11,
-                                  color: Color(0xFF8C877E),
+                                  color: palette.inkFaint,
                                 ),
                               ),
                             ],
@@ -207,16 +208,16 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF5F3EF),
+                    color: palette.surfaceMuted,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFDFDAD2)),
+                    border: Border.all(color: palette.border),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Nothing selected yet — tap an element in the page above.',
                     style: TextStyle(
                       fontSize: 12.5,
                       fontStyle: FontStyle.italic,
-                      color: Color(0xFF5F5B54),
+                      color: palette.inkMuted,
                     ),
                   ),
                 )
@@ -231,7 +232,7 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                   letterSpacing: 0.6,
                   fontVariations: wght(600),
                   fontWeight: FontWeight.w600,
-                  color: const Color(0xFF5F5B54),
+                  color: palette.inkMuted,
                 ),
               ),
               const SizedBox(height: 8),
@@ -307,7 +308,7 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                 child: TextButton(
                   onPressed: widget.job.cancelSelection,
                   style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF5F5B54),
+                    foregroundColor: palette.inkMuted,
                   ),
                   child: const Text('Cancel job'),
                 ),
@@ -336,58 +337,64 @@ class _ScopeCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: selected ? const Color(0xFFEAF1F4) : const Color(0xFFF5F3EF),
-    borderRadius: BorderRadius.circular(14),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? const Color(0xFFD2E2E8) : const Color(0xFFE7E3DC),
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Material(
+      color: selected ? palette.primaryContainer : palette.surfaceMuted,
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? palette.primaryBorder : palette.border,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: selected ? palette.primary : palette.inkMuted,
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontVariations: wght(500),
+                        fontWeight: FontWeight.w500,
+                        color: selected
+                            ? palette.onPrimaryContainer
+                            : palette.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      sub,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: selected
+                            ? palette.onPrimaryContainer
+                            : palette.inkMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 20,
-              color: selected
-                  ? const Color(0xFF35606F)
-                  : const Color(0xFF5F5B54),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontVariations: wght(500),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    sub,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      color: Color(0xFF5F5B54),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _PickedDetails extends StatelessWidget {
@@ -398,6 +405,7 @@ class _PickedDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final rows = <(String, String)>[
       ('tag', '<${element.tag}>'),
       if (element.text.isNotEmpty) ('text', element.text),
@@ -429,9 +437,9 @@ class _PickedDetails extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF1F4),
+        color: palette.primaryContainer,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD2E2E8)),
+        border: Border.all(color: palette.primaryBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -443,7 +451,7 @@ class _PickedDetails extends StatelessWidget {
               letterSpacing: 0.58,
               fontVariations: wght(600),
               fontWeight: FontWeight.w600,
-              color: const Color(0xFF35606F),
+              color: palette.onPrimaryContainer,
             ),
           ),
           const SizedBox(height: 5),
@@ -454,15 +462,11 @@ class _PickedDetails extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 text: TextSpan(
-                  style: const TextStyle(
-                    fontFamily: 'IBM Plex Mono',
-                    fontSize: 11,
-                    color: Color(0xFF133845),
-                  ),
+                  style: monoStyle(color: palette.onPrimaryContainer),
                   children: [
                     TextSpan(
                       text: '$label  ',
-                      style: const TextStyle(color: Color(0xFF3D6270)),
+                      style: TextStyle(color: palette.primary),
                     ),
                     TextSpan(
                       text: value,
@@ -480,9 +484,7 @@ class _PickedDetails extends StatelessWidget {
                 : '$signalCount stable signals will be stored.',
             style: TextStyle(
               fontSize: 10.5,
-              color: signalCount < 2
-                  ? const Color(0xFF8E3B31)
-                  : const Color(0xFF3D6270),
+              color: signalCount < 2 ? palette.danger : palette.primary,
             ),
           ),
         ],
