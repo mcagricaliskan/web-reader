@@ -8,7 +8,7 @@ import 'package:web_reader/storage/file_store.dart';
 import 'package:web_reader/storage/manifest.dart';
 
 /// M3 acceptance 5: force-quit mid-session, reopen, and nothing is falsely
-/// marked captured.
+/// marked saved.
 ///
 /// The force-quit itself is simulated at the layer where it matters — a
 /// database and a file tree left exactly as an interrupted run leaves them,
@@ -36,106 +36,111 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  Future<void> seedItem() => db.upsertLibraryItem(
-    LibraryItem(
+  Future<void> seedItem() => db.upsertCollection(
+    Collection(
+      contentKind: 'unknownWebContent',
+      sequenceKind: 'none',
+      orderingBasis: 'discoveryOrder',
+      shapeConfidence: 'low',
       lifecycle: 'active',
       id: 'item-1',
-      title: 'Fixture Series',
-      sourceUrl: 'https://x.example/manga/foo',
+      title: 'Fixture Collection',
+      sourceUrl: 'https://x.example/guide/foo',
       host: 'x.example',
-      seriesKey: '/manga/foo',
+      collectionKey: '/guide/foo',
       createdAt: DateTime(2026, 7, 1),
     ),
   );
 
-  Chapter chapter(
+  Entry entry(
     String id, {
     required String status,
     String? contentPath,
-    int sequence = 1,
-  }) => Chapter(
+    int entryOrder = 1,
+  }) => Entry(
+    host: '',
+    contentKind: 'unknownWebContent',
+    contentKindConfidence: 'low',
+    contentKindIsUserSet: false,
     readStatus: 'unread',
     progressFraction: 0,
-    progressImageIndex: 0,
-    progressOffsetInImage: 0,
+    progressPageIndex: 0,
+    progressOffsetInPage: 0,
     id: id,
-    libraryItemId: 'item-1',
-    title: 'Fixture Series Chapter $sequence',
-    sourceUrl: 'https://x.example/manga/foo/$sequence',
-    urlKey: 'https://x.example/manga/foo/$sequence',
-    captureStatus: status,
+    collectionId: 'item-1',
+    title: 'Fixture Collection Entry $entryOrder',
+    sourceUrl: 'https://x.example/guide/foo/$entryOrder',
+    urlKey: 'https://x.example/guide/foo/$entryOrder',
+    saveStatus: status,
     contentPath: contentPath,
-    capturedAt: status == 'complete' ? DateTime(2026, 7, 20) : null,
-    detectedImageCount: 6,
-    storedImageCount: status == 'complete' ? 6 : 0,
-    sequence: sequence,
+    savedAt: status == 'complete' ? DateTime(2026, 7, 20) : null,
+    detectedAssetCount: 6,
+    storedAssetCount: status == 'complete' ? 6 : 0,
+    entryOrder: entryOrder,
     byteSize: status == 'complete' ? 4096 : 0,
   );
 
-  ChapterManifest manifestFor(String chapterId, CaptureStatus status) =>
-      ChapterManifest(
-        schemaVersion: 1,
-        chapterId: chapterId,
-        libraryItemId: 'item-1',
-        sourceUrl: 'https://x.example/manga/foo/2',
-        title: 'Fixture Series Chapter 2',
-        capturedAt: DateTime(2026, 7, 21),
-        status: status,
-        detectedImageCount: 2,
-        storedImageCount: 2,
-        sequence: 2,
-        assets: const [
-          AssetEntry(
-            index: 1,
-            sourceUrl: 'https://cdn.example/1.png',
-            status: AssetStatus.stored,
-            relativePath: 'assets/001.png',
-          ),
-          AssetEntry(
-            index: 2,
-            sourceUrl: 'https://cdn.example/2.png',
-            status: AssetStatus.stored,
-            relativePath: 'assets/002.png',
-          ),
-        ],
-      );
+  EntryManifest manifestFor(String entryId, SaveStatus status) => EntryManifest(
+    schemaVersion: 1,
+    entryId: entryId,
+    collectionId: 'item-1',
+    sourceUrl: 'https://x.example/guide/foo/2',
+    title: 'Fixture Collection Entry 2',
+    savedAt: DateTime(2026, 7, 21),
+    status: status,
+    detectedAssetCount: 2,
+    storedAssetCount: 2,
+    entryOrder: 2,
+    assets: const [
+      EntryAsset(
+        index: 1,
+        sourceUrl: 'https://cdn.example/1.png',
+        status: AssetStatus.stored,
+        relativePath: 'assets/001.png',
+      ),
+      EntryAsset(
+        index: 2,
+        sourceUrl: 'https://cdn.example/2.png',
+        status: AssetStatus.stored,
+        relativePath: 'assets/002.png',
+      ),
+    ],
+  );
 
-  group('force-quit mid-capture', () {
-    test('an in-flight chapter is demoted, never promoted', () async {
+  group('force-quit mid-save', () {
+    test('an in-flight entry is demoted, never promoted', () async {
       await seedItem();
-      await db.upsertChapter(
-        chapter(
+      await db.upsertEntry(
+        entry(
           'done',
           status: 'complete',
-          contentPath: 'library/item-1/chapters/done',
+          contentPath: 'library/item-1/entries/done',
         ),
       );
-      await db.upsertChapter(
-        chapter('inflight', status: 'capturing', sequence: 2),
-      );
+      await db.upsertEntry(entry('inflight', status: 'saving', entryOrder: 2));
 
-      final reset = await db.resetInFlightChapters();
+      final reset = await db.resetInFlightEntries();
 
       expect(reset, 1);
-      final interrupted = await db.chapterById('inflight');
+      final interrupted = await db.entryById('inflight');
       expect(
-        interrupted!.captureStatus,
+        interrupted!.saveStatus,
         'failed',
-        reason: 'an interrupted chapter must never come back as complete',
+        reason: 'an interrupted entry must never come back as complete',
       );
-      expect(interrupted.captureError, contains('interrupted'));
-      expect(interrupted.storedImageCount, 0);
+      expect(interrupted.saveError, contains('interrupted'));
+      expect(interrupted.storedAssetCount, 0);
 
-      // The chapter that had actually finished is untouched.
-      final done = await db.chapterById('done');
-      expect(done!.captureStatus, 'complete');
-      expect(done.contentPath, 'library/item-1/chapters/done');
+      // The entry that had actually finished is untouched.
+      final done = await db.entryById('done');
+      expect(done!.saveStatus, 'complete');
+      expect(done.contentPath, 'library/item-1/entries/done');
     });
 
     test('staging left behind by the kill is swept', () async {
-      final staging = await store.beginChapter(
-        libraryItemId: 'item-1',
-        chapterId: 'inflight',
+      final staging = await store.beginEntry(
+        collectionId: 'item-1',
+        entryId: 'inflight',
       );
       await staging.assetFile('001.png').writeAsBytes([1, 2, 3]);
       expect(staging.dir.existsSync(), isTrue);
@@ -145,66 +150,68 @@ void main() {
       expect(swept, 1);
       expect(staging.dir.existsSync(), isFalse);
       expect(
-        store.chapterExists(
-          FileStore.chapterRelativePath('item-1', 'inflight'),
-        ),
+        store.entryExists(FileStore.entryRelativePath('item-1', 'inflight')),
         isFalse,
-        reason: 'partial bytes must never appear as a committed chapter',
+        reason: 'partial bytes must never appear as a committed entry',
       );
     });
 
     test(
-      'a chapter committed to disk but not to the database is reconciled',
+      'an entry committed to disk but not to the database is reconciled',
       () async {
         await seedItem();
 
         // The exact window: files renamed into place, process killed before
         // the database transaction.
-        final staging = await store.beginChapter(
-          libraryItemId: 'item-1',
-          chapterId: 'orphan',
+        final staging = await store.beginEntry(
+          collectionId: 'item-1',
+          entryId: 'orphan',
         );
         await staging.assetFile('001.png').writeAsBytes([1, 2, 3, 4]);
         await staging.assetFile('002.png').writeAsBytes([5, 6, 7, 8]);
         final relative = await store.commit(
           staging,
-          manifestFor('orphan', CaptureStatus.complete),
+          manifestFor('orphan', SaveStatus.complete),
         );
 
-        expect(store.chapterExists(relative), isTrue);
-        expect(await db.chapterById('orphan'), isNull);
+        expect(store.entryExists(relative), isTrue);
+        expect(await db.entryById('orphan'), isNull);
 
         // What startup recovery does: read the manifest and finish the record.
-        final found = store.listCommittedChapterPaths();
+        final found = store.listCommittedEntryPaths();
         expect(found, contains(relative));
         final manifest = await store.readManifest(relative);
         expect(manifest, isNotNull);
-        expect(manifest!.status, CaptureStatus.complete);
+        expect(manifest!.status, SaveStatus.complete);
 
-        await db.upsertChapter(
-          Chapter(
-            id: manifest.chapterId,
-            libraryItemId: manifest.libraryItemId,
+        await db.upsertEntry(
+          Entry(
+            host: '',
+            contentKind: 'unknownWebContent',
+            contentKindConfidence: 'low',
+            contentKindIsUserSet: false,
+            id: manifest.entryId,
+            collectionId: manifest.collectionId,
             title: manifest.title,
             sourceUrl: manifest.sourceUrl,
             urlKey: manifest.sourceUrl,
-            captureStatus: manifest.status.name,
+            saveStatus: manifest.status.name,
             contentPath: relative,
-            capturedAt: manifest.capturedAt,
-            detectedImageCount: manifest.detectedImageCount,
-            storedImageCount: manifest.storedImageCount,
-            sequence: manifest.sequence ?? 0,
+            savedAt: manifest.savedAt,
+            detectedAssetCount: manifest.detectedAssetCount,
+            storedAssetCount: manifest.storedAssetCount,
+            entryOrder: manifest.entryOrder ?? 0,
             byteSize: 2048,
             readStatus: 'unread',
             progressFraction: 0,
-            progressImageIndex: 0,
-            progressOffsetInImage: 0,
+            progressPageIndex: 0,
+            progressOffsetInPage: 0,
           ),
         );
 
-        final recovered = await db.chapterById('orphan');
-        expect(recovered!.captureStatus, 'complete');
-        expect(recovered.storedImageCount, 2);
+        final recovered = await db.entryById('orphan');
+        expect(recovered!.saveStatus, 'complete');
+        expect(recovered.storedAssetCount, 2);
         expect(
           store.assetFile(relative, 'assets/001.png').existsSync(),
           isTrue,
@@ -214,82 +221,85 @@ void main() {
 
     test('a partial manifest is reconciled as partial, not complete', () async {
       await seedItem();
-      final staging = await store.beginChapter(
-        libraryItemId: 'item-1',
-        chapterId: 'half',
+      final staging = await store.beginEntry(
+        collectionId: 'item-1',
+        entryId: 'half',
       );
       await staging.assetFile('001.png').writeAsBytes([1, 2, 3]);
       final relative = await store.commit(
         staging,
-        manifestFor('half', CaptureStatus.partial),
+        manifestFor('half', SaveStatus.partial),
       );
 
       final manifest = await store.readManifest(relative);
       expect(
         manifest!.status,
-        CaptureStatus.partial,
+        SaveStatus.partial,
         reason: 'recovery must carry the recorded status, not assume success',
       );
     });
   });
 
-  group('the interrupted job itself', () {
-    CaptureJob job(String state, {int completed = 1}) => CaptureJob(
-      rangeMode: 'fixedCount',
-      id: 'job-1',
-      startUrl: 'https://x.example/manga/foo/1',
-      currentUrl: 'https://x.example/manga/foo/2',
-      requestedChapters: 3,
-      completedChapters: completed,
+  group('the interrupted run itself', () {
+    SaveRun run(String state, {int completed = 1}) => SaveRun(
+      visitedCanonicals: '',
+      includeImages: true,
+      origin: 'queue',
+      scope: 'fixedCount',
+      id: 'run-1',
+      startUrl: 'https://x.example/guide/foo/1',
+      currentUrl: 'https://x.example/guide/foo/2',
+      requestedEntries: 3,
+      completedEntries: completed,
       state: state,
-      visitedUrls: 'https://x.example/manga/foo/1',
+      visitedUrls: 'https://x.example/guide/foo/1',
       createdAt: DateTime(2026, 7, 20),
       updatedAt: DateTime(2026, 7, 20),
     );
 
     test('is offered for resume after the restart', () async {
-      await db.upsertJob(job('downloading'));
+      await db.upsertRun(run('downloading'));
 
-      final resumable = await db.findResumableJob();
+      final resumable = await db.findResumableRun();
 
       expect(resumable, isNotNull);
-      expect(resumable!.currentUrl, 'https://x.example/manga/foo/2');
-      expect(resumable.completedChapters, 1);
+      expect(resumable!.currentUrl, 'https://x.example/guide/foo/2');
+      expect(resumable.completedEntries, 1);
       expect(
         resumable.visitedUrls,
         contains('foo/1'),
-        reason: 'the visited set is what stops a resume re-walking chapter 1',
+        reason: 'the visited set is what stops a resume re-walking entry 1',
       );
     });
 
     test(
-      'is never resumed automatically — discarding leaves the captures',
+      'is never resumed automatically — discarding leaves the saves',
       () async {
         await seedItem();
-        await db.upsertChapter(
-          chapter(
+        await db.upsertEntry(
+          entry(
             'done',
             status: 'complete',
-            contentPath: 'library/item-1/chapters/done',
+            contentPath: 'library/item-1/entries/done',
           ),
         );
-        await db.upsertJob(job('scrolling'));
+        await db.upsertRun(run('scrolling'));
 
-        await db.deleteJob('job-1');
+        await db.deleteRun('run-1');
 
-        expect(await db.findResumableJob(), isNull);
-        final kept = await db.chapterById('done');
+        expect(await db.findResumableRun(), isNull);
+        final kept = await db.entryById('done');
         expect(
-          kept!.captureStatus,
+          kept!.saveStatus,
           'complete',
-          reason: 'discarding a job must not touch what it already captured',
+          reason: 'discarding a run must not touch what it already saved',
         );
       },
     );
 
-    test('a finished job is not offered', () async {
-      await db.upsertJob(job('complete', completed: 3));
-      expect(await db.findResumableJob(), isNull);
+    test('a finished run is not offered', () async {
+      await db.upsertRun(run('complete', completed: 3));
+      expect(await db.findResumableRun(), isNull);
     });
   });
 }

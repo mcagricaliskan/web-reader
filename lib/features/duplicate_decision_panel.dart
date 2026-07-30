@@ -1,26 +1,26 @@
 import 'package:flutter/material.dart';
 
-import '../capture/capture_job.dart';
-import '../capture/capture_preflight.dart';
+import '../save/save_run.dart';
+import '../save/save_preflight.dart';
 import '../features/library_screen.dart' show formatRelative;
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 
-/// Shown in place of the capture panel while the running job holds on a
-/// chapter that already exists locally.
+/// Shown in place of the save panel while the running run holds on a
+/// entry that already exists locally.
 ///
-/// The job is paused underneath: nothing downloads and nothing navigates
-/// until the user answers. Offered actions depend on the chapter's state —
-/// a complete chapter cannot "retry missing files", a partial one can.
+/// The run is paused underneath: nothing downloads and nothing navigates
+/// until the user answers. Offered actions depend on the entry's state —
+/// a complete entry cannot "retry missing files", a partial one can.
 class DuplicateDecisionPanel extends StatefulWidget {
   const DuplicateDecisionPanel({
     super.key,
-    required this.job,
+    required this.run,
     required this.request,
   });
 
-  final CaptureJobController job;
+  final SaveRunController run;
   final DuplicateRequest request;
 
   @override
@@ -34,11 +34,11 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     final request = widget.request;
-    final chapter = request.chapter;
+    final entry = request.entry;
 
-    // The leading glyph speaks the capture-status vocabulary: what state the
+    // The leading glyph speaks the save-status vocabulary: what state the
     // existing copy is in decides both the icon and its colour.
-    final (icon, iconColor) = switch (chapter?.captureStatus) {
+    final (icon, iconColor) = switch (entry?.saveStatus) {
       'partial' => (Icons.arrow_circle_down, palette.warn),
       'failed' => (Icons.error, palette.danger),
       _ => (Icons.download_for_offline, palette.primary),
@@ -87,12 +87,12 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
                             color: palette.ink,
                           ),
                         ),
-                        if (chapter != null) ...[
+                        if (entry != null) ...[
                           const SizedBox(height: 4),
                           Text(
-                            '${chapter.chapterLabel ?? chapter.title}'
-                            ' · ${chapter.storedImageCount}/${chapter.detectedImageCount} images'
-                            ' · saved ${formatRelative(chapter.capturedAt)}',
+                            '${entry.sourceMarker ?? entry.title}'
+                            ' · ${entry.storedAssetCount}/${entry.detectedAssetCount} images'
+                            ' · saved ${formatRelative(entry.savedAt)}',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: monoStyle(
@@ -140,7 +140,7 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Use this choice for every already-captured chapter '
+                          'Use this choice for every already-saved entry '
                           'in this run',
                           style: TextStyle(
                             fontSize: 12.5,
@@ -168,12 +168,12 @@ class _DuplicateDecisionPanelState extends State<DuplicateDecisionPanel> {
     );
   }
 
-  void _submit(DuplicateChoiceAction action) => widget.job.resolveDuplicate(
+  void _submit(DuplicateChoiceAction action) => widget.run.resolveDuplicate(
     DuplicateChoice(
       action,
       // Stop is a one-off by design: "stop" is not a policy.
       applyToSession:
-          _applyToSession && action != DuplicateChoiceAction.stopCapture,
+          _applyToSession && action != DuplicateChoiceAction.stopSave,
     ),
   );
 }
@@ -189,7 +189,7 @@ class _ActionCard extends StatelessWidget {
     final (icon, label, sub, highlighted) = switch (action) {
       DuplicateChoiceAction.skip => (
         Icons.skip_next,
-        'Skip this chapter',
+        'Skip this entry',
         "Keep what's on the device, move to the next",
         false,
       ),
@@ -205,16 +205,16 @@ class _ActionCard extends StatelessWidget {
         'Leaves the saved images alone',
         true,
       ),
-      DuplicateChoiceAction.restartChapter => (
+      DuplicateChoiceAction.restartEntry => (
         Icons.restart_alt,
-        'Start this chapter over',
+        'Start this entry over',
         'The earlier attempt found no images',
         true,
       ),
-      DuplicateChoiceAction.stopCapture => (
+      DuplicateChoiceAction.stopSave => (
         Icons.stop_circle,
         'Stop the run',
-        'Keeps everything captured so far',
+        'Keeps everything saved so far',
         false,
       ),
     };

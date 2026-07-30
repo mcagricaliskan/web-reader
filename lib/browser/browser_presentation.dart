@@ -69,7 +69,7 @@ class BrowserPresentation extends ChangeNotifier {
   }
 
   /// Ask for Browser Home from outside the Browser tab (Settings). The tab
-  /// switch is the caller's job; this only makes sure Home is what greets
+  /// switch is the caller's run; this only makes sure Home is what greets
   /// them when they arrive.
   void requestHome() {
     _pendingHomeRequest = true;

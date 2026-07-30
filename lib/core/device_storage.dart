@@ -39,7 +39,7 @@ class DeviceCapacity {
     final percent = usedPercent;
     if (percent == null) return StorageLevel.unknown;
     // An absolute floor as well as the percentage: a disk with under a
-    // gigabyte free cannot finish a capture whatever share of it that is.
+    // gigabyte free cannot finish a save whatever share of it that is.
     // In practice this only fires on very large disks, where a high
     // percentage would otherwise still look comfortable.
     final free = freeBytes;
@@ -54,14 +54,14 @@ class DeviceCapacity {
 
 /// The device is filling up. Amber from here.
 ///
-/// 75% is early enough that a user who wants to capture a long series still
+/// 75% is early enough that a user who wants to save a long collection still
 /// has room to act on the warning, and late enough that a normally-loaded
 /// phone is not permanently shouting at them.
 const int kStorageWarningPercent = 75;
 
 /// Close to the limit. Red from here.
 ///
-/// At 90% a capture of a large chapter is a realistic risk of failing
+/// At 90% a save of a large entry is a realistic risk of failing
 /// part-way, which is the specific outcome the colour is warning about.
 const int kStorageCriticalPercent = 90;
 
@@ -90,7 +90,7 @@ enum StorageLevel {
 ///
 /// Everything here fails SOFT and says so: a channel error returns null /
 /// false rather than throwing, because storage policy must degrade to
-/// "could not check" — it must never be the thing that crashes a capture.
+/// "could not check" — it must never be the thing that crashes a save.
 class DeviceStorage {
   DeviceStorage({@visibleForTesting MethodChannel? channel})
     : _channel = channel ?? const MethodChannel('webread/device_storage');
@@ -130,9 +130,9 @@ class DeviceStorage {
 
   /// Exclude [absolutePath] from device backup (iOS:
   /// NSURLIsExcludedFromBackupKey). Returns true when the attribute was set.
-  /// On Android this is a no-op returning false — chapter assets there are
+  /// On Android this is a no-op returning false — entry assets there are
   /// already outside the (25 MB-capped) auto-backup in practice, and a
-  /// backup-rules entry is release work, not capture work.
+  /// backup-rules entry is release work, not save work.
   Future<bool> excludeFromBackup(String absolutePath) async {
     try {
       final v = await _channel.invokeMethod<bool>('excludeFromBackup', {

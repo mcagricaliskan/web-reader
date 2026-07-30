@@ -3,12 +3,12 @@
 part of 'database.dart';
 
 // ignore_for_file: type=lint
-class $LibraryItemsTable extends LibraryItems
-    with TableInfo<$LibraryItemsTable, LibraryItem> {
+class $CollectionsTable extends Collections
+    with TableInfo<$CollectionsTable, Collection> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  $LibraryItemsTable(this.attachedDatabase, [this._alias]);
+  $CollectionsTable(this.attachedDatabase, [this._alias]);
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
   late final GeneratedColumn<String> id = GeneratedColumn<String>(
@@ -58,28 +58,28 @@ class $LibraryItemsTable extends LibraryItems
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _seriesKeyMeta = const VerificationMeta(
-    'seriesKey',
+  static const VerificationMeta _collectionKeyMeta = const VerificationMeta(
+    'collectionKey',
   );
   @override
-  late final GeneratedColumn<String> seriesKey = GeneratedColumn<String>(
-    'series_key',
+  late final GeneratedColumn<String> collectionKey = GeneratedColumn<String>(
+    'collection_key',
     aliasedName,
     true,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _seriesUrlMeta = const VerificationMeta(
-    'seriesUrl',
-  );
+  static const VerificationMeta _collectionIndexUrlMeta =
+      const VerificationMeta('collectionIndexUrl');
   @override
-  late final GeneratedColumn<String> seriesUrl = GeneratedColumn<String>(
-    'series_url',
-    aliasedName,
-    true,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-  );
+  late final GeneratedColumn<String> collectionIndexUrl =
+      GeneratedColumn<String>(
+        'collection_index_url',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _identityBasisMeta = const VerificationMeta(
     'identityBasis',
   );
@@ -102,6 +102,65 @@ class $LibraryItemsTable extends LibraryItems
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _contentKindMeta = const VerificationMeta(
+    'contentKind',
+  );
+  @override
+  late final GeneratedColumn<String> contentKind = GeneratedColumn<String>(
+    'content_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('unknownWebContent'),
+  );
+  static const VerificationMeta _sequenceKindMeta = const VerificationMeta(
+    'sequenceKind',
+  );
+  @override
+  late final GeneratedColumn<String> sequenceKind = GeneratedColumn<String>(
+    'sequence_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('none'),
+  );
+  static const VerificationMeta _orderingBasisMeta = const VerificationMeta(
+    'orderingBasis',
+  );
+  @override
+  late final GeneratedColumn<String> orderingBasis = GeneratedColumn<String>(
+    'ordering_basis',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('discoveryOrder'),
+  );
+  static const VerificationMeta _shapeConfidenceMeta = const VerificationMeta(
+    'shapeConfidence',
+  );
+  @override
+  late final GeneratedColumn<String> shapeConfidence = GeneratedColumn<String>(
+    'shape_confidence',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('low'),
+  );
+  static const VerificationMeta _knownEntryTotalMeta = const VerificationMeta(
+    'knownEntryTotal',
+  );
+  @override
+  late final GeneratedColumn<int> knownEntryTotal = GeneratedColumn<int>(
+    'known_entry_total',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -124,35 +183,35 @@ class $LibraryItemsTable extends LibraryItems
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _lastCapturedAtMeta = const VerificationMeta(
-    'lastCapturedAt',
+  static const VerificationMeta _lastSavedAtMeta = const VerificationMeta(
+    'lastSavedAt',
   );
   @override
-  late final GeneratedColumn<DateTime> lastCapturedAt =
-      GeneratedColumn<DateTime>(
-        'last_captured_at',
-        aliasedName,
-        true,
-        type: DriftSqlType.dateTime,
-        requiredDuringInsert: false,
-      );
-  static const VerificationMeta _lastOpenedChapterIdMeta =
-      const VerificationMeta('lastOpenedChapterId');
+  late final GeneratedColumn<DateTime> lastSavedAt = GeneratedColumn<DateTime>(
+    'last_saved_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastOpenedEntryIdMeta = const VerificationMeta(
+    'lastOpenedEntryId',
+  );
   @override
-  late final GeneratedColumn<String> lastOpenedChapterId =
+  late final GeneratedColumn<String> lastOpenedEntryId =
       GeneratedColumn<String>(
-        'last_opened_chapter_id',
+        'last_opened_entry_id',
         aliasedName,
         true,
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
-  static const VerificationMeta _lastCompletedChapterIdMeta =
-      const VerificationMeta('lastCompletedChapterId');
+  static const VerificationMeta _lastCompletedEntryIdMeta =
+      const VerificationMeta('lastCompletedEntryId');
   @override
-  late final GeneratedColumn<String> lastCompletedChapterId =
+  late final GeneratedColumn<String> lastCompletedEntryId =
       GeneratedColumn<String>(
-        'last_completed_chapter_id',
+        'last_completed_entry_id',
         aliasedName,
         true,
         type: DriftSqlType.string,
@@ -236,17 +295,18 @@ class $LibraryItemsTable extends LibraryItems
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _finishedCleanupMeta = const VerificationMeta(
-    'finishedCleanup',
+  static const VerificationMeta _cleanupPreferenceMeta = const VerificationMeta(
+    'cleanupPreference',
   );
   @override
-  late final GeneratedColumn<String> finishedCleanup = GeneratedColumn<String>(
-    'finished_cleanup',
-    aliasedName,
-    true,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-  );
+  late final GeneratedColumn<String> cleanupPreference =
+      GeneratedColumn<String>(
+        'cleanup_preference',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -254,15 +314,20 @@ class $LibraryItemsTable extends LibraryItems
     userTitle,
     sourceUrl,
     host,
-    seriesKey,
-    seriesUrl,
+    collectionKey,
+    collectionIndexUrl,
     identityBasis,
     identityConfidence,
+    contentKind,
+    sequenceKind,
+    orderingBasis,
+    shapeConfidence,
+    knownEntryTotal,
     createdAt,
     lastOpenedAt,
-    lastCapturedAt,
-    lastOpenedChapterId,
-    lastCompletedChapterId,
+    lastSavedAt,
+    lastOpenedEntryId,
+    lastCompletedEntryId,
     lastReadAt,
     lastCheckAt,
     lastCheckSuccessAt,
@@ -270,16 +335,16 @@ class $LibraryItemsTable extends LibraryItems
     lastCheckResult,
     lifecycle,
     archivedAt,
-    finishedCleanup,
+    cleanupPreference,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'library_items';
+  static const String $name = 'collections';
   @override
   VerificationContext validateIntegrity(
-    Insertable<LibraryItem> instance, {
+    Insertable<Collection> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
@@ -319,16 +384,22 @@ class $LibraryItemsTable extends LibraryItems
     } else if (isInserting) {
       context.missing(_hostMeta);
     }
-    if (data.containsKey('series_key')) {
+    if (data.containsKey('collection_key')) {
       context.handle(
-        _seriesKeyMeta,
-        seriesKey.isAcceptableOrUnknown(data['series_key']!, _seriesKeyMeta),
+        _collectionKeyMeta,
+        collectionKey.isAcceptableOrUnknown(
+          data['collection_key']!,
+          _collectionKeyMeta,
+        ),
       );
     }
-    if (data.containsKey('series_url')) {
+    if (data.containsKey('collection_index_url')) {
       context.handle(
-        _seriesUrlMeta,
-        seriesUrl.isAcceptableOrUnknown(data['series_url']!, _seriesUrlMeta),
+        _collectionIndexUrlMeta,
+        collectionIndexUrl.isAcceptableOrUnknown(
+          data['collection_index_url']!,
+          _collectionIndexUrlMeta,
+        ),
       );
     }
     if (data.containsKey('identity_basis')) {
@@ -349,6 +420,51 @@ class $LibraryItemsTable extends LibraryItems
         ),
       );
     }
+    if (data.containsKey('content_kind')) {
+      context.handle(
+        _contentKindMeta,
+        contentKind.isAcceptableOrUnknown(
+          data['content_kind']!,
+          _contentKindMeta,
+        ),
+      );
+    }
+    if (data.containsKey('sequence_kind')) {
+      context.handle(
+        _sequenceKindMeta,
+        sequenceKind.isAcceptableOrUnknown(
+          data['sequence_kind']!,
+          _sequenceKindMeta,
+        ),
+      );
+    }
+    if (data.containsKey('ordering_basis')) {
+      context.handle(
+        _orderingBasisMeta,
+        orderingBasis.isAcceptableOrUnknown(
+          data['ordering_basis']!,
+          _orderingBasisMeta,
+        ),
+      );
+    }
+    if (data.containsKey('shape_confidence')) {
+      context.handle(
+        _shapeConfidenceMeta,
+        shapeConfidence.isAcceptableOrUnknown(
+          data['shape_confidence']!,
+          _shapeConfidenceMeta,
+        ),
+      );
+    }
+    if (data.containsKey('known_entry_total')) {
+      context.handle(
+        _knownEntryTotalMeta,
+        knownEntryTotal.isAcceptableOrUnknown(
+          data['known_entry_total']!,
+          _knownEntryTotalMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -366,30 +482,30 @@ class $LibraryItemsTable extends LibraryItems
         ),
       );
     }
-    if (data.containsKey('last_captured_at')) {
+    if (data.containsKey('last_saved_at')) {
       context.handle(
-        _lastCapturedAtMeta,
-        lastCapturedAt.isAcceptableOrUnknown(
-          data['last_captured_at']!,
-          _lastCapturedAtMeta,
+        _lastSavedAtMeta,
+        lastSavedAt.isAcceptableOrUnknown(
+          data['last_saved_at']!,
+          _lastSavedAtMeta,
         ),
       );
     }
-    if (data.containsKey('last_opened_chapter_id')) {
+    if (data.containsKey('last_opened_entry_id')) {
       context.handle(
-        _lastOpenedChapterIdMeta,
-        lastOpenedChapterId.isAcceptableOrUnknown(
-          data['last_opened_chapter_id']!,
-          _lastOpenedChapterIdMeta,
+        _lastOpenedEntryIdMeta,
+        lastOpenedEntryId.isAcceptableOrUnknown(
+          data['last_opened_entry_id']!,
+          _lastOpenedEntryIdMeta,
         ),
       );
     }
-    if (data.containsKey('last_completed_chapter_id')) {
+    if (data.containsKey('last_completed_entry_id')) {
       context.handle(
-        _lastCompletedChapterIdMeta,
-        lastCompletedChapterId.isAcceptableOrUnknown(
-          data['last_completed_chapter_id']!,
-          _lastCompletedChapterIdMeta,
+        _lastCompletedEntryIdMeta,
+        lastCompletedEntryId.isAcceptableOrUnknown(
+          data['last_completed_entry_id']!,
+          _lastCompletedEntryIdMeta,
         ),
       );
     }
@@ -450,12 +566,12 @@ class $LibraryItemsTable extends LibraryItems
         archivedAt.isAcceptableOrUnknown(data['archived_at']!, _archivedAtMeta),
       );
     }
-    if (data.containsKey('finished_cleanup')) {
+    if (data.containsKey('cleanup_preference')) {
       context.handle(
-        _finishedCleanupMeta,
-        finishedCleanup.isAcceptableOrUnknown(
-          data['finished_cleanup']!,
-          _finishedCleanupMeta,
+        _cleanupPreferenceMeta,
+        cleanupPreference.isAcceptableOrUnknown(
+          data['cleanup_preference']!,
+          _cleanupPreferenceMeta,
         ),
       );
     }
@@ -465,9 +581,13 @@ class $LibraryItemsTable extends LibraryItems
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  LibraryItem map(Map<String, dynamic> data, {String? tablePrefix}) {
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {host, collectionKey},
+  ];
+  @override
+  Collection map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return LibraryItem(
+    return Collection(
       id: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}id'],
@@ -488,13 +608,13 @@ class $LibraryItemsTable extends LibraryItems
         DriftSqlType.string,
         data['${effectivePrefix}host'],
       )!,
-      seriesKey: attachedDatabase.typeMapping.read(
+      collectionKey: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}series_key'],
+        data['${effectivePrefix}collection_key'],
       ),
-      seriesUrl: attachedDatabase.typeMapping.read(
+      collectionIndexUrl: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}series_url'],
+        data['${effectivePrefix}collection_index_url'],
       ),
       identityBasis: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -504,6 +624,26 @@ class $LibraryItemsTable extends LibraryItems
         DriftSqlType.string,
         data['${effectivePrefix}identity_confidence'],
       ),
+      contentKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_kind'],
+      )!,
+      sequenceKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sequence_kind'],
+      )!,
+      orderingBasis: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ordering_basis'],
+      )!,
+      shapeConfidence: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}shape_confidence'],
+      )!,
+      knownEntryTotal: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}known_entry_total'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -512,17 +652,17 @@ class $LibraryItemsTable extends LibraryItems
         DriftSqlType.dateTime,
         data['${effectivePrefix}last_opened_at'],
       ),
-      lastCapturedAt: attachedDatabase.typeMapping.read(
+      lastSavedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
-        data['${effectivePrefix}last_captured_at'],
+        data['${effectivePrefix}last_saved_at'],
       ),
-      lastOpenedChapterId: attachedDatabase.typeMapping.read(
+      lastOpenedEntryId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}last_opened_chapter_id'],
+        data['${effectivePrefix}last_opened_entry_id'],
       ),
-      lastCompletedChapterId: attachedDatabase.typeMapping.read(
+      lastCompletedEntryId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}last_completed_chapter_id'],
+        data['${effectivePrefix}last_completed_entry_id'],
       ),
       lastReadAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
@@ -552,101 +692,113 @@ class $LibraryItemsTable extends LibraryItems
         DriftSqlType.dateTime,
         data['${effectivePrefix}archived_at'],
       ),
-      finishedCleanup: attachedDatabase.typeMapping.read(
+      cleanupPreference: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}finished_cleanup'],
+        data['${effectivePrefix}cleanup_preference'],
       ),
     );
   }
 
   @override
-  $LibraryItemsTable createAlias(String alias) {
-    return $LibraryItemsTable(attachedDatabase, alias);
+  $CollectionsTable createAlias(String alias) {
+    return $CollectionsTable(attachedDatabase, alias);
   }
 }
 
-class LibraryItem extends DataClass implements Insertable<LibraryItem> {
+class Collection extends DataClass implements Insertable<Collection> {
   final String id;
 
-  /// Automatically detected series title. `title` keeps its original column
-  /// name so existing rows migrate in place.
+  /// Detected title, as the source wrote it.
   final String title;
 
-  /// User-chosen display name. Presentation only — never part of matching,
+  /// What the user renamed it to. Presentation only — never part of matching,
   /// never part of a storage path.
   final String? userTitle;
   final String sourceUrl;
   final String host;
 
-  /// Series-path fingerprint, or a `title:`/`host:` fallback key. Unique per
-  /// host: this is what future captures match against.
-  final String? seriesKey;
+  /// Identity within a host. What a later save matches against, so a rename can
+  /// never split a collection or create a second one.
+  final String? collectionKey;
 
-  /// A stable URL for the series index page, when the page offered one.
-  final String? seriesUrl;
+  /// A stable URL for the collection's index page, when the source offered one.
+  final String? collectionIndexUrl;
 
-  /// How the key was derived, kept so a bad grouping is explainable.
+  /// Which signal produced the key, and how much it can be trusted. Kept so a
+  /// wrong grouping is explainable rather than mysterious.
   final String? identityBasis;
   final String? identityConfidence;
+
+  /// `ContentKind.name`. What the entries in this collection are.
+  final String contentKind;
+
+  /// `SequenceKind.name`. How the entries continue into one another — including
+  /// `none`, which is a real answer.
+  final String sequenceKind;
+
+  /// `OrderingBasis.name`. What decides the reading order.
+  final String orderingBasis;
+
+  /// `ShapeConfidence.name` for the two above. Low means the UI says
+  /// "saved items" instead of naming a structure the source never declared.
+  final String shapeConfidence;
+
+  /// How many entries the source says exist, when it said so at all.
+  ///
+  /// **Nullable, and usually null.** An open-ended sequence has no total, and a
+  /// number here that was never published is a lie the whole UI then repeats.
+  final int? knownEntryTotal;
   final DateTime createdAt;
   final DateTime? lastOpenedAt;
-  final DateTime? lastCapturedAt;
+  final DateTime? lastSavedAt;
 
-  /// Denormalised reading pointers. Derivable, but every library query orders
-  /// on them, and recomputing a per-series aggregate for each row on every
-  /// stream emission is the difference between a snappy list and a stuttery
-  /// one. Written in the same transaction as the chapter change that causes
-  /// them, and rebuildable by `repairSeriesReadingState`.
-  final String? lastOpenedChapterId;
-  final String? lastCompletedChapterId;
+  /// Denormalised reading pointers. Derivable, but every library query orders on
+  /// them, and recomputing a per-collection aggregate for each row on every
+  /// stream emission is the difference between a snappy list and a stuttery one.
+  /// Written in the same call as the entry change that causes them.
+  final String? lastOpenedEntryId;
+  final String? lastCompletedEntryId;
   final DateTime? lastReadAt;
-
-  /// When a check last ran, successful or not.
   final DateTime? lastCheckAt;
-
-  /// When a check last finished successfully.
   final DateTime? lastCheckSuccessAt;
-
-  /// Why the last check failed, when it did.
   final String? lastCheckError;
 
-  /// Terminal state of the last check: upToDate / updatesAvailable / failed /
-  /// cancelled / needsUserInput.
+  /// upToDate / updatesAvailable / failed / cancelled / needsUserInput.
   final String? lastCheckResult;
 
-  /// `active` | `archived`. Archiving hides a series from the library and
-  /// excludes it from checks; it never touches chapters or files — restore
-  /// brings everything back exactly as it was.
+  /// `active` | `archived`. Archiving hides a collection and excludes it from
+  /// checks; it never touches entries or files.
   final String lifecycle;
-
-  /// When the series was archived; null while active. Presentation only
-  /// ("archived 2 weeks ago") — [lifecycle] is the source of truth.
   final DateTime? archivedAt;
 
-  /// What to do with a finished chapter's downloaded files when the reader
-  /// moves forward inside this series: `remove` · `keep`, or **null** while
-  /// the series has never been asked.
+  /// What to do with a finished entry's offline files when the reader moves
+  /// forward inside this collection: `remove` · `keep`, or **null** while this
+  /// collection has never been asked.
   ///
-  /// The only source of truth for the behaviour. There is no global default
-  /// and no per-chapter copy: null means "ask on the next eligible
-  /// transition", and an unrecognised value reads as null, which asks rather
-  /// than guessing at removal.
-  final String? finishedCleanup;
-  const LibraryItem({
+  /// The only source of truth. There is no app-wide default and no per-entry
+  /// copy: null means "ask on the next eligible transition", and an unrecognised
+  /// value reads as null, which asks rather than guessing at removal.
+  final String? cleanupPreference;
+  const Collection({
     required this.id,
     required this.title,
     this.userTitle,
     required this.sourceUrl,
     required this.host,
-    this.seriesKey,
-    this.seriesUrl,
+    this.collectionKey,
+    this.collectionIndexUrl,
     this.identityBasis,
     this.identityConfidence,
+    required this.contentKind,
+    required this.sequenceKind,
+    required this.orderingBasis,
+    required this.shapeConfidence,
+    this.knownEntryTotal,
     required this.createdAt,
     this.lastOpenedAt,
-    this.lastCapturedAt,
-    this.lastOpenedChapterId,
-    this.lastCompletedChapterId,
+    this.lastSavedAt,
+    this.lastOpenedEntryId,
+    this.lastCompletedEntryId,
     this.lastReadAt,
     this.lastCheckAt,
     this.lastCheckSuccessAt,
@@ -654,7 +806,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     this.lastCheckResult,
     required this.lifecycle,
     this.archivedAt,
-    this.finishedCleanup,
+    this.cleanupPreference,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -666,11 +818,11 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     }
     map['source_url'] = Variable<String>(sourceUrl);
     map['host'] = Variable<String>(host);
-    if (!nullToAbsent || seriesKey != null) {
-      map['series_key'] = Variable<String>(seriesKey);
+    if (!nullToAbsent || collectionKey != null) {
+      map['collection_key'] = Variable<String>(collectionKey);
     }
-    if (!nullToAbsent || seriesUrl != null) {
-      map['series_url'] = Variable<String>(seriesUrl);
+    if (!nullToAbsent || collectionIndexUrl != null) {
+      map['collection_index_url'] = Variable<String>(collectionIndexUrl);
     }
     if (!nullToAbsent || identityBasis != null) {
       map['identity_basis'] = Variable<String>(identityBasis);
@@ -678,20 +830,25 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     if (!nullToAbsent || identityConfidence != null) {
       map['identity_confidence'] = Variable<String>(identityConfidence);
     }
+    map['content_kind'] = Variable<String>(contentKind);
+    map['sequence_kind'] = Variable<String>(sequenceKind);
+    map['ordering_basis'] = Variable<String>(orderingBasis);
+    map['shape_confidence'] = Variable<String>(shapeConfidence);
+    if (!nullToAbsent || knownEntryTotal != null) {
+      map['known_entry_total'] = Variable<int>(knownEntryTotal);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     if (!nullToAbsent || lastOpenedAt != null) {
       map['last_opened_at'] = Variable<DateTime>(lastOpenedAt);
     }
-    if (!nullToAbsent || lastCapturedAt != null) {
-      map['last_captured_at'] = Variable<DateTime>(lastCapturedAt);
+    if (!nullToAbsent || lastSavedAt != null) {
+      map['last_saved_at'] = Variable<DateTime>(lastSavedAt);
     }
-    if (!nullToAbsent || lastOpenedChapterId != null) {
-      map['last_opened_chapter_id'] = Variable<String>(lastOpenedChapterId);
+    if (!nullToAbsent || lastOpenedEntryId != null) {
+      map['last_opened_entry_id'] = Variable<String>(lastOpenedEntryId);
     }
-    if (!nullToAbsent || lastCompletedChapterId != null) {
-      map['last_completed_chapter_id'] = Variable<String>(
-        lastCompletedChapterId,
-      );
+    if (!nullToAbsent || lastCompletedEntryId != null) {
+      map['last_completed_entry_id'] = Variable<String>(lastCompletedEntryId);
     }
     if (!nullToAbsent || lastReadAt != null) {
       map['last_read_at'] = Variable<DateTime>(lastReadAt);
@@ -712,14 +869,14 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     if (!nullToAbsent || archivedAt != null) {
       map['archived_at'] = Variable<DateTime>(archivedAt);
     }
-    if (!nullToAbsent || finishedCleanup != null) {
-      map['finished_cleanup'] = Variable<String>(finishedCleanup);
+    if (!nullToAbsent || cleanupPreference != null) {
+      map['cleanup_preference'] = Variable<String>(cleanupPreference);
     }
     return map;
   }
 
-  LibraryItemsCompanion toCompanion(bool nullToAbsent) {
-    return LibraryItemsCompanion(
+  CollectionsCompanion toCompanion(bool nullToAbsent) {
+    return CollectionsCompanion(
       id: Value(id),
       title: Value(title),
       userTitle: userTitle == null && nullToAbsent
@@ -727,31 +884,38 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           : Value(userTitle),
       sourceUrl: Value(sourceUrl),
       host: Value(host),
-      seriesKey: seriesKey == null && nullToAbsent
+      collectionKey: collectionKey == null && nullToAbsent
           ? const Value.absent()
-          : Value(seriesKey),
-      seriesUrl: seriesUrl == null && nullToAbsent
+          : Value(collectionKey),
+      collectionIndexUrl: collectionIndexUrl == null && nullToAbsent
           ? const Value.absent()
-          : Value(seriesUrl),
+          : Value(collectionIndexUrl),
       identityBasis: identityBasis == null && nullToAbsent
           ? const Value.absent()
           : Value(identityBasis),
       identityConfidence: identityConfidence == null && nullToAbsent
           ? const Value.absent()
           : Value(identityConfidence),
+      contentKind: Value(contentKind),
+      sequenceKind: Value(sequenceKind),
+      orderingBasis: Value(orderingBasis),
+      shapeConfidence: Value(shapeConfidence),
+      knownEntryTotal: knownEntryTotal == null && nullToAbsent
+          ? const Value.absent()
+          : Value(knownEntryTotal),
       createdAt: Value(createdAt),
       lastOpenedAt: lastOpenedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(lastOpenedAt),
-      lastCapturedAt: lastCapturedAt == null && nullToAbsent
+      lastSavedAt: lastSavedAt == null && nullToAbsent
           ? const Value.absent()
-          : Value(lastCapturedAt),
-      lastOpenedChapterId: lastOpenedChapterId == null && nullToAbsent
+          : Value(lastSavedAt),
+      lastOpenedEntryId: lastOpenedEntryId == null && nullToAbsent
           ? const Value.absent()
-          : Value(lastOpenedChapterId),
-      lastCompletedChapterId: lastCompletedChapterId == null && nullToAbsent
+          : Value(lastOpenedEntryId),
+      lastCompletedEntryId: lastCompletedEntryId == null && nullToAbsent
           ? const Value.absent()
-          : Value(lastCompletedChapterId),
+          : Value(lastCompletedEntryId),
       lastReadAt: lastReadAt == null && nullToAbsent
           ? const Value.absent()
           : Value(lastReadAt),
@@ -771,37 +935,44 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       archivedAt: archivedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(archivedAt),
-      finishedCleanup: finishedCleanup == null && nullToAbsent
+      cleanupPreference: cleanupPreference == null && nullToAbsent
           ? const Value.absent()
-          : Value(finishedCleanup),
+          : Value(cleanupPreference),
     );
   }
 
-  factory LibraryItem.fromJson(
+  factory Collection.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return LibraryItem(
+    return Collection(
       id: serializer.fromJson<String>(json['id']),
       title: serializer.fromJson<String>(json['title']),
       userTitle: serializer.fromJson<String?>(json['userTitle']),
       sourceUrl: serializer.fromJson<String>(json['sourceUrl']),
       host: serializer.fromJson<String>(json['host']),
-      seriesKey: serializer.fromJson<String?>(json['seriesKey']),
-      seriesUrl: serializer.fromJson<String?>(json['seriesUrl']),
+      collectionKey: serializer.fromJson<String?>(json['collectionKey']),
+      collectionIndexUrl: serializer.fromJson<String?>(
+        json['collectionIndexUrl'],
+      ),
       identityBasis: serializer.fromJson<String?>(json['identityBasis']),
       identityConfidence: serializer.fromJson<String?>(
         json['identityConfidence'],
       ),
+      contentKind: serializer.fromJson<String>(json['contentKind']),
+      sequenceKind: serializer.fromJson<String>(json['sequenceKind']),
+      orderingBasis: serializer.fromJson<String>(json['orderingBasis']),
+      shapeConfidence: serializer.fromJson<String>(json['shapeConfidence']),
+      knownEntryTotal: serializer.fromJson<int?>(json['knownEntryTotal']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       lastOpenedAt: serializer.fromJson<DateTime?>(json['lastOpenedAt']),
-      lastCapturedAt: serializer.fromJson<DateTime?>(json['lastCapturedAt']),
-      lastOpenedChapterId: serializer.fromJson<String?>(
-        json['lastOpenedChapterId'],
+      lastSavedAt: serializer.fromJson<DateTime?>(json['lastSavedAt']),
+      lastOpenedEntryId: serializer.fromJson<String?>(
+        json['lastOpenedEntryId'],
       ),
-      lastCompletedChapterId: serializer.fromJson<String?>(
-        json['lastCompletedChapterId'],
+      lastCompletedEntryId: serializer.fromJson<String?>(
+        json['lastCompletedEntryId'],
       ),
       lastReadAt: serializer.fromJson<DateTime?>(json['lastReadAt']),
       lastCheckAt: serializer.fromJson<DateTime?>(json['lastCheckAt']),
@@ -812,7 +983,9 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       lastCheckResult: serializer.fromJson<String?>(json['lastCheckResult']),
       lifecycle: serializer.fromJson<String>(json['lifecycle']),
       archivedAt: serializer.fromJson<DateTime?>(json['archivedAt']),
-      finishedCleanup: serializer.fromJson<String?>(json['finishedCleanup']),
+      cleanupPreference: serializer.fromJson<String?>(
+        json['cleanupPreference'],
+      ),
     );
   }
   @override
@@ -824,17 +997,20 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       'userTitle': serializer.toJson<String?>(userTitle),
       'sourceUrl': serializer.toJson<String>(sourceUrl),
       'host': serializer.toJson<String>(host),
-      'seriesKey': serializer.toJson<String?>(seriesKey),
-      'seriesUrl': serializer.toJson<String?>(seriesUrl),
+      'collectionKey': serializer.toJson<String?>(collectionKey),
+      'collectionIndexUrl': serializer.toJson<String?>(collectionIndexUrl),
       'identityBasis': serializer.toJson<String?>(identityBasis),
       'identityConfidence': serializer.toJson<String?>(identityConfidence),
+      'contentKind': serializer.toJson<String>(contentKind),
+      'sequenceKind': serializer.toJson<String>(sequenceKind),
+      'orderingBasis': serializer.toJson<String>(orderingBasis),
+      'shapeConfidence': serializer.toJson<String>(shapeConfidence),
+      'knownEntryTotal': serializer.toJson<int?>(knownEntryTotal),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'lastOpenedAt': serializer.toJson<DateTime?>(lastOpenedAt),
-      'lastCapturedAt': serializer.toJson<DateTime?>(lastCapturedAt),
-      'lastOpenedChapterId': serializer.toJson<String?>(lastOpenedChapterId),
-      'lastCompletedChapterId': serializer.toJson<String?>(
-        lastCompletedChapterId,
-      ),
+      'lastSavedAt': serializer.toJson<DateTime?>(lastSavedAt),
+      'lastOpenedEntryId': serializer.toJson<String?>(lastOpenedEntryId),
+      'lastCompletedEntryId': serializer.toJson<String?>(lastCompletedEntryId),
       'lastReadAt': serializer.toJson<DateTime?>(lastReadAt),
       'lastCheckAt': serializer.toJson<DateTime?>(lastCheckAt),
       'lastCheckSuccessAt': serializer.toJson<DateTime?>(lastCheckSuccessAt),
@@ -842,25 +1018,30 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       'lastCheckResult': serializer.toJson<String?>(lastCheckResult),
       'lifecycle': serializer.toJson<String>(lifecycle),
       'archivedAt': serializer.toJson<DateTime?>(archivedAt),
-      'finishedCleanup': serializer.toJson<String?>(finishedCleanup),
+      'cleanupPreference': serializer.toJson<String?>(cleanupPreference),
     };
   }
 
-  LibraryItem copyWith({
+  Collection copyWith({
     String? id,
     String? title,
     Value<String?> userTitle = const Value.absent(),
     String? sourceUrl,
     String? host,
-    Value<String?> seriesKey = const Value.absent(),
-    Value<String?> seriesUrl = const Value.absent(),
+    Value<String?> collectionKey = const Value.absent(),
+    Value<String?> collectionIndexUrl = const Value.absent(),
     Value<String?> identityBasis = const Value.absent(),
     Value<String?> identityConfidence = const Value.absent(),
+    String? contentKind,
+    String? sequenceKind,
+    String? orderingBasis,
+    String? shapeConfidence,
+    Value<int?> knownEntryTotal = const Value.absent(),
     DateTime? createdAt,
     Value<DateTime?> lastOpenedAt = const Value.absent(),
-    Value<DateTime?> lastCapturedAt = const Value.absent(),
-    Value<String?> lastOpenedChapterId = const Value.absent(),
-    Value<String?> lastCompletedChapterId = const Value.absent(),
+    Value<DateTime?> lastSavedAt = const Value.absent(),
+    Value<String?> lastOpenedEntryId = const Value.absent(),
+    Value<String?> lastCompletedEntryId = const Value.absent(),
     Value<DateTime?> lastReadAt = const Value.absent(),
     Value<DateTime?> lastCheckAt = const Value.absent(),
     Value<DateTime?> lastCheckSuccessAt = const Value.absent(),
@@ -868,32 +1049,41 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     Value<String?> lastCheckResult = const Value.absent(),
     String? lifecycle,
     Value<DateTime?> archivedAt = const Value.absent(),
-    Value<String?> finishedCleanup = const Value.absent(),
-  }) => LibraryItem(
+    Value<String?> cleanupPreference = const Value.absent(),
+  }) => Collection(
     id: id ?? this.id,
     title: title ?? this.title,
     userTitle: userTitle.present ? userTitle.value : this.userTitle,
     sourceUrl: sourceUrl ?? this.sourceUrl,
     host: host ?? this.host,
-    seriesKey: seriesKey.present ? seriesKey.value : this.seriesKey,
-    seriesUrl: seriesUrl.present ? seriesUrl.value : this.seriesUrl,
+    collectionKey: collectionKey.present
+        ? collectionKey.value
+        : this.collectionKey,
+    collectionIndexUrl: collectionIndexUrl.present
+        ? collectionIndexUrl.value
+        : this.collectionIndexUrl,
     identityBasis: identityBasis.present
         ? identityBasis.value
         : this.identityBasis,
     identityConfidence: identityConfidence.present
         ? identityConfidence.value
         : this.identityConfidence,
+    contentKind: contentKind ?? this.contentKind,
+    sequenceKind: sequenceKind ?? this.sequenceKind,
+    orderingBasis: orderingBasis ?? this.orderingBasis,
+    shapeConfidence: shapeConfidence ?? this.shapeConfidence,
+    knownEntryTotal: knownEntryTotal.present
+        ? knownEntryTotal.value
+        : this.knownEntryTotal,
     createdAt: createdAt ?? this.createdAt,
     lastOpenedAt: lastOpenedAt.present ? lastOpenedAt.value : this.lastOpenedAt,
-    lastCapturedAt: lastCapturedAt.present
-        ? lastCapturedAt.value
-        : this.lastCapturedAt,
-    lastOpenedChapterId: lastOpenedChapterId.present
-        ? lastOpenedChapterId.value
-        : this.lastOpenedChapterId,
-    lastCompletedChapterId: lastCompletedChapterId.present
-        ? lastCompletedChapterId.value
-        : this.lastCompletedChapterId,
+    lastSavedAt: lastSavedAt.present ? lastSavedAt.value : this.lastSavedAt,
+    lastOpenedEntryId: lastOpenedEntryId.present
+        ? lastOpenedEntryId.value
+        : this.lastOpenedEntryId,
+    lastCompletedEntryId: lastCompletedEntryId.present
+        ? lastCompletedEntryId.value
+        : this.lastCompletedEntryId,
     lastReadAt: lastReadAt.present ? lastReadAt.value : this.lastReadAt,
     lastCheckAt: lastCheckAt.present ? lastCheckAt.value : this.lastCheckAt,
     lastCheckSuccessAt: lastCheckSuccessAt.present
@@ -907,38 +1097,57 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
         : this.lastCheckResult,
     lifecycle: lifecycle ?? this.lifecycle,
     archivedAt: archivedAt.present ? archivedAt.value : this.archivedAt,
-    finishedCleanup: finishedCleanup.present
-        ? finishedCleanup.value
-        : this.finishedCleanup,
+    cleanupPreference: cleanupPreference.present
+        ? cleanupPreference.value
+        : this.cleanupPreference,
   );
-  LibraryItem copyWithCompanion(LibraryItemsCompanion data) {
-    return LibraryItem(
+  Collection copyWithCompanion(CollectionsCompanion data) {
+    return Collection(
       id: data.id.present ? data.id.value : this.id,
       title: data.title.present ? data.title.value : this.title,
       userTitle: data.userTitle.present ? data.userTitle.value : this.userTitle,
       sourceUrl: data.sourceUrl.present ? data.sourceUrl.value : this.sourceUrl,
       host: data.host.present ? data.host.value : this.host,
-      seriesKey: data.seriesKey.present ? data.seriesKey.value : this.seriesKey,
-      seriesUrl: data.seriesUrl.present ? data.seriesUrl.value : this.seriesUrl,
+      collectionKey: data.collectionKey.present
+          ? data.collectionKey.value
+          : this.collectionKey,
+      collectionIndexUrl: data.collectionIndexUrl.present
+          ? data.collectionIndexUrl.value
+          : this.collectionIndexUrl,
       identityBasis: data.identityBasis.present
           ? data.identityBasis.value
           : this.identityBasis,
       identityConfidence: data.identityConfidence.present
           ? data.identityConfidence.value
           : this.identityConfidence,
+      contentKind: data.contentKind.present
+          ? data.contentKind.value
+          : this.contentKind,
+      sequenceKind: data.sequenceKind.present
+          ? data.sequenceKind.value
+          : this.sequenceKind,
+      orderingBasis: data.orderingBasis.present
+          ? data.orderingBasis.value
+          : this.orderingBasis,
+      shapeConfidence: data.shapeConfidence.present
+          ? data.shapeConfidence.value
+          : this.shapeConfidence,
+      knownEntryTotal: data.knownEntryTotal.present
+          ? data.knownEntryTotal.value
+          : this.knownEntryTotal,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       lastOpenedAt: data.lastOpenedAt.present
           ? data.lastOpenedAt.value
           : this.lastOpenedAt,
-      lastCapturedAt: data.lastCapturedAt.present
-          ? data.lastCapturedAt.value
-          : this.lastCapturedAt,
-      lastOpenedChapterId: data.lastOpenedChapterId.present
-          ? data.lastOpenedChapterId.value
-          : this.lastOpenedChapterId,
-      lastCompletedChapterId: data.lastCompletedChapterId.present
-          ? data.lastCompletedChapterId.value
-          : this.lastCompletedChapterId,
+      lastSavedAt: data.lastSavedAt.present
+          ? data.lastSavedAt.value
+          : this.lastSavedAt,
+      lastOpenedEntryId: data.lastOpenedEntryId.present
+          ? data.lastOpenedEntryId.value
+          : this.lastOpenedEntryId,
+      lastCompletedEntryId: data.lastCompletedEntryId.present
+          ? data.lastCompletedEntryId.value
+          : this.lastCompletedEntryId,
       lastReadAt: data.lastReadAt.present
           ? data.lastReadAt.value
           : this.lastReadAt,
@@ -958,29 +1167,34 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       archivedAt: data.archivedAt.present
           ? data.archivedAt.value
           : this.archivedAt,
-      finishedCleanup: data.finishedCleanup.present
-          ? data.finishedCleanup.value
-          : this.finishedCleanup,
+      cleanupPreference: data.cleanupPreference.present
+          ? data.cleanupPreference.value
+          : this.cleanupPreference,
     );
   }
 
   @override
   String toString() {
-    return (StringBuffer('LibraryItem(')
+    return (StringBuffer('Collection(')
           ..write('id: $id, ')
           ..write('title: $title, ')
           ..write('userTitle: $userTitle, ')
           ..write('sourceUrl: $sourceUrl, ')
           ..write('host: $host, ')
-          ..write('seriesKey: $seriesKey, ')
-          ..write('seriesUrl: $seriesUrl, ')
+          ..write('collectionKey: $collectionKey, ')
+          ..write('collectionIndexUrl: $collectionIndexUrl, ')
           ..write('identityBasis: $identityBasis, ')
           ..write('identityConfidence: $identityConfidence, ')
+          ..write('contentKind: $contentKind, ')
+          ..write('sequenceKind: $sequenceKind, ')
+          ..write('orderingBasis: $orderingBasis, ')
+          ..write('shapeConfidence: $shapeConfidence, ')
+          ..write('knownEntryTotal: $knownEntryTotal, ')
           ..write('createdAt: $createdAt, ')
           ..write('lastOpenedAt: $lastOpenedAt, ')
-          ..write('lastCapturedAt: $lastCapturedAt, ')
-          ..write('lastOpenedChapterId: $lastOpenedChapterId, ')
-          ..write('lastCompletedChapterId: $lastCompletedChapterId, ')
+          ..write('lastSavedAt: $lastSavedAt, ')
+          ..write('lastOpenedEntryId: $lastOpenedEntryId, ')
+          ..write('lastCompletedEntryId: $lastCompletedEntryId, ')
           ..write('lastReadAt: $lastReadAt, ')
           ..write('lastCheckAt: $lastCheckAt, ')
           ..write('lastCheckSuccessAt: $lastCheckSuccessAt, ')
@@ -988,7 +1202,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           ..write('lastCheckResult: $lastCheckResult, ')
           ..write('lifecycle: $lifecycle, ')
           ..write('archivedAt: $archivedAt, ')
-          ..write('finishedCleanup: $finishedCleanup')
+          ..write('cleanupPreference: $cleanupPreference')
           ..write(')'))
         .toString();
   }
@@ -1000,15 +1214,20 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     userTitle,
     sourceUrl,
     host,
-    seriesKey,
-    seriesUrl,
+    collectionKey,
+    collectionIndexUrl,
     identityBasis,
     identityConfidence,
+    contentKind,
+    sequenceKind,
+    orderingBasis,
+    shapeConfidence,
+    knownEntryTotal,
     createdAt,
     lastOpenedAt,
-    lastCapturedAt,
-    lastOpenedChapterId,
-    lastCompletedChapterId,
+    lastSavedAt,
+    lastOpenedEntryId,
+    lastCompletedEntryId,
     lastReadAt,
     lastCheckAt,
     lastCheckSuccessAt,
@@ -1016,26 +1235,31 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     lastCheckResult,
     lifecycle,
     archivedAt,
-    finishedCleanup,
+    cleanupPreference,
   ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is LibraryItem &&
+      (other is Collection &&
           other.id == this.id &&
           other.title == this.title &&
           other.userTitle == this.userTitle &&
           other.sourceUrl == this.sourceUrl &&
           other.host == this.host &&
-          other.seriesKey == this.seriesKey &&
-          other.seriesUrl == this.seriesUrl &&
+          other.collectionKey == this.collectionKey &&
+          other.collectionIndexUrl == this.collectionIndexUrl &&
           other.identityBasis == this.identityBasis &&
           other.identityConfidence == this.identityConfidence &&
+          other.contentKind == this.contentKind &&
+          other.sequenceKind == this.sequenceKind &&
+          other.orderingBasis == this.orderingBasis &&
+          other.shapeConfidence == this.shapeConfidence &&
+          other.knownEntryTotal == this.knownEntryTotal &&
           other.createdAt == this.createdAt &&
           other.lastOpenedAt == this.lastOpenedAt &&
-          other.lastCapturedAt == this.lastCapturedAt &&
-          other.lastOpenedChapterId == this.lastOpenedChapterId &&
-          other.lastCompletedChapterId == this.lastCompletedChapterId &&
+          other.lastSavedAt == this.lastSavedAt &&
+          other.lastOpenedEntryId == this.lastOpenedEntryId &&
+          other.lastCompletedEntryId == this.lastCompletedEntryId &&
           other.lastReadAt == this.lastReadAt &&
           other.lastCheckAt == this.lastCheckAt &&
           other.lastCheckSuccessAt == this.lastCheckSuccessAt &&
@@ -1043,24 +1267,29 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           other.lastCheckResult == this.lastCheckResult &&
           other.lifecycle == this.lifecycle &&
           other.archivedAt == this.archivedAt &&
-          other.finishedCleanup == this.finishedCleanup);
+          other.cleanupPreference == this.cleanupPreference);
 }
 
-class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
+class CollectionsCompanion extends UpdateCompanion<Collection> {
   final Value<String> id;
   final Value<String> title;
   final Value<String?> userTitle;
   final Value<String> sourceUrl;
   final Value<String> host;
-  final Value<String?> seriesKey;
-  final Value<String?> seriesUrl;
+  final Value<String?> collectionKey;
+  final Value<String?> collectionIndexUrl;
   final Value<String?> identityBasis;
   final Value<String?> identityConfidence;
+  final Value<String> contentKind;
+  final Value<String> sequenceKind;
+  final Value<String> orderingBasis;
+  final Value<String> shapeConfidence;
+  final Value<int?> knownEntryTotal;
   final Value<DateTime> createdAt;
   final Value<DateTime?> lastOpenedAt;
-  final Value<DateTime?> lastCapturedAt;
-  final Value<String?> lastOpenedChapterId;
-  final Value<String?> lastCompletedChapterId;
+  final Value<DateTime?> lastSavedAt;
+  final Value<String?> lastOpenedEntryId;
+  final Value<String?> lastCompletedEntryId;
   final Value<DateTime?> lastReadAt;
   final Value<DateTime?> lastCheckAt;
   final Value<DateTime?> lastCheckSuccessAt;
@@ -1068,23 +1297,28 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
   final Value<String?> lastCheckResult;
   final Value<String> lifecycle;
   final Value<DateTime?> archivedAt;
-  final Value<String?> finishedCleanup;
+  final Value<String?> cleanupPreference;
   final Value<int> rowid;
-  const LibraryItemsCompanion({
+  const CollectionsCompanion({
     this.id = const Value.absent(),
     this.title = const Value.absent(),
     this.userTitle = const Value.absent(),
     this.sourceUrl = const Value.absent(),
     this.host = const Value.absent(),
-    this.seriesKey = const Value.absent(),
-    this.seriesUrl = const Value.absent(),
+    this.collectionKey = const Value.absent(),
+    this.collectionIndexUrl = const Value.absent(),
     this.identityBasis = const Value.absent(),
     this.identityConfidence = const Value.absent(),
+    this.contentKind = const Value.absent(),
+    this.sequenceKind = const Value.absent(),
+    this.orderingBasis = const Value.absent(),
+    this.shapeConfidence = const Value.absent(),
+    this.knownEntryTotal = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.lastOpenedAt = const Value.absent(),
-    this.lastCapturedAt = const Value.absent(),
-    this.lastOpenedChapterId = const Value.absent(),
-    this.lastCompletedChapterId = const Value.absent(),
+    this.lastSavedAt = const Value.absent(),
+    this.lastOpenedEntryId = const Value.absent(),
+    this.lastCompletedEntryId = const Value.absent(),
     this.lastReadAt = const Value.absent(),
     this.lastCheckAt = const Value.absent(),
     this.lastCheckSuccessAt = const Value.absent(),
@@ -1092,24 +1326,29 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.lastCheckResult = const Value.absent(),
     this.lifecycle = const Value.absent(),
     this.archivedAt = const Value.absent(),
-    this.finishedCleanup = const Value.absent(),
+    this.cleanupPreference = const Value.absent(),
     this.rowid = const Value.absent(),
   });
-  LibraryItemsCompanion.insert({
+  CollectionsCompanion.insert({
     required String id,
     required String title,
     this.userTitle = const Value.absent(),
     required String sourceUrl,
     required String host,
-    this.seriesKey = const Value.absent(),
-    this.seriesUrl = const Value.absent(),
+    this.collectionKey = const Value.absent(),
+    this.collectionIndexUrl = const Value.absent(),
     this.identityBasis = const Value.absent(),
     this.identityConfidence = const Value.absent(),
+    this.contentKind = const Value.absent(),
+    this.sequenceKind = const Value.absent(),
+    this.orderingBasis = const Value.absent(),
+    this.shapeConfidence = const Value.absent(),
+    this.knownEntryTotal = const Value.absent(),
     required DateTime createdAt,
     this.lastOpenedAt = const Value.absent(),
-    this.lastCapturedAt = const Value.absent(),
-    this.lastOpenedChapterId = const Value.absent(),
-    this.lastCompletedChapterId = const Value.absent(),
+    this.lastSavedAt = const Value.absent(),
+    this.lastOpenedEntryId = const Value.absent(),
+    this.lastCompletedEntryId = const Value.absent(),
     this.lastReadAt = const Value.absent(),
     this.lastCheckAt = const Value.absent(),
     this.lastCheckSuccessAt = const Value.absent(),
@@ -1117,28 +1356,33 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.lastCheckResult = const Value.absent(),
     this.lifecycle = const Value.absent(),
     this.archivedAt = const Value.absent(),
-    this.finishedCleanup = const Value.absent(),
+    this.cleanupPreference = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        title = Value(title),
        sourceUrl = Value(sourceUrl),
        host = Value(host),
        createdAt = Value(createdAt);
-  static Insertable<LibraryItem> custom({
+  static Insertable<Collection> custom({
     Expression<String>? id,
     Expression<String>? title,
     Expression<String>? userTitle,
     Expression<String>? sourceUrl,
     Expression<String>? host,
-    Expression<String>? seriesKey,
-    Expression<String>? seriesUrl,
+    Expression<String>? collectionKey,
+    Expression<String>? collectionIndexUrl,
     Expression<String>? identityBasis,
     Expression<String>? identityConfidence,
+    Expression<String>? contentKind,
+    Expression<String>? sequenceKind,
+    Expression<String>? orderingBasis,
+    Expression<String>? shapeConfidence,
+    Expression<int>? knownEntryTotal,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? lastOpenedAt,
-    Expression<DateTime>? lastCapturedAt,
-    Expression<String>? lastOpenedChapterId,
-    Expression<String>? lastCompletedChapterId,
+    Expression<DateTime>? lastSavedAt,
+    Expression<String>? lastOpenedEntryId,
+    Expression<String>? lastCompletedEntryId,
     Expression<DateTime>? lastReadAt,
     Expression<DateTime>? lastCheckAt,
     Expression<DateTime>? lastCheckSuccessAt,
@@ -1146,7 +1390,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     Expression<String>? lastCheckResult,
     Expression<String>? lifecycle,
     Expression<DateTime>? archivedAt,
-    Expression<String>? finishedCleanup,
+    Expression<String>? cleanupPreference,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1155,17 +1399,22 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       if (userTitle != null) 'user_title': userTitle,
       if (sourceUrl != null) 'source_url': sourceUrl,
       if (host != null) 'host': host,
-      if (seriesKey != null) 'series_key': seriesKey,
-      if (seriesUrl != null) 'series_url': seriesUrl,
+      if (collectionKey != null) 'collection_key': collectionKey,
+      if (collectionIndexUrl != null)
+        'collection_index_url': collectionIndexUrl,
       if (identityBasis != null) 'identity_basis': identityBasis,
       if (identityConfidence != null) 'identity_confidence': identityConfidence,
+      if (contentKind != null) 'content_kind': contentKind,
+      if (sequenceKind != null) 'sequence_kind': sequenceKind,
+      if (orderingBasis != null) 'ordering_basis': orderingBasis,
+      if (shapeConfidence != null) 'shape_confidence': shapeConfidence,
+      if (knownEntryTotal != null) 'known_entry_total': knownEntryTotal,
       if (createdAt != null) 'created_at': createdAt,
       if (lastOpenedAt != null) 'last_opened_at': lastOpenedAt,
-      if (lastCapturedAt != null) 'last_captured_at': lastCapturedAt,
-      if (lastOpenedChapterId != null)
-        'last_opened_chapter_id': lastOpenedChapterId,
-      if (lastCompletedChapterId != null)
-        'last_completed_chapter_id': lastCompletedChapterId,
+      if (lastSavedAt != null) 'last_saved_at': lastSavedAt,
+      if (lastOpenedEntryId != null) 'last_opened_entry_id': lastOpenedEntryId,
+      if (lastCompletedEntryId != null)
+        'last_completed_entry_id': lastCompletedEntryId,
       if (lastReadAt != null) 'last_read_at': lastReadAt,
       if (lastCheckAt != null) 'last_check_at': lastCheckAt,
       if (lastCheckSuccessAt != null)
@@ -1174,26 +1423,31 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       if (lastCheckResult != null) 'last_check_result': lastCheckResult,
       if (lifecycle != null) 'lifecycle': lifecycle,
       if (archivedAt != null) 'archived_at': archivedAt,
-      if (finishedCleanup != null) 'finished_cleanup': finishedCleanup,
+      if (cleanupPreference != null) 'cleanup_preference': cleanupPreference,
       if (rowid != null) 'rowid': rowid,
     });
   }
 
-  LibraryItemsCompanion copyWith({
+  CollectionsCompanion copyWith({
     Value<String>? id,
     Value<String>? title,
     Value<String?>? userTitle,
     Value<String>? sourceUrl,
     Value<String>? host,
-    Value<String?>? seriesKey,
-    Value<String?>? seriesUrl,
+    Value<String?>? collectionKey,
+    Value<String?>? collectionIndexUrl,
     Value<String?>? identityBasis,
     Value<String?>? identityConfidence,
+    Value<String>? contentKind,
+    Value<String>? sequenceKind,
+    Value<String>? orderingBasis,
+    Value<String>? shapeConfidence,
+    Value<int?>? knownEntryTotal,
     Value<DateTime>? createdAt,
     Value<DateTime?>? lastOpenedAt,
-    Value<DateTime?>? lastCapturedAt,
-    Value<String?>? lastOpenedChapterId,
-    Value<String?>? lastCompletedChapterId,
+    Value<DateTime?>? lastSavedAt,
+    Value<String?>? lastOpenedEntryId,
+    Value<String?>? lastCompletedEntryId,
     Value<DateTime?>? lastReadAt,
     Value<DateTime?>? lastCheckAt,
     Value<DateTime?>? lastCheckSuccessAt,
@@ -1201,25 +1455,29 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     Value<String?>? lastCheckResult,
     Value<String>? lifecycle,
     Value<DateTime?>? archivedAt,
-    Value<String?>? finishedCleanup,
+    Value<String?>? cleanupPreference,
     Value<int>? rowid,
   }) {
-    return LibraryItemsCompanion(
+    return CollectionsCompanion(
       id: id ?? this.id,
       title: title ?? this.title,
       userTitle: userTitle ?? this.userTitle,
       sourceUrl: sourceUrl ?? this.sourceUrl,
       host: host ?? this.host,
-      seriesKey: seriesKey ?? this.seriesKey,
-      seriesUrl: seriesUrl ?? this.seriesUrl,
+      collectionKey: collectionKey ?? this.collectionKey,
+      collectionIndexUrl: collectionIndexUrl ?? this.collectionIndexUrl,
       identityBasis: identityBasis ?? this.identityBasis,
       identityConfidence: identityConfidence ?? this.identityConfidence,
+      contentKind: contentKind ?? this.contentKind,
+      sequenceKind: sequenceKind ?? this.sequenceKind,
+      orderingBasis: orderingBasis ?? this.orderingBasis,
+      shapeConfidence: shapeConfidence ?? this.shapeConfidence,
+      knownEntryTotal: knownEntryTotal ?? this.knownEntryTotal,
       createdAt: createdAt ?? this.createdAt,
       lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
-      lastCapturedAt: lastCapturedAt ?? this.lastCapturedAt,
-      lastOpenedChapterId: lastOpenedChapterId ?? this.lastOpenedChapterId,
-      lastCompletedChapterId:
-          lastCompletedChapterId ?? this.lastCompletedChapterId,
+      lastSavedAt: lastSavedAt ?? this.lastSavedAt,
+      lastOpenedEntryId: lastOpenedEntryId ?? this.lastOpenedEntryId,
+      lastCompletedEntryId: lastCompletedEntryId ?? this.lastCompletedEntryId,
       lastReadAt: lastReadAt ?? this.lastReadAt,
       lastCheckAt: lastCheckAt ?? this.lastCheckAt,
       lastCheckSuccessAt: lastCheckSuccessAt ?? this.lastCheckSuccessAt,
@@ -1227,7 +1485,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       lastCheckResult: lastCheckResult ?? this.lastCheckResult,
       lifecycle: lifecycle ?? this.lifecycle,
       archivedAt: archivedAt ?? this.archivedAt,
-      finishedCleanup: finishedCleanup ?? this.finishedCleanup,
+      cleanupPreference: cleanupPreference ?? this.cleanupPreference,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1250,11 +1508,11 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     if (host.present) {
       map['host'] = Variable<String>(host.value);
     }
-    if (seriesKey.present) {
-      map['series_key'] = Variable<String>(seriesKey.value);
+    if (collectionKey.present) {
+      map['collection_key'] = Variable<String>(collectionKey.value);
     }
-    if (seriesUrl.present) {
-      map['series_url'] = Variable<String>(seriesUrl.value);
+    if (collectionIndexUrl.present) {
+      map['collection_index_url'] = Variable<String>(collectionIndexUrl.value);
     }
     if (identityBasis.present) {
       map['identity_basis'] = Variable<String>(identityBasis.value);
@@ -1262,23 +1520,36 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     if (identityConfidence.present) {
       map['identity_confidence'] = Variable<String>(identityConfidence.value);
     }
+    if (contentKind.present) {
+      map['content_kind'] = Variable<String>(contentKind.value);
+    }
+    if (sequenceKind.present) {
+      map['sequence_kind'] = Variable<String>(sequenceKind.value);
+    }
+    if (orderingBasis.present) {
+      map['ordering_basis'] = Variable<String>(orderingBasis.value);
+    }
+    if (shapeConfidence.present) {
+      map['shape_confidence'] = Variable<String>(shapeConfidence.value);
+    }
+    if (knownEntryTotal.present) {
+      map['known_entry_total'] = Variable<int>(knownEntryTotal.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
     if (lastOpenedAt.present) {
       map['last_opened_at'] = Variable<DateTime>(lastOpenedAt.value);
     }
-    if (lastCapturedAt.present) {
-      map['last_captured_at'] = Variable<DateTime>(lastCapturedAt.value);
+    if (lastSavedAt.present) {
+      map['last_saved_at'] = Variable<DateTime>(lastSavedAt.value);
     }
-    if (lastOpenedChapterId.present) {
-      map['last_opened_chapter_id'] = Variable<String>(
-        lastOpenedChapterId.value,
-      );
+    if (lastOpenedEntryId.present) {
+      map['last_opened_entry_id'] = Variable<String>(lastOpenedEntryId.value);
     }
-    if (lastCompletedChapterId.present) {
-      map['last_completed_chapter_id'] = Variable<String>(
-        lastCompletedChapterId.value,
+    if (lastCompletedEntryId.present) {
+      map['last_completed_entry_id'] = Variable<String>(
+        lastCompletedEntryId.value,
       );
     }
     if (lastReadAt.present) {
@@ -1304,8 +1575,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     if (archivedAt.present) {
       map['archived_at'] = Variable<DateTime>(archivedAt.value);
     }
-    if (finishedCleanup.present) {
-      map['finished_cleanup'] = Variable<String>(finishedCleanup.value);
+    if (cleanupPreference.present) {
+      map['cleanup_preference'] = Variable<String>(cleanupPreference.value);
     }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
@@ -1315,21 +1586,26 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
 
   @override
   String toString() {
-    return (StringBuffer('LibraryItemsCompanion(')
+    return (StringBuffer('CollectionsCompanion(')
           ..write('id: $id, ')
           ..write('title: $title, ')
           ..write('userTitle: $userTitle, ')
           ..write('sourceUrl: $sourceUrl, ')
           ..write('host: $host, ')
-          ..write('seriesKey: $seriesKey, ')
-          ..write('seriesUrl: $seriesUrl, ')
+          ..write('collectionKey: $collectionKey, ')
+          ..write('collectionIndexUrl: $collectionIndexUrl, ')
           ..write('identityBasis: $identityBasis, ')
           ..write('identityConfidence: $identityConfidence, ')
+          ..write('contentKind: $contentKind, ')
+          ..write('sequenceKind: $sequenceKind, ')
+          ..write('orderingBasis: $orderingBasis, ')
+          ..write('shapeConfidence: $shapeConfidence, ')
+          ..write('knownEntryTotal: $knownEntryTotal, ')
           ..write('createdAt: $createdAt, ')
           ..write('lastOpenedAt: $lastOpenedAt, ')
-          ..write('lastCapturedAt: $lastCapturedAt, ')
-          ..write('lastOpenedChapterId: $lastOpenedChapterId, ')
-          ..write('lastCompletedChapterId: $lastCompletedChapterId, ')
+          ..write('lastSavedAt: $lastSavedAt, ')
+          ..write('lastOpenedEntryId: $lastOpenedEntryId, ')
+          ..write('lastCompletedEntryId: $lastCompletedEntryId, ')
           ..write('lastReadAt: $lastReadAt, ')
           ..write('lastCheckAt: $lastCheckAt, ')
           ..write('lastCheckSuccessAt: $lastCheckSuccessAt, ')
@@ -1337,18 +1613,18 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
           ..write('lastCheckResult: $lastCheckResult, ')
           ..write('lifecycle: $lifecycle, ')
           ..write('archivedAt: $archivedAt, ')
-          ..write('finishedCleanup: $finishedCleanup, ')
+          ..write('cleanupPreference: $cleanupPreference, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
   }
 }
 
-class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
+class $EntriesTable extends Entries with TableInfo<$EntriesTable, Entry> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  $ChaptersTable(this.attachedDatabase, [this._alias]);
+  $EntriesTable(this.attachedDatabase, [this._alias]);
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
   late final GeneratedColumn<String> id = GeneratedColumn<String>(
@@ -1358,18 +1634,18 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _libraryItemIdMeta = const VerificationMeta(
-    'libraryItemId',
+  static const VerificationMeta _collectionIdMeta = const VerificationMeta(
+    'collectionId',
   );
   @override
-  late final GeneratedColumn<String> libraryItemId = GeneratedColumn<String>(
-    'library_item_id',
+  late final GeneratedColumn<String> collectionId = GeneratedColumn<String>(
+    'collection_id',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
     defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES library_items (id)',
+      'REFERENCES collections (id)',
     ),
   );
   static const VerificationMeta _titleMeta = const VerificationMeta('title');
@@ -1401,12 +1677,93 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _captureStatusMeta = const VerificationMeta(
-    'captureStatus',
+  static const VerificationMeta _canonicalUrlMeta = const VerificationMeta(
+    'canonicalUrl',
   );
   @override
-  late final GeneratedColumn<String> captureStatus = GeneratedColumn<String>(
-    'capture_status',
+  late final GeneratedColumn<String> canonicalUrl = GeneratedColumn<String>(
+    'canonical_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _hostMeta = const VerificationMeta('host');
+  @override
+  late final GeneratedColumn<String> host = GeneratedColumn<String>(
+    'host',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _sourceTitleMeta = const VerificationMeta(
+    'sourceTitle',
+  );
+  @override
+  late final GeneratedColumn<String> sourceTitle = GeneratedColumn<String>(
+    'source_title',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _publishedAtMeta = const VerificationMeta(
+    'publishedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> publishedAt = GeneratedColumn<DateTime>(
+    'published_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _contentKindMeta = const VerificationMeta(
+    'contentKind',
+  );
+  @override
+  late final GeneratedColumn<String> contentKind = GeneratedColumn<String>(
+    'content_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('unknownWebContent'),
+  );
+  static const VerificationMeta _contentKindConfidenceMeta =
+      const VerificationMeta('contentKindConfidence');
+  @override
+  late final GeneratedColumn<String> contentKindConfidence =
+      GeneratedColumn<String>(
+        'content_kind_confidence',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant('low'),
+      );
+  static const VerificationMeta _contentKindIsUserSetMeta =
+      const VerificationMeta('contentKindIsUserSet');
+  @override
+  late final GeneratedColumn<bool> contentKindIsUserSet = GeneratedColumn<bool>(
+    'content_kind_is_user_set',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("content_kind_is_user_set" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _saveStatusMeta = const VerificationMeta(
+    'saveStatus',
+  );
+  @override
+  late final GeneratedColumn<String> saveStatus = GeneratedColumn<String>(
+    'save_status',
     aliasedName,
     false,
     type: DriftSqlType.string,
@@ -1423,34 +1780,34 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _capturedAtMeta = const VerificationMeta(
-    'capturedAt',
+  static const VerificationMeta _savedAtMeta = const VerificationMeta(
+    'savedAt',
   );
   @override
-  late final GeneratedColumn<DateTime> capturedAt = GeneratedColumn<DateTime>(
-    'captured_at',
+  late final GeneratedColumn<DateTime> savedAt = GeneratedColumn<DateTime>(
+    'saved_at',
     aliasedName,
     true,
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _detectedImageCountMeta =
-      const VerificationMeta('detectedImageCount');
+  static const VerificationMeta _detectedAssetCountMeta =
+      const VerificationMeta('detectedAssetCount');
   @override
-  late final GeneratedColumn<int> detectedImageCount = GeneratedColumn<int>(
-    'detected_image_count',
+  late final GeneratedColumn<int> detectedAssetCount = GeneratedColumn<int>(
+    'detected_asset_count',
     aliasedName,
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
-  static const VerificationMeta _storedImageCountMeta = const VerificationMeta(
-    'storedImageCount',
+  static const VerificationMeta _storedAssetCountMeta = const VerificationMeta(
+    'storedAssetCount',
   );
   @override
-  late final GeneratedColumn<int> storedImageCount = GeneratedColumn<int>(
-    'stored_image_count',
+  late final GeneratedColumn<int> storedAssetCount = GeneratedColumn<int>(
+    'stored_asset_count',
     aliasedName,
     false,
     type: DriftSqlType.int,
@@ -1468,24 +1825,24 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _sequenceMeta = const VerificationMeta(
-    'sequence',
+  static const VerificationMeta _entryOrderMeta = const VerificationMeta(
+    'entryOrder',
   );
   @override
-  late final GeneratedColumn<int> sequence = GeneratedColumn<int>(
-    'sequence',
+  late final GeneratedColumn<int> entryOrder = GeneratedColumn<int>(
+    'entry_order',
     aliasedName,
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
-  static const VerificationMeta _captureErrorMeta = const VerificationMeta(
-    'captureError',
+  static const VerificationMeta _saveErrorMeta = const VerificationMeta(
+    'saveError',
   );
   @override
-  late final GeneratedColumn<String> captureError = GeneratedColumn<String>(
-    'capture_error',
+  late final GeneratedColumn<String> saveError = GeneratedColumn<String>(
+    'save_error',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -1503,23 +1860,23 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
-  static const VerificationMeta _chapterNumberMeta = const VerificationMeta(
-    'chapterNumber',
+  static const VerificationMeta _entryNumberMeta = const VerificationMeta(
+    'entryNumber',
   );
   @override
-  late final GeneratedColumn<double> chapterNumber = GeneratedColumn<double>(
-    'chapter_number',
+  late final GeneratedColumn<double> entryNumber = GeneratedColumn<double>(
+    'entry_number',
     aliasedName,
     true,
     type: DriftSqlType.double,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _chapterLabelMeta = const VerificationMeta(
-    'chapterLabel',
+  static const VerificationMeta _sourceMarkerMeta = const VerificationMeta(
+    'sourceMarker',
   );
   @override
-  late final GeneratedColumn<String> chapterLabel = GeneratedColumn<String>(
-    'chapter_label',
+  late final GeneratedColumn<String> sourceMarker = GeneratedColumn<String>(
+    'source_marker',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -1549,23 +1906,24 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
-  static const VerificationMeta _progressImageIndexMeta =
-      const VerificationMeta('progressImageIndex');
+  static const VerificationMeta _progressPageIndexMeta = const VerificationMeta(
+    'progressPageIndex',
+  );
   @override
-  late final GeneratedColumn<int> progressImageIndex = GeneratedColumn<int>(
-    'progress_image_index',
+  late final GeneratedColumn<int> progressPageIndex = GeneratedColumn<int>(
+    'progress_page_index',
     aliasedName,
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
-  static const VerificationMeta _progressOffsetInImageMeta =
-      const VerificationMeta('progressOffsetInImage');
+  static const VerificationMeta _progressOffsetInPageMeta =
+      const VerificationMeta('progressOffsetInPage');
   @override
-  late final GeneratedColumn<double> progressOffsetInImage =
+  late final GeneratedColumn<double> progressOffsetInPage =
       GeneratedColumn<double>(
-        'progress_offset_in_image',
+        'progress_offset_in_page',
         aliasedName,
         false,
         type: DriftSqlType.double,
@@ -1666,25 +2024,32 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
   @override
   List<GeneratedColumn> get $columns => [
     id,
-    libraryItemId,
+    collectionId,
     title,
     sourceUrl,
     urlKey,
-    captureStatus,
+    canonicalUrl,
+    host,
+    sourceTitle,
+    publishedAt,
+    contentKind,
+    contentKindConfidence,
+    contentKindIsUserSet,
+    saveStatus,
     contentPath,
-    capturedAt,
-    detectedImageCount,
-    storedImageCount,
+    savedAt,
+    detectedAssetCount,
+    storedAssetCount,
     nextSourceUrl,
-    sequence,
-    captureError,
+    entryOrder,
+    saveError,
     byteSize,
-    chapterNumber,
-    chapterLabel,
+    entryNumber,
+    sourceMarker,
     readStatus,
     progressFraction,
-    progressImageIndex,
-    progressOffsetInImage,
+    progressPageIndex,
+    progressOffsetInPage,
     firstOpenedAt,
     lastReadAt,
     completedAt,
@@ -1698,10 +2063,10 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'chapters';
+  static const String $name = 'entries';
   @override
   VerificationContext validateIntegrity(
-    Insertable<Chapter> instance, {
+    Insertable<Entry> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
@@ -1711,16 +2076,14 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
     } else if (isInserting) {
       context.missing(_idMeta);
     }
-    if (data.containsKey('library_item_id')) {
+    if (data.containsKey('collection_id')) {
       context.handle(
-        _libraryItemIdMeta,
-        libraryItemId.isAcceptableOrUnknown(
-          data['library_item_id']!,
-          _libraryItemIdMeta,
+        _collectionIdMeta,
+        collectionId.isAcceptableOrUnknown(
+          data['collection_id']!,
+          _collectionIdMeta,
         ),
       );
-    } else if (isInserting) {
-      context.missing(_libraryItemIdMeta);
     }
     if (data.containsKey('title')) {
       context.handle(
@@ -1746,16 +2109,73 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
     } else if (isInserting) {
       context.missing(_urlKeyMeta);
     }
-    if (data.containsKey('capture_status')) {
+    if (data.containsKey('canonical_url')) {
       context.handle(
-        _captureStatusMeta,
-        captureStatus.isAcceptableOrUnknown(
-          data['capture_status']!,
-          _captureStatusMeta,
+        _canonicalUrlMeta,
+        canonicalUrl.isAcceptableOrUnknown(
+          data['canonical_url']!,
+          _canonicalUrlMeta,
         ),
       );
+    }
+    if (data.containsKey('host')) {
+      context.handle(
+        _hostMeta,
+        host.isAcceptableOrUnknown(data['host']!, _hostMeta),
+      );
+    }
+    if (data.containsKey('source_title')) {
+      context.handle(
+        _sourceTitleMeta,
+        sourceTitle.isAcceptableOrUnknown(
+          data['source_title']!,
+          _sourceTitleMeta,
+        ),
+      );
+    }
+    if (data.containsKey('published_at')) {
+      context.handle(
+        _publishedAtMeta,
+        publishedAt.isAcceptableOrUnknown(
+          data['published_at']!,
+          _publishedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('content_kind')) {
+      context.handle(
+        _contentKindMeta,
+        contentKind.isAcceptableOrUnknown(
+          data['content_kind']!,
+          _contentKindMeta,
+        ),
+      );
+    }
+    if (data.containsKey('content_kind_confidence')) {
+      context.handle(
+        _contentKindConfidenceMeta,
+        contentKindConfidence.isAcceptableOrUnknown(
+          data['content_kind_confidence']!,
+          _contentKindConfidenceMeta,
+        ),
+      );
+    }
+    if (data.containsKey('content_kind_is_user_set')) {
+      context.handle(
+        _contentKindIsUserSetMeta,
+        contentKindIsUserSet.isAcceptableOrUnknown(
+          data['content_kind_is_user_set']!,
+          _contentKindIsUserSetMeta,
+        ),
+      );
+    }
+    if (data.containsKey('save_status')) {
+      context.handle(
+        _saveStatusMeta,
+        saveStatus.isAcceptableOrUnknown(data['save_status']!, _saveStatusMeta),
+      );
     } else if (isInserting) {
-      context.missing(_captureStatusMeta);
+      context.missing(_saveStatusMeta);
     }
     if (data.containsKey('content_path')) {
       context.handle(
@@ -1766,27 +2186,27 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
         ),
       );
     }
-    if (data.containsKey('captured_at')) {
+    if (data.containsKey('saved_at')) {
       context.handle(
-        _capturedAtMeta,
-        capturedAt.isAcceptableOrUnknown(data['captured_at']!, _capturedAtMeta),
+        _savedAtMeta,
+        savedAt.isAcceptableOrUnknown(data['saved_at']!, _savedAtMeta),
       );
     }
-    if (data.containsKey('detected_image_count')) {
+    if (data.containsKey('detected_asset_count')) {
       context.handle(
-        _detectedImageCountMeta,
-        detectedImageCount.isAcceptableOrUnknown(
-          data['detected_image_count']!,
-          _detectedImageCountMeta,
+        _detectedAssetCountMeta,
+        detectedAssetCount.isAcceptableOrUnknown(
+          data['detected_asset_count']!,
+          _detectedAssetCountMeta,
         ),
       );
     }
-    if (data.containsKey('stored_image_count')) {
+    if (data.containsKey('stored_asset_count')) {
       context.handle(
-        _storedImageCountMeta,
-        storedImageCount.isAcceptableOrUnknown(
-          data['stored_image_count']!,
-          _storedImageCountMeta,
+        _storedAssetCountMeta,
+        storedAssetCount.isAcceptableOrUnknown(
+          data['stored_asset_count']!,
+          _storedAssetCountMeta,
         ),
       );
     }
@@ -1799,19 +2219,16 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
         ),
       );
     }
-    if (data.containsKey('sequence')) {
+    if (data.containsKey('entry_order')) {
       context.handle(
-        _sequenceMeta,
-        sequence.isAcceptableOrUnknown(data['sequence']!, _sequenceMeta),
+        _entryOrderMeta,
+        entryOrder.isAcceptableOrUnknown(data['entry_order']!, _entryOrderMeta),
       );
     }
-    if (data.containsKey('capture_error')) {
+    if (data.containsKey('save_error')) {
       context.handle(
-        _captureErrorMeta,
-        captureError.isAcceptableOrUnknown(
-          data['capture_error']!,
-          _captureErrorMeta,
-        ),
+        _saveErrorMeta,
+        saveError.isAcceptableOrUnknown(data['save_error']!, _saveErrorMeta),
       );
     }
     if (data.containsKey('byte_size')) {
@@ -1820,21 +2237,21 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
         byteSize.isAcceptableOrUnknown(data['byte_size']!, _byteSizeMeta),
       );
     }
-    if (data.containsKey('chapter_number')) {
+    if (data.containsKey('entry_number')) {
       context.handle(
-        _chapterNumberMeta,
-        chapterNumber.isAcceptableOrUnknown(
-          data['chapter_number']!,
-          _chapterNumberMeta,
+        _entryNumberMeta,
+        entryNumber.isAcceptableOrUnknown(
+          data['entry_number']!,
+          _entryNumberMeta,
         ),
       );
     }
-    if (data.containsKey('chapter_label')) {
+    if (data.containsKey('source_marker')) {
       context.handle(
-        _chapterLabelMeta,
-        chapterLabel.isAcceptableOrUnknown(
-          data['chapter_label']!,
-          _chapterLabelMeta,
+        _sourceMarkerMeta,
+        sourceMarker.isAcceptableOrUnknown(
+          data['source_marker']!,
+          _sourceMarkerMeta,
         ),
       );
     }
@@ -1853,21 +2270,21 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
         ),
       );
     }
-    if (data.containsKey('progress_image_index')) {
+    if (data.containsKey('progress_page_index')) {
       context.handle(
-        _progressImageIndexMeta,
-        progressImageIndex.isAcceptableOrUnknown(
-          data['progress_image_index']!,
-          _progressImageIndexMeta,
+        _progressPageIndexMeta,
+        progressPageIndex.isAcceptableOrUnknown(
+          data['progress_page_index']!,
+          _progressPageIndexMeta,
         ),
       );
     }
-    if (data.containsKey('progress_offset_in_image')) {
+    if (data.containsKey('progress_offset_in_page')) {
       context.handle(
-        _progressOffsetInImageMeta,
-        progressOffsetInImage.isAcceptableOrUnknown(
-          data['progress_offset_in_image']!,
-          _progressOffsetInImageMeta,
+        _progressOffsetInPageMeta,
+        progressOffsetInPage.isAcceptableOrUnknown(
+          data['progress_offset_in_page']!,
+          _progressOffsetInPageMeta,
         ),
       );
     }
@@ -1950,20 +2367,20 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
   List<Set<GeneratedColumn>> get uniqueKeys => [
-    {libraryItemId, urlKey},
+    {collectionId, urlKey},
   ];
   @override
-  Chapter map(Map<String, dynamic> data, {String? tablePrefix}) {
+  Entry map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return Chapter(
+    return Entry(
       id: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}id'],
       )!,
-      libraryItemId: attachedDatabase.typeMapping.read(
+      collectionId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}library_item_id'],
-      )!,
+        data['${effectivePrefix}collection_id'],
+      ),
       title: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}title'],
@@ -1976,49 +2393,77 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
         DriftSqlType.string,
         data['${effectivePrefix}url_key'],
       )!,
-      captureStatus: attachedDatabase.typeMapping.read(
+      canonicalUrl: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}capture_status'],
+        data['${effectivePrefix}canonical_url'],
+      ),
+      host: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}host'],
+      )!,
+      sourceTitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_title'],
+      ),
+      publishedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}published_at'],
+      ),
+      contentKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_kind'],
+      )!,
+      contentKindConfidence: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_kind_confidence'],
+      )!,
+      contentKindIsUserSet: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}content_kind_is_user_set'],
+      )!,
+      saveStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}save_status'],
       )!,
       contentPath: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}content_path'],
       ),
-      capturedAt: attachedDatabase.typeMapping.read(
+      savedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
-        data['${effectivePrefix}captured_at'],
+        data['${effectivePrefix}saved_at'],
       ),
-      detectedImageCount: attachedDatabase.typeMapping.read(
+      detectedAssetCount: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
-        data['${effectivePrefix}detected_image_count'],
+        data['${effectivePrefix}detected_asset_count'],
       )!,
-      storedImageCount: attachedDatabase.typeMapping.read(
+      storedAssetCount: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
-        data['${effectivePrefix}stored_image_count'],
+        data['${effectivePrefix}stored_asset_count'],
       )!,
       nextSourceUrl: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}next_source_url'],
       ),
-      sequence: attachedDatabase.typeMapping.read(
+      entryOrder: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
-        data['${effectivePrefix}sequence'],
+        data['${effectivePrefix}entry_order'],
       )!,
-      captureError: attachedDatabase.typeMapping.read(
+      saveError: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}capture_error'],
+        data['${effectivePrefix}save_error'],
       ),
       byteSize: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}byte_size'],
       )!,
-      chapterNumber: attachedDatabase.typeMapping.read(
+      entryNumber: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
-        data['${effectivePrefix}chapter_number'],
+        data['${effectivePrefix}entry_number'],
       ),
-      chapterLabel: attachedDatabase.typeMapping.read(
+      sourceMarker: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}chapter_label'],
+        data['${effectivePrefix}source_marker'],
       ),
       readStatus: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -2028,13 +2473,13 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
         DriftSqlType.double,
         data['${effectivePrefix}progress_fraction'],
       )!,
-      progressImageIndex: attachedDatabase.typeMapping.read(
+      progressPageIndex: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
-        data['${effectivePrefix}progress_image_index'],
+        data['${effectivePrefix}progress_page_index'],
       )!,
-      progressOffsetInImage: attachedDatabase.typeMapping.read(
+      progressOffsetInPage: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
-        data['${effectivePrefix}progress_offset_in_image'],
+        data['${effectivePrefix}progress_offset_in_page'],
       )!,
       firstOpenedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
@@ -2072,88 +2517,132 @@ class $ChaptersTable extends Chapters with TableInfo<$ChaptersTable, Chapter> {
   }
 
   @override
-  $ChaptersTable createAlias(String alias) {
-    return $ChaptersTable(attachedDatabase, alias);
+  $EntriesTable createAlias(String alias) {
+    return $EntriesTable(attachedDatabase, alias);
   }
 }
 
-class Chapter extends DataClass implements Insertable<Chapter> {
+class Entry extends DataClass implements Insertable<Entry> {
   final String id;
-  final String libraryItemId;
+
+  /// The collection this entry belongs to, or **null for a standalone entry**.
+  ///
+  /// Nullable is the whole point: a single saved article is a library item in
+  /// its own right. Wrapping it in a one-entry collection would put a group in
+  /// the library that the user never made and cannot meaningfully open.
+  final String? collectionId;
   final String title;
+
+  /// The address this entry was saved from. Durable metadata: it survives
+  /// removal of the offline files, archiving, restoring, re-saving and every
+  /// reading-state write, because every writer names its columns. It is what
+  /// "Open original page" stands on.
   final String sourceUrl;
 
-  /// Normalised URL — identity. Unique per library item, which is what makes
-  /// duplicate chapters impossible rather than merely unlikely.
+  /// Normalised [sourceUrl] — identity.
   final String urlKey;
-  final String captureStatus;
+
+  /// `<link rel=canonical>` when the page declared one. A second identity
+  /// signal, and the one that catches a navigation loop that changes the address
+  /// while serving the same document.
+  final String? canonicalUrl;
+
+  /// Registrable host of [sourceUrl], lowercased. Denormalised onto the entry
+  /// because a standalone entry has no collection to read it from, and because
+  /// source attribution shows the domain on every screen.
+  final String host;
+
+  /// The page's own `<title>`, kept verbatim. [title] may be cleaned up for
+  /// display; this is what the source actually called it.
+  final String? sourceTitle;
+
+  /// Publication date, only when it was parsed from the page with confidence.
+  /// Null means "not published, as far as we can honestly tell".
+  final DateTime? publishedAt;
+
+  /// `ContentKind.name` for this entry, and how much that is trusted.
+  final String contentKind;
+  final String contentKindConfidence;
+
+  /// True once the user corrected the detected kind. Detection must never
+  /// overwrite a human answer on a later re-save.
+  final bool contentKindIsUserSet;
+  final String saveStatus;
 
   /// Relative to the FileStore root. Never absolute.
   final String? contentPath;
-  final DateTime? capturedAt;
-  final int detectedImageCount;
-  final int storedImageCount;
+  final DateTime? savedAt;
+  final int detectedAssetCount;
+  final int storedAssetCount;
   final String? nextSourceUrl;
-  final int sequence;
-  final String? captureError;
+
+  /// Authoritative position within the collection. Its *meaning* is given by the
+  /// collection's `orderingBasis`, which is why the basis is stored rather than
+  /// assumed.
+  final int entryOrder;
+  final String? saveError;
   final int byteSize;
 
-  /// Parsed chapter number. `REAL` so `12.5` works; null for identifiers that
-  /// are not numeric at all, which fall back to capture order.
-  final double? chapterNumber;
+  /// The number the *source* printed for this entry, when it printed one. `REAL`
+  /// so `12.5` works. Null for anything not numeric — and null is never filled
+  /// in by guessing.
+  final double? entryNumber;
 
-  /// Short display identifier: "Bölüm 883", "Chapter 101".
-  final String? chapterLabel;
+  /// The marker as the source wrote it: `Part 3`, `Prologue`, `Page 12 of 40`.
+  /// Kept verbatim; the display label is derived in `entry_labels.dart`.
+  final String? sourceMarker;
   final String readStatus;
 
-  /// 0..1 through the chapter. The durable half of the position — content
-  /// independent, so it still means something after a re-download.
+  /// 0..1 through the entry. The durable half of the position — content
+  /// independent, so it still means something after a re-save.
   final double progressFraction;
 
-  /// Anchor: panel index plus how far down it. Precise but goes stale if the
-  /// panel count changes, which is what the fraction covers.
-  final int progressImageIndex;
-  final double progressOffsetInImage;
+  /// Anchor: page index within the entry plus how far down it. Precise, but goes
+  /// stale if the page count changes — which is what the fraction covers.
+  final int progressPageIndex;
+  final double progressOffsetInPage;
   final DateTime? firstOpenedAt;
   final DateTime? lastReadAt;
   final DateTime? completedAt;
   final DateTime? progressUpdatedAt;
-
-  /// When an update check first saw this chapter on the source.
   final DateTime? discoveredAt;
 
-  /// Which discovery strategy found it (chapterList / nextChain / savedRule).
+  /// entryList / nextChain / userPageHint / manual.
   final String? discoveryBasis;
-
-  /// Confidence of that discovery (high / medium / low).
   final String? discoveryConfidence;
 
-  /// When the USER removed this chapter's offline files ("free up space").
-  /// Distinct from files the system lost: a removed chapter renders as
-  /// "not available offline — capture again", never as an error. Cleared on
-  /// re-capture.
+  /// When the USER removed this entry's offline files. Distinct from files the
+  /// system lost: a removed entry reads as "not available offline — save again",
+  /// never as an error. Cleared explicitly on re-save.
   final DateTime? offlineRemovedAt;
-  const Chapter({
+  const Entry({
     required this.id,
-    required this.libraryItemId,
+    this.collectionId,
     required this.title,
     required this.sourceUrl,
     required this.urlKey,
-    required this.captureStatus,
+    this.canonicalUrl,
+    required this.host,
+    this.sourceTitle,
+    this.publishedAt,
+    required this.contentKind,
+    required this.contentKindConfidence,
+    required this.contentKindIsUserSet,
+    required this.saveStatus,
     this.contentPath,
-    this.capturedAt,
-    required this.detectedImageCount,
-    required this.storedImageCount,
+    this.savedAt,
+    required this.detectedAssetCount,
+    required this.storedAssetCount,
     this.nextSourceUrl,
-    required this.sequence,
-    this.captureError,
+    required this.entryOrder,
+    this.saveError,
     required this.byteSize,
-    this.chapterNumber,
-    this.chapterLabel,
+    this.entryNumber,
+    this.sourceMarker,
     required this.readStatus,
     required this.progressFraction,
-    required this.progressImageIndex,
-    required this.progressOffsetInImage,
+    required this.progressPageIndex,
+    required this.progressOffsetInPage,
     this.firstOpenedAt,
     this.lastReadAt,
     this.completedAt,
@@ -2167,37 +2656,52 @@ class Chapter extends DataClass implements Insertable<Chapter> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
-    map['library_item_id'] = Variable<String>(libraryItemId);
+    if (!nullToAbsent || collectionId != null) {
+      map['collection_id'] = Variable<String>(collectionId);
+    }
     map['title'] = Variable<String>(title);
     map['source_url'] = Variable<String>(sourceUrl);
     map['url_key'] = Variable<String>(urlKey);
-    map['capture_status'] = Variable<String>(captureStatus);
+    if (!nullToAbsent || canonicalUrl != null) {
+      map['canonical_url'] = Variable<String>(canonicalUrl);
+    }
+    map['host'] = Variable<String>(host);
+    if (!nullToAbsent || sourceTitle != null) {
+      map['source_title'] = Variable<String>(sourceTitle);
+    }
+    if (!nullToAbsent || publishedAt != null) {
+      map['published_at'] = Variable<DateTime>(publishedAt);
+    }
+    map['content_kind'] = Variable<String>(contentKind);
+    map['content_kind_confidence'] = Variable<String>(contentKindConfidence);
+    map['content_kind_is_user_set'] = Variable<bool>(contentKindIsUserSet);
+    map['save_status'] = Variable<String>(saveStatus);
     if (!nullToAbsent || contentPath != null) {
       map['content_path'] = Variable<String>(contentPath);
     }
-    if (!nullToAbsent || capturedAt != null) {
-      map['captured_at'] = Variable<DateTime>(capturedAt);
+    if (!nullToAbsent || savedAt != null) {
+      map['saved_at'] = Variable<DateTime>(savedAt);
     }
-    map['detected_image_count'] = Variable<int>(detectedImageCount);
-    map['stored_image_count'] = Variable<int>(storedImageCount);
+    map['detected_asset_count'] = Variable<int>(detectedAssetCount);
+    map['stored_asset_count'] = Variable<int>(storedAssetCount);
     if (!nullToAbsent || nextSourceUrl != null) {
       map['next_source_url'] = Variable<String>(nextSourceUrl);
     }
-    map['sequence'] = Variable<int>(sequence);
-    if (!nullToAbsent || captureError != null) {
-      map['capture_error'] = Variable<String>(captureError);
+    map['entry_order'] = Variable<int>(entryOrder);
+    if (!nullToAbsent || saveError != null) {
+      map['save_error'] = Variable<String>(saveError);
     }
     map['byte_size'] = Variable<int>(byteSize);
-    if (!nullToAbsent || chapterNumber != null) {
-      map['chapter_number'] = Variable<double>(chapterNumber);
+    if (!nullToAbsent || entryNumber != null) {
+      map['entry_number'] = Variable<double>(entryNumber);
     }
-    if (!nullToAbsent || chapterLabel != null) {
-      map['chapter_label'] = Variable<String>(chapterLabel);
+    if (!nullToAbsent || sourceMarker != null) {
+      map['source_marker'] = Variable<String>(sourceMarker);
     }
     map['read_status'] = Variable<String>(readStatus);
     map['progress_fraction'] = Variable<double>(progressFraction);
-    map['progress_image_index'] = Variable<int>(progressImageIndex);
-    map['progress_offset_in_image'] = Variable<double>(progressOffsetInImage);
+    map['progress_page_index'] = Variable<int>(progressPageIndex);
+    map['progress_offset_in_page'] = Variable<double>(progressOffsetInPage);
     if (!nullToAbsent || firstOpenedAt != null) {
       map['first_opened_at'] = Variable<DateTime>(firstOpenedAt);
     }
@@ -2225,40 +2729,55 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     return map;
   }
 
-  ChaptersCompanion toCompanion(bool nullToAbsent) {
-    return ChaptersCompanion(
+  EntriesCompanion toCompanion(bool nullToAbsent) {
+    return EntriesCompanion(
       id: Value(id),
-      libraryItemId: Value(libraryItemId),
+      collectionId: collectionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(collectionId),
       title: Value(title),
       sourceUrl: Value(sourceUrl),
       urlKey: Value(urlKey),
-      captureStatus: Value(captureStatus),
+      canonicalUrl: canonicalUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(canonicalUrl),
+      host: Value(host),
+      sourceTitle: sourceTitle == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceTitle),
+      publishedAt: publishedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(publishedAt),
+      contentKind: Value(contentKind),
+      contentKindConfidence: Value(contentKindConfidence),
+      contentKindIsUserSet: Value(contentKindIsUserSet),
+      saveStatus: Value(saveStatus),
       contentPath: contentPath == null && nullToAbsent
           ? const Value.absent()
           : Value(contentPath),
-      capturedAt: capturedAt == null && nullToAbsent
+      savedAt: savedAt == null && nullToAbsent
           ? const Value.absent()
-          : Value(capturedAt),
-      detectedImageCount: Value(detectedImageCount),
-      storedImageCount: Value(storedImageCount),
+          : Value(savedAt),
+      detectedAssetCount: Value(detectedAssetCount),
+      storedAssetCount: Value(storedAssetCount),
       nextSourceUrl: nextSourceUrl == null && nullToAbsent
           ? const Value.absent()
           : Value(nextSourceUrl),
-      sequence: Value(sequence),
-      captureError: captureError == null && nullToAbsent
+      entryOrder: Value(entryOrder),
+      saveError: saveError == null && nullToAbsent
           ? const Value.absent()
-          : Value(captureError),
+          : Value(saveError),
       byteSize: Value(byteSize),
-      chapterNumber: chapterNumber == null && nullToAbsent
+      entryNumber: entryNumber == null && nullToAbsent
           ? const Value.absent()
-          : Value(chapterNumber),
-      chapterLabel: chapterLabel == null && nullToAbsent
+          : Value(entryNumber),
+      sourceMarker: sourceMarker == null && nullToAbsent
           ? const Value.absent()
-          : Value(chapterLabel),
+          : Value(sourceMarker),
       readStatus: Value(readStatus),
       progressFraction: Value(progressFraction),
-      progressImageIndex: Value(progressImageIndex),
-      progressOffsetInImage: Value(progressOffsetInImage),
+      progressPageIndex: Value(progressPageIndex),
+      progressOffsetInPage: Value(progressOffsetInPage),
       firstOpenedAt: firstOpenedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(firstOpenedAt),
@@ -2286,33 +2805,44 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     );
   }
 
-  factory Chapter.fromJson(
+  factory Entry.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return Chapter(
+    return Entry(
       id: serializer.fromJson<String>(json['id']),
-      libraryItemId: serializer.fromJson<String>(json['libraryItemId']),
+      collectionId: serializer.fromJson<String?>(json['collectionId']),
       title: serializer.fromJson<String>(json['title']),
       sourceUrl: serializer.fromJson<String>(json['sourceUrl']),
       urlKey: serializer.fromJson<String>(json['urlKey']),
-      captureStatus: serializer.fromJson<String>(json['captureStatus']),
+      canonicalUrl: serializer.fromJson<String?>(json['canonicalUrl']),
+      host: serializer.fromJson<String>(json['host']),
+      sourceTitle: serializer.fromJson<String?>(json['sourceTitle']),
+      publishedAt: serializer.fromJson<DateTime?>(json['publishedAt']),
+      contentKind: serializer.fromJson<String>(json['contentKind']),
+      contentKindConfidence: serializer.fromJson<String>(
+        json['contentKindConfidence'],
+      ),
+      contentKindIsUserSet: serializer.fromJson<bool>(
+        json['contentKindIsUserSet'],
+      ),
+      saveStatus: serializer.fromJson<String>(json['saveStatus']),
       contentPath: serializer.fromJson<String?>(json['contentPath']),
-      capturedAt: serializer.fromJson<DateTime?>(json['capturedAt']),
-      detectedImageCount: serializer.fromJson<int>(json['detectedImageCount']),
-      storedImageCount: serializer.fromJson<int>(json['storedImageCount']),
+      savedAt: serializer.fromJson<DateTime?>(json['savedAt']),
+      detectedAssetCount: serializer.fromJson<int>(json['detectedAssetCount']),
+      storedAssetCount: serializer.fromJson<int>(json['storedAssetCount']),
       nextSourceUrl: serializer.fromJson<String?>(json['nextSourceUrl']),
-      sequence: serializer.fromJson<int>(json['sequence']),
-      captureError: serializer.fromJson<String?>(json['captureError']),
+      entryOrder: serializer.fromJson<int>(json['entryOrder']),
+      saveError: serializer.fromJson<String?>(json['saveError']),
       byteSize: serializer.fromJson<int>(json['byteSize']),
-      chapterNumber: serializer.fromJson<double?>(json['chapterNumber']),
-      chapterLabel: serializer.fromJson<String?>(json['chapterLabel']),
+      entryNumber: serializer.fromJson<double?>(json['entryNumber']),
+      sourceMarker: serializer.fromJson<String?>(json['sourceMarker']),
       readStatus: serializer.fromJson<String>(json['readStatus']),
       progressFraction: serializer.fromJson<double>(json['progressFraction']),
-      progressImageIndex: serializer.fromJson<int>(json['progressImageIndex']),
-      progressOffsetInImage: serializer.fromJson<double>(
-        json['progressOffsetInImage'],
+      progressPageIndex: serializer.fromJson<int>(json['progressPageIndex']),
+      progressOffsetInPage: serializer.fromJson<double>(
+        json['progressOffsetInPage'],
       ),
       firstOpenedAt: serializer.fromJson<DateTime?>(json['firstOpenedAt']),
       lastReadAt: serializer.fromJson<DateTime?>(json['lastReadAt']),
@@ -2335,25 +2865,32 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
-      'libraryItemId': serializer.toJson<String>(libraryItemId),
+      'collectionId': serializer.toJson<String?>(collectionId),
       'title': serializer.toJson<String>(title),
       'sourceUrl': serializer.toJson<String>(sourceUrl),
       'urlKey': serializer.toJson<String>(urlKey),
-      'captureStatus': serializer.toJson<String>(captureStatus),
+      'canonicalUrl': serializer.toJson<String?>(canonicalUrl),
+      'host': serializer.toJson<String>(host),
+      'sourceTitle': serializer.toJson<String?>(sourceTitle),
+      'publishedAt': serializer.toJson<DateTime?>(publishedAt),
+      'contentKind': serializer.toJson<String>(contentKind),
+      'contentKindConfidence': serializer.toJson<String>(contentKindConfidence),
+      'contentKindIsUserSet': serializer.toJson<bool>(contentKindIsUserSet),
+      'saveStatus': serializer.toJson<String>(saveStatus),
       'contentPath': serializer.toJson<String?>(contentPath),
-      'capturedAt': serializer.toJson<DateTime?>(capturedAt),
-      'detectedImageCount': serializer.toJson<int>(detectedImageCount),
-      'storedImageCount': serializer.toJson<int>(storedImageCount),
+      'savedAt': serializer.toJson<DateTime?>(savedAt),
+      'detectedAssetCount': serializer.toJson<int>(detectedAssetCount),
+      'storedAssetCount': serializer.toJson<int>(storedAssetCount),
       'nextSourceUrl': serializer.toJson<String?>(nextSourceUrl),
-      'sequence': serializer.toJson<int>(sequence),
-      'captureError': serializer.toJson<String?>(captureError),
+      'entryOrder': serializer.toJson<int>(entryOrder),
+      'saveError': serializer.toJson<String?>(saveError),
       'byteSize': serializer.toJson<int>(byteSize),
-      'chapterNumber': serializer.toJson<double?>(chapterNumber),
-      'chapterLabel': serializer.toJson<String?>(chapterLabel),
+      'entryNumber': serializer.toJson<double?>(entryNumber),
+      'sourceMarker': serializer.toJson<String?>(sourceMarker),
       'readStatus': serializer.toJson<String>(readStatus),
       'progressFraction': serializer.toJson<double>(progressFraction),
-      'progressImageIndex': serializer.toJson<int>(progressImageIndex),
-      'progressOffsetInImage': serializer.toJson<double>(progressOffsetInImage),
+      'progressPageIndex': serializer.toJson<int>(progressPageIndex),
+      'progressOffsetInPage': serializer.toJson<double>(progressOffsetInPage),
       'firstOpenedAt': serializer.toJson<DateTime?>(firstOpenedAt),
       'lastReadAt': serializer.toJson<DateTime?>(lastReadAt),
       'completedAt': serializer.toJson<DateTime?>(completedAt),
@@ -2365,27 +2902,34 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     };
   }
 
-  Chapter copyWith({
+  Entry copyWith({
     String? id,
-    String? libraryItemId,
+    Value<String?> collectionId = const Value.absent(),
     String? title,
     String? sourceUrl,
     String? urlKey,
-    String? captureStatus,
+    Value<String?> canonicalUrl = const Value.absent(),
+    String? host,
+    Value<String?> sourceTitle = const Value.absent(),
+    Value<DateTime?> publishedAt = const Value.absent(),
+    String? contentKind,
+    String? contentKindConfidence,
+    bool? contentKindIsUserSet,
+    String? saveStatus,
     Value<String?> contentPath = const Value.absent(),
-    Value<DateTime?> capturedAt = const Value.absent(),
-    int? detectedImageCount,
-    int? storedImageCount,
+    Value<DateTime?> savedAt = const Value.absent(),
+    int? detectedAssetCount,
+    int? storedAssetCount,
     Value<String?> nextSourceUrl = const Value.absent(),
-    int? sequence,
-    Value<String?> captureError = const Value.absent(),
+    int? entryOrder,
+    Value<String?> saveError = const Value.absent(),
     int? byteSize,
-    Value<double?> chapterNumber = const Value.absent(),
-    Value<String?> chapterLabel = const Value.absent(),
+    Value<double?> entryNumber = const Value.absent(),
+    Value<String?> sourceMarker = const Value.absent(),
     String? readStatus,
     double? progressFraction,
-    int? progressImageIndex,
-    double? progressOffsetInImage,
+    int? progressPageIndex,
+    double? progressOffsetInPage,
     Value<DateTime?> firstOpenedAt = const Value.absent(),
     Value<DateTime?> lastReadAt = const Value.absent(),
     Value<DateTime?> completedAt = const Value.absent(),
@@ -2394,31 +2938,36 @@ class Chapter extends DataClass implements Insertable<Chapter> {
     Value<String?> discoveryBasis = const Value.absent(),
     Value<String?> discoveryConfidence = const Value.absent(),
     Value<DateTime?> offlineRemovedAt = const Value.absent(),
-  }) => Chapter(
+  }) => Entry(
     id: id ?? this.id,
-    libraryItemId: libraryItemId ?? this.libraryItemId,
+    collectionId: collectionId.present ? collectionId.value : this.collectionId,
     title: title ?? this.title,
     sourceUrl: sourceUrl ?? this.sourceUrl,
     urlKey: urlKey ?? this.urlKey,
-    captureStatus: captureStatus ?? this.captureStatus,
+    canonicalUrl: canonicalUrl.present ? canonicalUrl.value : this.canonicalUrl,
+    host: host ?? this.host,
+    sourceTitle: sourceTitle.present ? sourceTitle.value : this.sourceTitle,
+    publishedAt: publishedAt.present ? publishedAt.value : this.publishedAt,
+    contentKind: contentKind ?? this.contentKind,
+    contentKindConfidence: contentKindConfidence ?? this.contentKindConfidence,
+    contentKindIsUserSet: contentKindIsUserSet ?? this.contentKindIsUserSet,
+    saveStatus: saveStatus ?? this.saveStatus,
     contentPath: contentPath.present ? contentPath.value : this.contentPath,
-    capturedAt: capturedAt.present ? capturedAt.value : this.capturedAt,
-    detectedImageCount: detectedImageCount ?? this.detectedImageCount,
-    storedImageCount: storedImageCount ?? this.storedImageCount,
+    savedAt: savedAt.present ? savedAt.value : this.savedAt,
+    detectedAssetCount: detectedAssetCount ?? this.detectedAssetCount,
+    storedAssetCount: storedAssetCount ?? this.storedAssetCount,
     nextSourceUrl: nextSourceUrl.present
         ? nextSourceUrl.value
         : this.nextSourceUrl,
-    sequence: sequence ?? this.sequence,
-    captureError: captureError.present ? captureError.value : this.captureError,
+    entryOrder: entryOrder ?? this.entryOrder,
+    saveError: saveError.present ? saveError.value : this.saveError,
     byteSize: byteSize ?? this.byteSize,
-    chapterNumber: chapterNumber.present
-        ? chapterNumber.value
-        : this.chapterNumber,
-    chapterLabel: chapterLabel.present ? chapterLabel.value : this.chapterLabel,
+    entryNumber: entryNumber.present ? entryNumber.value : this.entryNumber,
+    sourceMarker: sourceMarker.present ? sourceMarker.value : this.sourceMarker,
     readStatus: readStatus ?? this.readStatus,
     progressFraction: progressFraction ?? this.progressFraction,
-    progressImageIndex: progressImageIndex ?? this.progressImageIndex,
-    progressOffsetInImage: progressOffsetInImage ?? this.progressOffsetInImage,
+    progressPageIndex: progressPageIndex ?? this.progressPageIndex,
+    progressOffsetInPage: progressOffsetInPage ?? this.progressOffsetInPage,
     firstOpenedAt: firstOpenedAt.present
         ? firstOpenedAt.value
         : this.firstOpenedAt,
@@ -2438,56 +2987,73 @@ class Chapter extends DataClass implements Insertable<Chapter> {
         ? offlineRemovedAt.value
         : this.offlineRemovedAt,
   );
-  Chapter copyWithCompanion(ChaptersCompanion data) {
-    return Chapter(
+  Entry copyWithCompanion(EntriesCompanion data) {
+    return Entry(
       id: data.id.present ? data.id.value : this.id,
-      libraryItemId: data.libraryItemId.present
-          ? data.libraryItemId.value
-          : this.libraryItemId,
+      collectionId: data.collectionId.present
+          ? data.collectionId.value
+          : this.collectionId,
       title: data.title.present ? data.title.value : this.title,
       sourceUrl: data.sourceUrl.present ? data.sourceUrl.value : this.sourceUrl,
       urlKey: data.urlKey.present ? data.urlKey.value : this.urlKey,
-      captureStatus: data.captureStatus.present
-          ? data.captureStatus.value
-          : this.captureStatus,
+      canonicalUrl: data.canonicalUrl.present
+          ? data.canonicalUrl.value
+          : this.canonicalUrl,
+      host: data.host.present ? data.host.value : this.host,
+      sourceTitle: data.sourceTitle.present
+          ? data.sourceTitle.value
+          : this.sourceTitle,
+      publishedAt: data.publishedAt.present
+          ? data.publishedAt.value
+          : this.publishedAt,
+      contentKind: data.contentKind.present
+          ? data.contentKind.value
+          : this.contentKind,
+      contentKindConfidence: data.contentKindConfidence.present
+          ? data.contentKindConfidence.value
+          : this.contentKindConfidence,
+      contentKindIsUserSet: data.contentKindIsUserSet.present
+          ? data.contentKindIsUserSet.value
+          : this.contentKindIsUserSet,
+      saveStatus: data.saveStatus.present
+          ? data.saveStatus.value
+          : this.saveStatus,
       contentPath: data.contentPath.present
           ? data.contentPath.value
           : this.contentPath,
-      capturedAt: data.capturedAt.present
-          ? data.capturedAt.value
-          : this.capturedAt,
-      detectedImageCount: data.detectedImageCount.present
-          ? data.detectedImageCount.value
-          : this.detectedImageCount,
-      storedImageCount: data.storedImageCount.present
-          ? data.storedImageCount.value
-          : this.storedImageCount,
+      savedAt: data.savedAt.present ? data.savedAt.value : this.savedAt,
+      detectedAssetCount: data.detectedAssetCount.present
+          ? data.detectedAssetCount.value
+          : this.detectedAssetCount,
+      storedAssetCount: data.storedAssetCount.present
+          ? data.storedAssetCount.value
+          : this.storedAssetCount,
       nextSourceUrl: data.nextSourceUrl.present
           ? data.nextSourceUrl.value
           : this.nextSourceUrl,
-      sequence: data.sequence.present ? data.sequence.value : this.sequence,
-      captureError: data.captureError.present
-          ? data.captureError.value
-          : this.captureError,
+      entryOrder: data.entryOrder.present
+          ? data.entryOrder.value
+          : this.entryOrder,
+      saveError: data.saveError.present ? data.saveError.value : this.saveError,
       byteSize: data.byteSize.present ? data.byteSize.value : this.byteSize,
-      chapterNumber: data.chapterNumber.present
-          ? data.chapterNumber.value
-          : this.chapterNumber,
-      chapterLabel: data.chapterLabel.present
-          ? data.chapterLabel.value
-          : this.chapterLabel,
+      entryNumber: data.entryNumber.present
+          ? data.entryNumber.value
+          : this.entryNumber,
+      sourceMarker: data.sourceMarker.present
+          ? data.sourceMarker.value
+          : this.sourceMarker,
       readStatus: data.readStatus.present
           ? data.readStatus.value
           : this.readStatus,
       progressFraction: data.progressFraction.present
           ? data.progressFraction.value
           : this.progressFraction,
-      progressImageIndex: data.progressImageIndex.present
-          ? data.progressImageIndex.value
-          : this.progressImageIndex,
-      progressOffsetInImage: data.progressOffsetInImage.present
-          ? data.progressOffsetInImage.value
-          : this.progressOffsetInImage,
+      progressPageIndex: data.progressPageIndex.present
+          ? data.progressPageIndex.value
+          : this.progressPageIndex,
+      progressOffsetInPage: data.progressOffsetInPage.present
+          ? data.progressOffsetInPage.value
+          : this.progressOffsetInPage,
       firstOpenedAt: data.firstOpenedAt.present
           ? data.firstOpenedAt.value
           : this.firstOpenedAt,
@@ -2517,27 +3083,34 @@ class Chapter extends DataClass implements Insertable<Chapter> {
 
   @override
   String toString() {
-    return (StringBuffer('Chapter(')
+    return (StringBuffer('Entry(')
           ..write('id: $id, ')
-          ..write('libraryItemId: $libraryItemId, ')
+          ..write('collectionId: $collectionId, ')
           ..write('title: $title, ')
           ..write('sourceUrl: $sourceUrl, ')
           ..write('urlKey: $urlKey, ')
-          ..write('captureStatus: $captureStatus, ')
+          ..write('canonicalUrl: $canonicalUrl, ')
+          ..write('host: $host, ')
+          ..write('sourceTitle: $sourceTitle, ')
+          ..write('publishedAt: $publishedAt, ')
+          ..write('contentKind: $contentKind, ')
+          ..write('contentKindConfidence: $contentKindConfidence, ')
+          ..write('contentKindIsUserSet: $contentKindIsUserSet, ')
+          ..write('saveStatus: $saveStatus, ')
           ..write('contentPath: $contentPath, ')
-          ..write('capturedAt: $capturedAt, ')
-          ..write('detectedImageCount: $detectedImageCount, ')
-          ..write('storedImageCount: $storedImageCount, ')
+          ..write('savedAt: $savedAt, ')
+          ..write('detectedAssetCount: $detectedAssetCount, ')
+          ..write('storedAssetCount: $storedAssetCount, ')
           ..write('nextSourceUrl: $nextSourceUrl, ')
-          ..write('sequence: $sequence, ')
-          ..write('captureError: $captureError, ')
+          ..write('entryOrder: $entryOrder, ')
+          ..write('saveError: $saveError, ')
           ..write('byteSize: $byteSize, ')
-          ..write('chapterNumber: $chapterNumber, ')
-          ..write('chapterLabel: $chapterLabel, ')
+          ..write('entryNumber: $entryNumber, ')
+          ..write('sourceMarker: $sourceMarker, ')
           ..write('readStatus: $readStatus, ')
           ..write('progressFraction: $progressFraction, ')
-          ..write('progressImageIndex: $progressImageIndex, ')
-          ..write('progressOffsetInImage: $progressOffsetInImage, ')
+          ..write('progressPageIndex: $progressPageIndex, ')
+          ..write('progressOffsetInPage: $progressOffsetInPage, ')
           ..write('firstOpenedAt: $firstOpenedAt, ')
           ..write('lastReadAt: $lastReadAt, ')
           ..write('completedAt: $completedAt, ')
@@ -2553,25 +3126,32 @@ class Chapter extends DataClass implements Insertable<Chapter> {
   @override
   int get hashCode => Object.hashAll([
     id,
-    libraryItemId,
+    collectionId,
     title,
     sourceUrl,
     urlKey,
-    captureStatus,
+    canonicalUrl,
+    host,
+    sourceTitle,
+    publishedAt,
+    contentKind,
+    contentKindConfidence,
+    contentKindIsUserSet,
+    saveStatus,
     contentPath,
-    capturedAt,
-    detectedImageCount,
-    storedImageCount,
+    savedAt,
+    detectedAssetCount,
+    storedAssetCount,
     nextSourceUrl,
-    sequence,
-    captureError,
+    entryOrder,
+    saveError,
     byteSize,
-    chapterNumber,
-    chapterLabel,
+    entryNumber,
+    sourceMarker,
     readStatus,
     progressFraction,
-    progressImageIndex,
-    progressOffsetInImage,
+    progressPageIndex,
+    progressOffsetInPage,
     firstOpenedAt,
     lastReadAt,
     completedAt,
@@ -2584,27 +3164,34 @@ class Chapter extends DataClass implements Insertable<Chapter> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is Chapter &&
+      (other is Entry &&
           other.id == this.id &&
-          other.libraryItemId == this.libraryItemId &&
+          other.collectionId == this.collectionId &&
           other.title == this.title &&
           other.sourceUrl == this.sourceUrl &&
           other.urlKey == this.urlKey &&
-          other.captureStatus == this.captureStatus &&
+          other.canonicalUrl == this.canonicalUrl &&
+          other.host == this.host &&
+          other.sourceTitle == this.sourceTitle &&
+          other.publishedAt == this.publishedAt &&
+          other.contentKind == this.contentKind &&
+          other.contentKindConfidence == this.contentKindConfidence &&
+          other.contentKindIsUserSet == this.contentKindIsUserSet &&
+          other.saveStatus == this.saveStatus &&
           other.contentPath == this.contentPath &&
-          other.capturedAt == this.capturedAt &&
-          other.detectedImageCount == this.detectedImageCount &&
-          other.storedImageCount == this.storedImageCount &&
+          other.savedAt == this.savedAt &&
+          other.detectedAssetCount == this.detectedAssetCount &&
+          other.storedAssetCount == this.storedAssetCount &&
           other.nextSourceUrl == this.nextSourceUrl &&
-          other.sequence == this.sequence &&
-          other.captureError == this.captureError &&
+          other.entryOrder == this.entryOrder &&
+          other.saveError == this.saveError &&
           other.byteSize == this.byteSize &&
-          other.chapterNumber == this.chapterNumber &&
-          other.chapterLabel == this.chapterLabel &&
+          other.entryNumber == this.entryNumber &&
+          other.sourceMarker == this.sourceMarker &&
           other.readStatus == this.readStatus &&
           other.progressFraction == this.progressFraction &&
-          other.progressImageIndex == this.progressImageIndex &&
-          other.progressOffsetInImage == this.progressOffsetInImage &&
+          other.progressPageIndex == this.progressPageIndex &&
+          other.progressOffsetInPage == this.progressOffsetInPage &&
           other.firstOpenedAt == this.firstOpenedAt &&
           other.lastReadAt == this.lastReadAt &&
           other.completedAt == this.completedAt &&
@@ -2615,27 +3202,34 @@ class Chapter extends DataClass implements Insertable<Chapter> {
           other.offlineRemovedAt == this.offlineRemovedAt);
 }
 
-class ChaptersCompanion extends UpdateCompanion<Chapter> {
+class EntriesCompanion extends UpdateCompanion<Entry> {
   final Value<String> id;
-  final Value<String> libraryItemId;
+  final Value<String?> collectionId;
   final Value<String> title;
   final Value<String> sourceUrl;
   final Value<String> urlKey;
-  final Value<String> captureStatus;
+  final Value<String?> canonicalUrl;
+  final Value<String> host;
+  final Value<String?> sourceTitle;
+  final Value<DateTime?> publishedAt;
+  final Value<String> contentKind;
+  final Value<String> contentKindConfidence;
+  final Value<bool> contentKindIsUserSet;
+  final Value<String> saveStatus;
   final Value<String?> contentPath;
-  final Value<DateTime?> capturedAt;
-  final Value<int> detectedImageCount;
-  final Value<int> storedImageCount;
+  final Value<DateTime?> savedAt;
+  final Value<int> detectedAssetCount;
+  final Value<int> storedAssetCount;
   final Value<String?> nextSourceUrl;
-  final Value<int> sequence;
-  final Value<String?> captureError;
+  final Value<int> entryOrder;
+  final Value<String?> saveError;
   final Value<int> byteSize;
-  final Value<double?> chapterNumber;
-  final Value<String?> chapterLabel;
+  final Value<double?> entryNumber;
+  final Value<String?> sourceMarker;
   final Value<String> readStatus;
   final Value<double> progressFraction;
-  final Value<int> progressImageIndex;
-  final Value<double> progressOffsetInImage;
+  final Value<int> progressPageIndex;
+  final Value<double> progressOffsetInPage;
   final Value<DateTime?> firstOpenedAt;
   final Value<DateTime?> lastReadAt;
   final Value<DateTime?> completedAt;
@@ -2645,27 +3239,34 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
   final Value<String?> discoveryConfidence;
   final Value<DateTime?> offlineRemovedAt;
   final Value<int> rowid;
-  const ChaptersCompanion({
+  const EntriesCompanion({
     this.id = const Value.absent(),
-    this.libraryItemId = const Value.absent(),
+    this.collectionId = const Value.absent(),
     this.title = const Value.absent(),
     this.sourceUrl = const Value.absent(),
     this.urlKey = const Value.absent(),
-    this.captureStatus = const Value.absent(),
+    this.canonicalUrl = const Value.absent(),
+    this.host = const Value.absent(),
+    this.sourceTitle = const Value.absent(),
+    this.publishedAt = const Value.absent(),
+    this.contentKind = const Value.absent(),
+    this.contentKindConfidence = const Value.absent(),
+    this.contentKindIsUserSet = const Value.absent(),
+    this.saveStatus = const Value.absent(),
     this.contentPath = const Value.absent(),
-    this.capturedAt = const Value.absent(),
-    this.detectedImageCount = const Value.absent(),
-    this.storedImageCount = const Value.absent(),
+    this.savedAt = const Value.absent(),
+    this.detectedAssetCount = const Value.absent(),
+    this.storedAssetCount = const Value.absent(),
     this.nextSourceUrl = const Value.absent(),
-    this.sequence = const Value.absent(),
-    this.captureError = const Value.absent(),
+    this.entryOrder = const Value.absent(),
+    this.saveError = const Value.absent(),
     this.byteSize = const Value.absent(),
-    this.chapterNumber = const Value.absent(),
-    this.chapterLabel = const Value.absent(),
+    this.entryNumber = const Value.absent(),
+    this.sourceMarker = const Value.absent(),
     this.readStatus = const Value.absent(),
     this.progressFraction = const Value.absent(),
-    this.progressImageIndex = const Value.absent(),
-    this.progressOffsetInImage = const Value.absent(),
+    this.progressPageIndex = const Value.absent(),
+    this.progressOffsetInPage = const Value.absent(),
     this.firstOpenedAt = const Value.absent(),
     this.lastReadAt = const Value.absent(),
     this.completedAt = const Value.absent(),
@@ -2676,27 +3277,34 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     this.offlineRemovedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
-  ChaptersCompanion.insert({
+  EntriesCompanion.insert({
     required String id,
-    required String libraryItemId,
+    this.collectionId = const Value.absent(),
     required String title,
     required String sourceUrl,
     required String urlKey,
-    required String captureStatus,
+    this.canonicalUrl = const Value.absent(),
+    this.host = const Value.absent(),
+    this.sourceTitle = const Value.absent(),
+    this.publishedAt = const Value.absent(),
+    this.contentKind = const Value.absent(),
+    this.contentKindConfidence = const Value.absent(),
+    this.contentKindIsUserSet = const Value.absent(),
+    required String saveStatus,
     this.contentPath = const Value.absent(),
-    this.capturedAt = const Value.absent(),
-    this.detectedImageCount = const Value.absent(),
-    this.storedImageCount = const Value.absent(),
+    this.savedAt = const Value.absent(),
+    this.detectedAssetCount = const Value.absent(),
+    this.storedAssetCount = const Value.absent(),
     this.nextSourceUrl = const Value.absent(),
-    this.sequence = const Value.absent(),
-    this.captureError = const Value.absent(),
+    this.entryOrder = const Value.absent(),
+    this.saveError = const Value.absent(),
     this.byteSize = const Value.absent(),
-    this.chapterNumber = const Value.absent(),
-    this.chapterLabel = const Value.absent(),
+    this.entryNumber = const Value.absent(),
+    this.sourceMarker = const Value.absent(),
     this.readStatus = const Value.absent(),
     this.progressFraction = const Value.absent(),
-    this.progressImageIndex = const Value.absent(),
-    this.progressOffsetInImage = const Value.absent(),
+    this.progressPageIndex = const Value.absent(),
+    this.progressOffsetInPage = const Value.absent(),
     this.firstOpenedAt = const Value.absent(),
     this.lastReadAt = const Value.absent(),
     this.completedAt = const Value.absent(),
@@ -2707,32 +3315,38 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     this.offlineRemovedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
-       libraryItemId = Value(libraryItemId),
        title = Value(title),
        sourceUrl = Value(sourceUrl),
        urlKey = Value(urlKey),
-       captureStatus = Value(captureStatus);
-  static Insertable<Chapter> custom({
+       saveStatus = Value(saveStatus);
+  static Insertable<Entry> custom({
     Expression<String>? id,
-    Expression<String>? libraryItemId,
+    Expression<String>? collectionId,
     Expression<String>? title,
     Expression<String>? sourceUrl,
     Expression<String>? urlKey,
-    Expression<String>? captureStatus,
+    Expression<String>? canonicalUrl,
+    Expression<String>? host,
+    Expression<String>? sourceTitle,
+    Expression<DateTime>? publishedAt,
+    Expression<String>? contentKind,
+    Expression<String>? contentKindConfidence,
+    Expression<bool>? contentKindIsUserSet,
+    Expression<String>? saveStatus,
     Expression<String>? contentPath,
-    Expression<DateTime>? capturedAt,
-    Expression<int>? detectedImageCount,
-    Expression<int>? storedImageCount,
+    Expression<DateTime>? savedAt,
+    Expression<int>? detectedAssetCount,
+    Expression<int>? storedAssetCount,
     Expression<String>? nextSourceUrl,
-    Expression<int>? sequence,
-    Expression<String>? captureError,
+    Expression<int>? entryOrder,
+    Expression<String>? saveError,
     Expression<int>? byteSize,
-    Expression<double>? chapterNumber,
-    Expression<String>? chapterLabel,
+    Expression<double>? entryNumber,
+    Expression<String>? sourceMarker,
     Expression<String>? readStatus,
     Expression<double>? progressFraction,
-    Expression<int>? progressImageIndex,
-    Expression<double>? progressOffsetInImage,
+    Expression<int>? progressPageIndex,
+    Expression<double>? progressOffsetInPage,
     Expression<DateTime>? firstOpenedAt,
     Expression<DateTime>? lastReadAt,
     Expression<DateTime>? completedAt,
@@ -2745,28 +3359,36 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
-      if (libraryItemId != null) 'library_item_id': libraryItemId,
+      if (collectionId != null) 'collection_id': collectionId,
       if (title != null) 'title': title,
       if (sourceUrl != null) 'source_url': sourceUrl,
       if (urlKey != null) 'url_key': urlKey,
-      if (captureStatus != null) 'capture_status': captureStatus,
+      if (canonicalUrl != null) 'canonical_url': canonicalUrl,
+      if (host != null) 'host': host,
+      if (sourceTitle != null) 'source_title': sourceTitle,
+      if (publishedAt != null) 'published_at': publishedAt,
+      if (contentKind != null) 'content_kind': contentKind,
+      if (contentKindConfidence != null)
+        'content_kind_confidence': contentKindConfidence,
+      if (contentKindIsUserSet != null)
+        'content_kind_is_user_set': contentKindIsUserSet,
+      if (saveStatus != null) 'save_status': saveStatus,
       if (contentPath != null) 'content_path': contentPath,
-      if (capturedAt != null) 'captured_at': capturedAt,
-      if (detectedImageCount != null)
-        'detected_image_count': detectedImageCount,
-      if (storedImageCount != null) 'stored_image_count': storedImageCount,
+      if (savedAt != null) 'saved_at': savedAt,
+      if (detectedAssetCount != null)
+        'detected_asset_count': detectedAssetCount,
+      if (storedAssetCount != null) 'stored_asset_count': storedAssetCount,
       if (nextSourceUrl != null) 'next_source_url': nextSourceUrl,
-      if (sequence != null) 'sequence': sequence,
-      if (captureError != null) 'capture_error': captureError,
+      if (entryOrder != null) 'entry_order': entryOrder,
+      if (saveError != null) 'save_error': saveError,
       if (byteSize != null) 'byte_size': byteSize,
-      if (chapterNumber != null) 'chapter_number': chapterNumber,
-      if (chapterLabel != null) 'chapter_label': chapterLabel,
+      if (entryNumber != null) 'entry_number': entryNumber,
+      if (sourceMarker != null) 'source_marker': sourceMarker,
       if (readStatus != null) 'read_status': readStatus,
       if (progressFraction != null) 'progress_fraction': progressFraction,
-      if (progressImageIndex != null)
-        'progress_image_index': progressImageIndex,
-      if (progressOffsetInImage != null)
-        'progress_offset_in_image': progressOffsetInImage,
+      if (progressPageIndex != null) 'progress_page_index': progressPageIndex,
+      if (progressOffsetInPage != null)
+        'progress_offset_in_page': progressOffsetInPage,
       if (firstOpenedAt != null) 'first_opened_at': firstOpenedAt,
       if (lastReadAt != null) 'last_read_at': lastReadAt,
       if (completedAt != null) 'completed_at': completedAt,
@@ -2780,27 +3402,34 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     });
   }
 
-  ChaptersCompanion copyWith({
+  EntriesCompanion copyWith({
     Value<String>? id,
-    Value<String>? libraryItemId,
+    Value<String?>? collectionId,
     Value<String>? title,
     Value<String>? sourceUrl,
     Value<String>? urlKey,
-    Value<String>? captureStatus,
+    Value<String?>? canonicalUrl,
+    Value<String>? host,
+    Value<String?>? sourceTitle,
+    Value<DateTime?>? publishedAt,
+    Value<String>? contentKind,
+    Value<String>? contentKindConfidence,
+    Value<bool>? contentKindIsUserSet,
+    Value<String>? saveStatus,
     Value<String?>? contentPath,
-    Value<DateTime?>? capturedAt,
-    Value<int>? detectedImageCount,
-    Value<int>? storedImageCount,
+    Value<DateTime?>? savedAt,
+    Value<int>? detectedAssetCount,
+    Value<int>? storedAssetCount,
     Value<String?>? nextSourceUrl,
-    Value<int>? sequence,
-    Value<String?>? captureError,
+    Value<int>? entryOrder,
+    Value<String?>? saveError,
     Value<int>? byteSize,
-    Value<double?>? chapterNumber,
-    Value<String?>? chapterLabel,
+    Value<double?>? entryNumber,
+    Value<String?>? sourceMarker,
     Value<String>? readStatus,
     Value<double>? progressFraction,
-    Value<int>? progressImageIndex,
-    Value<double>? progressOffsetInImage,
+    Value<int>? progressPageIndex,
+    Value<double>? progressOffsetInPage,
     Value<DateTime?>? firstOpenedAt,
     Value<DateTime?>? lastReadAt,
     Value<DateTime?>? completedAt,
@@ -2811,28 +3440,35 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     Value<DateTime?>? offlineRemovedAt,
     Value<int>? rowid,
   }) {
-    return ChaptersCompanion(
+    return EntriesCompanion(
       id: id ?? this.id,
-      libraryItemId: libraryItemId ?? this.libraryItemId,
+      collectionId: collectionId ?? this.collectionId,
       title: title ?? this.title,
       sourceUrl: sourceUrl ?? this.sourceUrl,
       urlKey: urlKey ?? this.urlKey,
-      captureStatus: captureStatus ?? this.captureStatus,
+      canonicalUrl: canonicalUrl ?? this.canonicalUrl,
+      host: host ?? this.host,
+      sourceTitle: sourceTitle ?? this.sourceTitle,
+      publishedAt: publishedAt ?? this.publishedAt,
+      contentKind: contentKind ?? this.contentKind,
+      contentKindConfidence:
+          contentKindConfidence ?? this.contentKindConfidence,
+      contentKindIsUserSet: contentKindIsUserSet ?? this.contentKindIsUserSet,
+      saveStatus: saveStatus ?? this.saveStatus,
       contentPath: contentPath ?? this.contentPath,
-      capturedAt: capturedAt ?? this.capturedAt,
-      detectedImageCount: detectedImageCount ?? this.detectedImageCount,
-      storedImageCount: storedImageCount ?? this.storedImageCount,
+      savedAt: savedAt ?? this.savedAt,
+      detectedAssetCount: detectedAssetCount ?? this.detectedAssetCount,
+      storedAssetCount: storedAssetCount ?? this.storedAssetCount,
       nextSourceUrl: nextSourceUrl ?? this.nextSourceUrl,
-      sequence: sequence ?? this.sequence,
-      captureError: captureError ?? this.captureError,
+      entryOrder: entryOrder ?? this.entryOrder,
+      saveError: saveError ?? this.saveError,
       byteSize: byteSize ?? this.byteSize,
-      chapterNumber: chapterNumber ?? this.chapterNumber,
-      chapterLabel: chapterLabel ?? this.chapterLabel,
+      entryNumber: entryNumber ?? this.entryNumber,
+      sourceMarker: sourceMarker ?? this.sourceMarker,
       readStatus: readStatus ?? this.readStatus,
       progressFraction: progressFraction ?? this.progressFraction,
-      progressImageIndex: progressImageIndex ?? this.progressImageIndex,
-      progressOffsetInImage:
-          progressOffsetInImage ?? this.progressOffsetInImage,
+      progressPageIndex: progressPageIndex ?? this.progressPageIndex,
+      progressOffsetInPage: progressOffsetInPage ?? this.progressOffsetInPage,
       firstOpenedAt: firstOpenedAt ?? this.firstOpenedAt,
       lastReadAt: lastReadAt ?? this.lastReadAt,
       completedAt: completedAt ?? this.completedAt,
@@ -2851,8 +3487,8 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     if (id.present) {
       map['id'] = Variable<String>(id.value);
     }
-    if (libraryItemId.present) {
-      map['library_item_id'] = Variable<String>(libraryItemId.value);
+    if (collectionId.present) {
+      map['collection_id'] = Variable<String>(collectionId.value);
     }
     if (title.present) {
       map['title'] = Variable<String>(title.value);
@@ -2863,38 +3499,63 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     if (urlKey.present) {
       map['url_key'] = Variable<String>(urlKey.value);
     }
-    if (captureStatus.present) {
-      map['capture_status'] = Variable<String>(captureStatus.value);
+    if (canonicalUrl.present) {
+      map['canonical_url'] = Variable<String>(canonicalUrl.value);
+    }
+    if (host.present) {
+      map['host'] = Variable<String>(host.value);
+    }
+    if (sourceTitle.present) {
+      map['source_title'] = Variable<String>(sourceTitle.value);
+    }
+    if (publishedAt.present) {
+      map['published_at'] = Variable<DateTime>(publishedAt.value);
+    }
+    if (contentKind.present) {
+      map['content_kind'] = Variable<String>(contentKind.value);
+    }
+    if (contentKindConfidence.present) {
+      map['content_kind_confidence'] = Variable<String>(
+        contentKindConfidence.value,
+      );
+    }
+    if (contentKindIsUserSet.present) {
+      map['content_kind_is_user_set'] = Variable<bool>(
+        contentKindIsUserSet.value,
+      );
+    }
+    if (saveStatus.present) {
+      map['save_status'] = Variable<String>(saveStatus.value);
     }
     if (contentPath.present) {
       map['content_path'] = Variable<String>(contentPath.value);
     }
-    if (capturedAt.present) {
-      map['captured_at'] = Variable<DateTime>(capturedAt.value);
+    if (savedAt.present) {
+      map['saved_at'] = Variable<DateTime>(savedAt.value);
     }
-    if (detectedImageCount.present) {
-      map['detected_image_count'] = Variable<int>(detectedImageCount.value);
+    if (detectedAssetCount.present) {
+      map['detected_asset_count'] = Variable<int>(detectedAssetCount.value);
     }
-    if (storedImageCount.present) {
-      map['stored_image_count'] = Variable<int>(storedImageCount.value);
+    if (storedAssetCount.present) {
+      map['stored_asset_count'] = Variable<int>(storedAssetCount.value);
     }
     if (nextSourceUrl.present) {
       map['next_source_url'] = Variable<String>(nextSourceUrl.value);
     }
-    if (sequence.present) {
-      map['sequence'] = Variable<int>(sequence.value);
+    if (entryOrder.present) {
+      map['entry_order'] = Variable<int>(entryOrder.value);
     }
-    if (captureError.present) {
-      map['capture_error'] = Variable<String>(captureError.value);
+    if (saveError.present) {
+      map['save_error'] = Variable<String>(saveError.value);
     }
     if (byteSize.present) {
       map['byte_size'] = Variable<int>(byteSize.value);
     }
-    if (chapterNumber.present) {
-      map['chapter_number'] = Variable<double>(chapterNumber.value);
+    if (entryNumber.present) {
+      map['entry_number'] = Variable<double>(entryNumber.value);
     }
-    if (chapterLabel.present) {
-      map['chapter_label'] = Variable<String>(chapterLabel.value);
+    if (sourceMarker.present) {
+      map['source_marker'] = Variable<String>(sourceMarker.value);
     }
     if (readStatus.present) {
       map['read_status'] = Variable<String>(readStatus.value);
@@ -2902,12 +3563,12 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
     if (progressFraction.present) {
       map['progress_fraction'] = Variable<double>(progressFraction.value);
     }
-    if (progressImageIndex.present) {
-      map['progress_image_index'] = Variable<int>(progressImageIndex.value);
+    if (progressPageIndex.present) {
+      map['progress_page_index'] = Variable<int>(progressPageIndex.value);
     }
-    if (progressOffsetInImage.present) {
-      map['progress_offset_in_image'] = Variable<double>(
-        progressOffsetInImage.value,
+    if (progressOffsetInPage.present) {
+      map['progress_offset_in_page'] = Variable<double>(
+        progressOffsetInPage.value,
       );
     }
     if (firstOpenedAt.present) {
@@ -2942,27 +3603,34 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
 
   @override
   String toString() {
-    return (StringBuffer('ChaptersCompanion(')
+    return (StringBuffer('EntriesCompanion(')
           ..write('id: $id, ')
-          ..write('libraryItemId: $libraryItemId, ')
+          ..write('collectionId: $collectionId, ')
           ..write('title: $title, ')
           ..write('sourceUrl: $sourceUrl, ')
           ..write('urlKey: $urlKey, ')
-          ..write('captureStatus: $captureStatus, ')
+          ..write('canonicalUrl: $canonicalUrl, ')
+          ..write('host: $host, ')
+          ..write('sourceTitle: $sourceTitle, ')
+          ..write('publishedAt: $publishedAt, ')
+          ..write('contentKind: $contentKind, ')
+          ..write('contentKindConfidence: $contentKindConfidence, ')
+          ..write('contentKindIsUserSet: $contentKindIsUserSet, ')
+          ..write('saveStatus: $saveStatus, ')
           ..write('contentPath: $contentPath, ')
-          ..write('capturedAt: $capturedAt, ')
-          ..write('detectedImageCount: $detectedImageCount, ')
-          ..write('storedImageCount: $storedImageCount, ')
+          ..write('savedAt: $savedAt, ')
+          ..write('detectedAssetCount: $detectedAssetCount, ')
+          ..write('storedAssetCount: $storedAssetCount, ')
           ..write('nextSourceUrl: $nextSourceUrl, ')
-          ..write('sequence: $sequence, ')
-          ..write('captureError: $captureError, ')
+          ..write('entryOrder: $entryOrder, ')
+          ..write('saveError: $saveError, ')
           ..write('byteSize: $byteSize, ')
-          ..write('chapterNumber: $chapterNumber, ')
-          ..write('chapterLabel: $chapterLabel, ')
+          ..write('entryNumber: $entryNumber, ')
+          ..write('sourceMarker: $sourceMarker, ')
           ..write('readStatus: $readStatus, ')
           ..write('progressFraction: $progressFraction, ')
-          ..write('progressImageIndex: $progressImageIndex, ')
-          ..write('progressOffsetInImage: $progressOffsetInImage, ')
+          ..write('progressPageIndex: $progressPageIndex, ')
+          ..write('progressOffsetInPage: $progressOffsetInPage, ')
           ..write('firstOpenedAt: $firstOpenedAt, ')
           ..write('lastReadAt: $lastReadAt, ')
           ..write('completedAt: $completedAt, ')
@@ -2977,12 +3645,11 @@ class ChaptersCompanion extends UpdateCompanion<Chapter> {
   }
 }
 
-class $CaptureJobsTable extends CaptureJobs
-    with TableInfo<$CaptureJobsTable, CaptureJob> {
+class $SaveRunsTable extends SaveRuns with TableInfo<$SaveRunsTable, SaveRun> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  $CaptureJobsTable(this.attachedDatabase, [this._alias]);
+  $SaveRunsTable(this.attachedDatabase, [this._alias]);
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
   late final GeneratedColumn<String> id = GeneratedColumn<String>(
@@ -2992,12 +3659,12 @@ class $CaptureJobsTable extends CaptureJobs
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _libraryItemIdMeta = const VerificationMeta(
-    'libraryItemId',
+  static const VerificationMeta _collectionIdMeta = const VerificationMeta(
+    'collectionId',
   );
   @override
-  late final GeneratedColumn<String> libraryItemId = GeneratedColumn<String>(
-    'library_item_id',
+  late final GeneratedColumn<String> collectionId = GeneratedColumn<String>(
+    'collection_id',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -3025,23 +3692,23 @@ class $CaptureJobsTable extends CaptureJobs
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _requestedChaptersMeta = const VerificationMeta(
-    'requestedChapters',
+  static const VerificationMeta _requestedEntriesMeta = const VerificationMeta(
+    'requestedEntries',
   );
   @override
-  late final GeneratedColumn<int> requestedChapters = GeneratedColumn<int>(
-    'requested_chapters',
+  late final GeneratedColumn<int> requestedEntries = GeneratedColumn<int>(
+    'requested_entries',
     aliasedName,
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _completedChaptersMeta = const VerificationMeta(
-    'completedChapters',
+  static const VerificationMeta _completedEntriesMeta = const VerificationMeta(
+    'completedEntries',
   );
   @override
-  late final GeneratedColumn<int> completedChapters = GeneratedColumn<int>(
-    'completed_chapters',
+  late final GeneratedColumn<int> completedEntries = GeneratedColumn<int>(
+    'completed_entries',
     aliasedName,
     false,
     type: DriftSqlType.int,
@@ -3068,6 +3735,17 @@ class $CaptureJobsTable extends CaptureJobs
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _stopReasonMeta = const VerificationMeta(
+    'stopReason',
+  );
+  @override
+  late final GeneratedColumn<String> stopReason = GeneratedColumn<String>(
+    'stop_reason',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _visitedUrlsMeta = const VerificationMeta(
     'visitedUrls',
   );
@@ -3080,6 +3758,19 @@ class $CaptureJobsTable extends CaptureJobs
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
+  static const VerificationMeta _visitedCanonicalsMeta = const VerificationMeta(
+    'visitedCanonicals',
+  );
+  @override
+  late final GeneratedColumn<String> visitedCanonicals =
+      GeneratedColumn<String>(
+        'visited_canonicals',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant(''),
+      );
   static const VerificationMeta _duplicatePolicyMeta = const VerificationMeta(
     'duplicatePolicy',
   );
@@ -3113,17 +3804,41 @@ class $CaptureJobsTable extends CaptureJobs
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
-  static const VerificationMeta _rangeModeMeta = const VerificationMeta(
-    'rangeMode',
-  );
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
   @override
-  late final GeneratedColumn<String> rangeMode = GeneratedColumn<String>(
-    'range_mode',
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
     aliasedName,
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
-    defaultValue: const Constant('fixedCount'),
+    defaultValue: const Constant('currentPageOnly'),
+  );
+  static const VerificationMeta _maxBytesMeta = const VerificationMeta(
+    'maxBytes',
+  );
+  @override
+  late final GeneratedColumn<int> maxBytes = GeneratedColumn<int>(
+    'max_bytes',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _includeImagesMeta = const VerificationMeta(
+    'includeImages',
+  );
+  @override
+  late final GeneratedColumn<bool> includeImages = GeneratedColumn<bool>(
+    'include_images',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("include_images" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
   );
   static const VerificationMeta _pauseReasonMeta = const VerificationMeta(
     'pauseReason',
@@ -3141,9 +3856,10 @@ class $CaptureJobsTable extends CaptureJobs
   late final GeneratedColumn<String> origin = GeneratedColumn<String>(
     'origin',
     aliasedName,
-    true,
+    false,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
+    defaultValue: const Constant('queue'),
   );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
@@ -3170,18 +3886,22 @@ class $CaptureJobsTable extends CaptureJobs
   @override
   List<GeneratedColumn> get $columns => [
     id,
-    libraryItemId,
+    collectionId,
     startUrl,
     currentUrl,
-    requestedChapters,
-    completedChapters,
+    requestedEntries,
+    completedEntries,
     state,
     lastError,
+    stopReason,
     visitedUrls,
+    visitedCanonicals,
     duplicatePolicy,
     sessionDuplicateDecision,
     sessionPartialDecision,
-    rangeMode,
+    scope,
+    maxBytes,
+    includeImages,
     pauseReason,
     origin,
     createdAt,
@@ -3191,10 +3911,10 @@ class $CaptureJobsTable extends CaptureJobs
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'capture_jobs';
+  static const String $name = 'save_runs';
   @override
   VerificationContext validateIntegrity(
-    Insertable<CaptureJob> instance, {
+    Insertable<SaveRun> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
@@ -3204,12 +3924,12 @@ class $CaptureJobsTable extends CaptureJobs
     } else if (isInserting) {
       context.missing(_idMeta);
     }
-    if (data.containsKey('library_item_id')) {
+    if (data.containsKey('collection_id')) {
       context.handle(
-        _libraryItemIdMeta,
-        libraryItemId.isAcceptableOrUnknown(
-          data['library_item_id']!,
-          _libraryItemIdMeta,
+        _collectionIdMeta,
+        collectionId.isAcceptableOrUnknown(
+          data['collection_id']!,
+          _collectionIdMeta,
         ),
       );
     }
@@ -3227,23 +3947,23 @@ class $CaptureJobsTable extends CaptureJobs
         currentUrl.isAcceptableOrUnknown(data['current_url']!, _currentUrlMeta),
       );
     }
-    if (data.containsKey('requested_chapters')) {
+    if (data.containsKey('requested_entries')) {
       context.handle(
-        _requestedChaptersMeta,
-        requestedChapters.isAcceptableOrUnknown(
-          data['requested_chapters']!,
-          _requestedChaptersMeta,
+        _requestedEntriesMeta,
+        requestedEntries.isAcceptableOrUnknown(
+          data['requested_entries']!,
+          _requestedEntriesMeta,
         ),
       );
     } else if (isInserting) {
-      context.missing(_requestedChaptersMeta);
+      context.missing(_requestedEntriesMeta);
     }
-    if (data.containsKey('completed_chapters')) {
+    if (data.containsKey('completed_entries')) {
       context.handle(
-        _completedChaptersMeta,
-        completedChapters.isAcceptableOrUnknown(
-          data['completed_chapters']!,
-          _completedChaptersMeta,
+        _completedEntriesMeta,
+        completedEntries.isAcceptableOrUnknown(
+          data['completed_entries']!,
+          _completedEntriesMeta,
         ),
       );
     }
@@ -3261,12 +3981,27 @@ class $CaptureJobsTable extends CaptureJobs
         lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
       );
     }
+    if (data.containsKey('stop_reason')) {
+      context.handle(
+        _stopReasonMeta,
+        stopReason.isAcceptableOrUnknown(data['stop_reason']!, _stopReasonMeta),
+      );
+    }
     if (data.containsKey('visited_urls')) {
       context.handle(
         _visitedUrlsMeta,
         visitedUrls.isAcceptableOrUnknown(
           data['visited_urls']!,
           _visitedUrlsMeta,
+        ),
+      );
+    }
+    if (data.containsKey('visited_canonicals')) {
+      context.handle(
+        _visitedCanonicalsMeta,
+        visitedCanonicals.isAcceptableOrUnknown(
+          data['visited_canonicals']!,
+          _visitedCanonicalsMeta,
         ),
       );
     }
@@ -3297,10 +4032,25 @@ class $CaptureJobsTable extends CaptureJobs
         ),
       );
     }
-    if (data.containsKey('range_mode')) {
+    if (data.containsKey('scope')) {
       context.handle(
-        _rangeModeMeta,
-        rangeMode.isAcceptableOrUnknown(data['range_mode']!, _rangeModeMeta),
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    }
+    if (data.containsKey('max_bytes')) {
+      context.handle(
+        _maxBytesMeta,
+        maxBytes.isAcceptableOrUnknown(data['max_bytes']!, _maxBytesMeta),
+      );
+    }
+    if (data.containsKey('include_images')) {
+      context.handle(
+        _includeImagesMeta,
+        includeImages.isAcceptableOrUnknown(
+          data['include_images']!,
+          _includeImagesMeta,
+        ),
       );
     }
     if (data.containsKey('pause_reason')) {
@@ -3340,16 +4090,16 @@ class $CaptureJobsTable extends CaptureJobs
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  CaptureJob map(Map<String, dynamic> data, {String? tablePrefix}) {
+  SaveRun map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return CaptureJob(
+    return SaveRun(
       id: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}id'],
       )!,
-      libraryItemId: attachedDatabase.typeMapping.read(
+      collectionId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}library_item_id'],
+        data['${effectivePrefix}collection_id'],
       ),
       startUrl: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -3359,13 +4109,13 @@ class $CaptureJobsTable extends CaptureJobs
         DriftSqlType.string,
         data['${effectivePrefix}current_url'],
       ),
-      requestedChapters: attachedDatabase.typeMapping.read(
+      requestedEntries: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
-        data['${effectivePrefix}requested_chapters'],
+        data['${effectivePrefix}requested_entries'],
       )!,
-      completedChapters: attachedDatabase.typeMapping.read(
+      completedEntries: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
-        data['${effectivePrefix}completed_chapters'],
+        data['${effectivePrefix}completed_entries'],
       )!,
       state: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -3375,9 +4125,17 @@ class $CaptureJobsTable extends CaptureJobs
         DriftSqlType.string,
         data['${effectivePrefix}last_error'],
       ),
+      stopReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}stop_reason'],
+      ),
       visitedUrls: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}visited_urls'],
+      )!,
+      visitedCanonicals: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}visited_canonicals'],
       )!,
       duplicatePolicy: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -3391,9 +4149,17 @@ class $CaptureJobsTable extends CaptureJobs
         DriftSqlType.string,
         data['${effectivePrefix}session_partial_decision'],
       ),
-      rangeMode: attachedDatabase.typeMapping.read(
+      scope: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}range_mode'],
+        data['${effectivePrefix}scope'],
+      )!,
+      maxBytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}max_bytes'],
+      ),
+      includeImages: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}include_images'],
       )!,
       pauseReason: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -3402,7 +4168,7 @@ class $CaptureJobsTable extends CaptureJobs
       origin: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}origin'],
-      ),
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -3415,67 +4181,88 @@ class $CaptureJobsTable extends CaptureJobs
   }
 
   @override
-  $CaptureJobsTable createAlias(String alias) {
-    return $CaptureJobsTable(attachedDatabase, alias);
+  $SaveRunsTable createAlias(String alias) {
+    return $SaveRunsTable(attachedDatabase, alias);
   }
 }
 
-class CaptureJob extends DataClass implements Insertable<CaptureJob> {
+class SaveRun extends DataClass implements Insertable<SaveRun> {
   final String id;
-  final String? libraryItemId;
+  final String? collectionId;
   final String startUrl;
   final String? currentUrl;
-  final int requestedChapters;
-  final int completedChapters;
+
+  /// How many *new* entries this run was authorised to save. Always a real
+  /// number, including for open-ended sequences — there is no "unlimited".
+  final int requestedEntries;
+  final int completedEntries;
   final String state;
   final String? lastError;
 
-  /// Newline-separated normalised URLs already walked in this job.
+  /// Which stopping condition ended the run (`StopReason.name`), or null while
+  /// it is still going. Named rather than inferred, so "stopped because the site
+  /// asked for a login" can never be reported as "finished".
+  final String? stopReason;
+
+  /// Newline-separated normalised URLs already walked in this run.
   final String visitedUrls;
 
-  /// The duplicate policy the job was started with, so a resume applies the
-  /// same one instead of silently reverting to the default.
+  /// Newline-separated canonical URLs already seen. Kept separately from
+  /// [visitedUrls] because the loop that matters most is the one where the
+  /// address changes and the document does not.
+  final String visitedCanonicals;
+
+  /// The duplicate policy the run started with, so a resume applies the same one
+  /// instead of silently reverting to the default.
   final String? duplicatePolicy;
 
-  /// Session-scoped answers to "this chapter is already saved". Persisted on
-  /// the job — they survive an interrupted-session resume — and reset when a
-  /// new job starts. Never a global preference.
+  /// Session-scoped answers to "this entry is already saved". Persisted on the
+  /// run — they survive an interrupted-session resume — and die with it. Never a
+  /// global preference.
   final String? sessionDuplicateDecision;
   final String? sessionPartialDecision;
 
-  /// currentChapter | fixedCount | untilEnd — how the range was chosen, so a
-  /// resume continues the same mode (an interrupted until-end run must not
-  /// come back as "capture 1 chapter").
-  final String rangeMode;
+  /// `SaveScope.name` — currentPageOnly | selectedEntries | fixedCount |
+  /// untilNoNextPage. A resume continues in the same mode.
+  final String scope;
 
-  /// Why a running job is paused (`browserHidden` today; null otherwise).
-  /// Lets Activity say "paused — Browser required" instead of a bare
-  /// "paused", and survives a restart.
+  /// The user's explicit storage ceiling in bytes, when they set one. Required
+  /// alongside a count for open-ended sequences.
+  final int? maxBytes;
+
+  /// Whether the offline copy includes the page's images. Asked once per run,
+  /// answered by the user, never assumed.
+  final bool includeImages;
+
+  /// Why a running save is paused (`browserHidden` today; null otherwise).
   final String? pauseReason;
 
-  /// `direct` | `queue` — how this run was launched (D58). Persisted so an
-  /// interrupted **direct** capture resumes as a direct capture rather than
-  /// being quietly turned into a pending queue task. Null on rows written
-  /// before v11, which read as `queue` because that was the only way then.
-  final String? origin;
+  /// `direct` | `queue` — how this run was launched. Persisted so an interrupted
+  /// direct save resumes as a direct save rather than being quietly turned into
+  /// pending queue work.
+  final String origin;
   final DateTime createdAt;
   final DateTime updatedAt;
-  const CaptureJob({
+  const SaveRun({
     required this.id,
-    this.libraryItemId,
+    this.collectionId,
     required this.startUrl,
     this.currentUrl,
-    required this.requestedChapters,
-    required this.completedChapters,
+    required this.requestedEntries,
+    required this.completedEntries,
     required this.state,
     this.lastError,
+    this.stopReason,
     required this.visitedUrls,
+    required this.visitedCanonicals,
     this.duplicatePolicy,
     this.sessionDuplicateDecision,
     this.sessionPartialDecision,
-    required this.rangeMode,
+    required this.scope,
+    this.maxBytes,
+    required this.includeImages,
     this.pauseReason,
-    this.origin,
+    required this.origin,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -3483,20 +4270,24 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
-    if (!nullToAbsent || libraryItemId != null) {
-      map['library_item_id'] = Variable<String>(libraryItemId);
+    if (!nullToAbsent || collectionId != null) {
+      map['collection_id'] = Variable<String>(collectionId);
     }
     map['start_url'] = Variable<String>(startUrl);
     if (!nullToAbsent || currentUrl != null) {
       map['current_url'] = Variable<String>(currentUrl);
     }
-    map['requested_chapters'] = Variable<int>(requestedChapters);
-    map['completed_chapters'] = Variable<int>(completedChapters);
+    map['requested_entries'] = Variable<int>(requestedEntries);
+    map['completed_entries'] = Variable<int>(completedEntries);
     map['state'] = Variable<String>(state);
     if (!nullToAbsent || lastError != null) {
       map['last_error'] = Variable<String>(lastError);
     }
+    if (!nullToAbsent || stopReason != null) {
+      map['stop_reason'] = Variable<String>(stopReason);
+    }
     map['visited_urls'] = Variable<String>(visitedUrls);
+    map['visited_canonicals'] = Variable<String>(visitedCanonicals);
     if (!nullToAbsent || duplicatePolicy != null) {
       map['duplicate_policy'] = Variable<String>(duplicatePolicy);
     }
@@ -3510,35 +4301,41 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
         sessionPartialDecision,
       );
     }
-    map['range_mode'] = Variable<String>(rangeMode);
+    map['scope'] = Variable<String>(scope);
+    if (!nullToAbsent || maxBytes != null) {
+      map['max_bytes'] = Variable<int>(maxBytes);
+    }
+    map['include_images'] = Variable<bool>(includeImages);
     if (!nullToAbsent || pauseReason != null) {
       map['pause_reason'] = Variable<String>(pauseReason);
     }
-    if (!nullToAbsent || origin != null) {
-      map['origin'] = Variable<String>(origin);
-    }
+    map['origin'] = Variable<String>(origin);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
   }
 
-  CaptureJobsCompanion toCompanion(bool nullToAbsent) {
-    return CaptureJobsCompanion(
+  SaveRunsCompanion toCompanion(bool nullToAbsent) {
+    return SaveRunsCompanion(
       id: Value(id),
-      libraryItemId: libraryItemId == null && nullToAbsent
+      collectionId: collectionId == null && nullToAbsent
           ? const Value.absent()
-          : Value(libraryItemId),
+          : Value(collectionId),
       startUrl: Value(startUrl),
       currentUrl: currentUrl == null && nullToAbsent
           ? const Value.absent()
           : Value(currentUrl),
-      requestedChapters: Value(requestedChapters),
-      completedChapters: Value(completedChapters),
+      requestedEntries: Value(requestedEntries),
+      completedEntries: Value(completedEntries),
       state: Value(state),
       lastError: lastError == null && nullToAbsent
           ? const Value.absent()
           : Value(lastError),
+      stopReason: stopReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(stopReason),
       visitedUrls: Value(visitedUrls),
+      visitedCanonicals: Value(visitedCanonicals),
       duplicatePolicy: duplicatePolicy == null && nullToAbsent
           ? const Value.absent()
           : Value(duplicatePolicy),
@@ -3548,33 +4345,37 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
       sessionPartialDecision: sessionPartialDecision == null && nullToAbsent
           ? const Value.absent()
           : Value(sessionPartialDecision),
-      rangeMode: Value(rangeMode),
+      scope: Value(scope),
+      maxBytes: maxBytes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(maxBytes),
+      includeImages: Value(includeImages),
       pauseReason: pauseReason == null && nullToAbsent
           ? const Value.absent()
           : Value(pauseReason),
-      origin: origin == null && nullToAbsent
-          ? const Value.absent()
-          : Value(origin),
+      origin: Value(origin),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
   }
 
-  factory CaptureJob.fromJson(
+  factory SaveRun.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return CaptureJob(
+    return SaveRun(
       id: serializer.fromJson<String>(json['id']),
-      libraryItemId: serializer.fromJson<String?>(json['libraryItemId']),
+      collectionId: serializer.fromJson<String?>(json['collectionId']),
       startUrl: serializer.fromJson<String>(json['startUrl']),
       currentUrl: serializer.fromJson<String?>(json['currentUrl']),
-      requestedChapters: serializer.fromJson<int>(json['requestedChapters']),
-      completedChapters: serializer.fromJson<int>(json['completedChapters']),
+      requestedEntries: serializer.fromJson<int>(json['requestedEntries']),
+      completedEntries: serializer.fromJson<int>(json['completedEntries']),
       state: serializer.fromJson<String>(json['state']),
       lastError: serializer.fromJson<String?>(json['lastError']),
+      stopReason: serializer.fromJson<String?>(json['stopReason']),
       visitedUrls: serializer.fromJson<String>(json['visitedUrls']),
+      visitedCanonicals: serializer.fromJson<String>(json['visitedCanonicals']),
       duplicatePolicy: serializer.fromJson<String?>(json['duplicatePolicy']),
       sessionDuplicateDecision: serializer.fromJson<String?>(
         json['sessionDuplicateDecision'],
@@ -3582,9 +4383,11 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
       sessionPartialDecision: serializer.fromJson<String?>(
         json['sessionPartialDecision'],
       ),
-      rangeMode: serializer.fromJson<String>(json['rangeMode']),
+      scope: serializer.fromJson<String>(json['scope']),
+      maxBytes: serializer.fromJson<int?>(json['maxBytes']),
+      includeImages: serializer.fromJson<bool>(json['includeImages']),
       pauseReason: serializer.fromJson<String?>(json['pauseReason']),
-      origin: serializer.fromJson<String?>(json['origin']),
+      origin: serializer.fromJson<String>(json['origin']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -3594,14 +4397,16 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
-      'libraryItemId': serializer.toJson<String?>(libraryItemId),
+      'collectionId': serializer.toJson<String?>(collectionId),
       'startUrl': serializer.toJson<String>(startUrl),
       'currentUrl': serializer.toJson<String?>(currentUrl),
-      'requestedChapters': serializer.toJson<int>(requestedChapters),
-      'completedChapters': serializer.toJson<int>(completedChapters),
+      'requestedEntries': serializer.toJson<int>(requestedEntries),
+      'completedEntries': serializer.toJson<int>(completedEntries),
       'state': serializer.toJson<String>(state),
       'lastError': serializer.toJson<String?>(lastError),
+      'stopReason': serializer.toJson<String?>(stopReason),
       'visitedUrls': serializer.toJson<String>(visitedUrls),
+      'visitedCanonicals': serializer.toJson<String>(visitedCanonicals),
       'duplicatePolicy': serializer.toJson<String?>(duplicatePolicy),
       'sessionDuplicateDecision': serializer.toJson<String?>(
         sessionDuplicateDecision,
@@ -3609,44 +4414,50 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
       'sessionPartialDecision': serializer.toJson<String?>(
         sessionPartialDecision,
       ),
-      'rangeMode': serializer.toJson<String>(rangeMode),
+      'scope': serializer.toJson<String>(scope),
+      'maxBytes': serializer.toJson<int?>(maxBytes),
+      'includeImages': serializer.toJson<bool>(includeImages),
       'pauseReason': serializer.toJson<String?>(pauseReason),
-      'origin': serializer.toJson<String?>(origin),
+      'origin': serializer.toJson<String>(origin),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
   }
 
-  CaptureJob copyWith({
+  SaveRun copyWith({
     String? id,
-    Value<String?> libraryItemId = const Value.absent(),
+    Value<String?> collectionId = const Value.absent(),
     String? startUrl,
     Value<String?> currentUrl = const Value.absent(),
-    int? requestedChapters,
-    int? completedChapters,
+    int? requestedEntries,
+    int? completedEntries,
     String? state,
     Value<String?> lastError = const Value.absent(),
+    Value<String?> stopReason = const Value.absent(),
     String? visitedUrls,
+    String? visitedCanonicals,
     Value<String?> duplicatePolicy = const Value.absent(),
     Value<String?> sessionDuplicateDecision = const Value.absent(),
     Value<String?> sessionPartialDecision = const Value.absent(),
-    String? rangeMode,
+    String? scope,
+    Value<int?> maxBytes = const Value.absent(),
+    bool? includeImages,
     Value<String?> pauseReason = const Value.absent(),
-    Value<String?> origin = const Value.absent(),
+    String? origin,
     DateTime? createdAt,
     DateTime? updatedAt,
-  }) => CaptureJob(
+  }) => SaveRun(
     id: id ?? this.id,
-    libraryItemId: libraryItemId.present
-        ? libraryItemId.value
-        : this.libraryItemId,
+    collectionId: collectionId.present ? collectionId.value : this.collectionId,
     startUrl: startUrl ?? this.startUrl,
     currentUrl: currentUrl.present ? currentUrl.value : this.currentUrl,
-    requestedChapters: requestedChapters ?? this.requestedChapters,
-    completedChapters: completedChapters ?? this.completedChapters,
+    requestedEntries: requestedEntries ?? this.requestedEntries,
+    completedEntries: completedEntries ?? this.completedEntries,
     state: state ?? this.state,
     lastError: lastError.present ? lastError.value : this.lastError,
+    stopReason: stopReason.present ? stopReason.value : this.stopReason,
     visitedUrls: visitedUrls ?? this.visitedUrls,
+    visitedCanonicals: visitedCanonicals ?? this.visitedCanonicals,
     duplicatePolicy: duplicatePolicy.present
         ? duplicatePolicy.value
         : this.duplicatePolicy,
@@ -3656,33 +4467,41 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
     sessionPartialDecision: sessionPartialDecision.present
         ? sessionPartialDecision.value
         : this.sessionPartialDecision,
-    rangeMode: rangeMode ?? this.rangeMode,
+    scope: scope ?? this.scope,
+    maxBytes: maxBytes.present ? maxBytes.value : this.maxBytes,
+    includeImages: includeImages ?? this.includeImages,
     pauseReason: pauseReason.present ? pauseReason.value : this.pauseReason,
-    origin: origin.present ? origin.value : this.origin,
+    origin: origin ?? this.origin,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
-  CaptureJob copyWithCompanion(CaptureJobsCompanion data) {
-    return CaptureJob(
+  SaveRun copyWithCompanion(SaveRunsCompanion data) {
+    return SaveRun(
       id: data.id.present ? data.id.value : this.id,
-      libraryItemId: data.libraryItemId.present
-          ? data.libraryItemId.value
-          : this.libraryItemId,
+      collectionId: data.collectionId.present
+          ? data.collectionId.value
+          : this.collectionId,
       startUrl: data.startUrl.present ? data.startUrl.value : this.startUrl,
       currentUrl: data.currentUrl.present
           ? data.currentUrl.value
           : this.currentUrl,
-      requestedChapters: data.requestedChapters.present
-          ? data.requestedChapters.value
-          : this.requestedChapters,
-      completedChapters: data.completedChapters.present
-          ? data.completedChapters.value
-          : this.completedChapters,
+      requestedEntries: data.requestedEntries.present
+          ? data.requestedEntries.value
+          : this.requestedEntries,
+      completedEntries: data.completedEntries.present
+          ? data.completedEntries.value
+          : this.completedEntries,
       state: data.state.present ? data.state.value : this.state,
       lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      stopReason: data.stopReason.present
+          ? data.stopReason.value
+          : this.stopReason,
       visitedUrls: data.visitedUrls.present
           ? data.visitedUrls.value
           : this.visitedUrls,
+      visitedCanonicals: data.visitedCanonicals.present
+          ? data.visitedCanonicals.value
+          : this.visitedCanonicals,
       duplicatePolicy: data.duplicatePolicy.present
           ? data.duplicatePolicy.value
           : this.duplicatePolicy,
@@ -3692,7 +4511,11 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
       sessionPartialDecision: data.sessionPartialDecision.present
           ? data.sessionPartialDecision.value
           : this.sessionPartialDecision,
-      rangeMode: data.rangeMode.present ? data.rangeMode.value : this.rangeMode,
+      scope: data.scope.present ? data.scope.value : this.scope,
+      maxBytes: data.maxBytes.present ? data.maxBytes.value : this.maxBytes,
+      includeImages: data.includeImages.present
+          ? data.includeImages.value
+          : this.includeImages,
       pauseReason: data.pauseReason.present
           ? data.pauseReason.value
           : this.pauseReason,
@@ -3704,20 +4527,24 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
 
   @override
   String toString() {
-    return (StringBuffer('CaptureJob(')
+    return (StringBuffer('SaveRun(')
           ..write('id: $id, ')
-          ..write('libraryItemId: $libraryItemId, ')
+          ..write('collectionId: $collectionId, ')
           ..write('startUrl: $startUrl, ')
           ..write('currentUrl: $currentUrl, ')
-          ..write('requestedChapters: $requestedChapters, ')
-          ..write('completedChapters: $completedChapters, ')
+          ..write('requestedEntries: $requestedEntries, ')
+          ..write('completedEntries: $completedEntries, ')
           ..write('state: $state, ')
           ..write('lastError: $lastError, ')
+          ..write('stopReason: $stopReason, ')
           ..write('visitedUrls: $visitedUrls, ')
+          ..write('visitedCanonicals: $visitedCanonicals, ')
           ..write('duplicatePolicy: $duplicatePolicy, ')
           ..write('sessionDuplicateDecision: $sessionDuplicateDecision, ')
           ..write('sessionPartialDecision: $sessionPartialDecision, ')
-          ..write('rangeMode: $rangeMode, ')
+          ..write('scope: $scope, ')
+          ..write('maxBytes: $maxBytes, ')
+          ..write('includeImages: $includeImages, ')
           ..write('pauseReason: $pauseReason, ')
           ..write('origin: $origin, ')
           ..write('createdAt: $createdAt, ')
@@ -3727,101 +4554,121 @@ class CaptureJob extends DataClass implements Insertable<CaptureJob> {
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
-    libraryItemId,
+    collectionId,
     startUrl,
     currentUrl,
-    requestedChapters,
-    completedChapters,
+    requestedEntries,
+    completedEntries,
     state,
     lastError,
+    stopReason,
     visitedUrls,
+    visitedCanonicals,
     duplicatePolicy,
     sessionDuplicateDecision,
     sessionPartialDecision,
-    rangeMode,
+    scope,
+    maxBytes,
+    includeImages,
     pauseReason,
     origin,
     createdAt,
     updatedAt,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is CaptureJob &&
+      (other is SaveRun &&
           other.id == this.id &&
-          other.libraryItemId == this.libraryItemId &&
+          other.collectionId == this.collectionId &&
           other.startUrl == this.startUrl &&
           other.currentUrl == this.currentUrl &&
-          other.requestedChapters == this.requestedChapters &&
-          other.completedChapters == this.completedChapters &&
+          other.requestedEntries == this.requestedEntries &&
+          other.completedEntries == this.completedEntries &&
           other.state == this.state &&
           other.lastError == this.lastError &&
+          other.stopReason == this.stopReason &&
           other.visitedUrls == this.visitedUrls &&
+          other.visitedCanonicals == this.visitedCanonicals &&
           other.duplicatePolicy == this.duplicatePolicy &&
           other.sessionDuplicateDecision == this.sessionDuplicateDecision &&
           other.sessionPartialDecision == this.sessionPartialDecision &&
-          other.rangeMode == this.rangeMode &&
+          other.scope == this.scope &&
+          other.maxBytes == this.maxBytes &&
+          other.includeImages == this.includeImages &&
           other.pauseReason == this.pauseReason &&
           other.origin == this.origin &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
 
-class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
+class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
   final Value<String> id;
-  final Value<String?> libraryItemId;
+  final Value<String?> collectionId;
   final Value<String> startUrl;
   final Value<String?> currentUrl;
-  final Value<int> requestedChapters;
-  final Value<int> completedChapters;
+  final Value<int> requestedEntries;
+  final Value<int> completedEntries;
   final Value<String> state;
   final Value<String?> lastError;
+  final Value<String?> stopReason;
   final Value<String> visitedUrls;
+  final Value<String> visitedCanonicals;
   final Value<String?> duplicatePolicy;
   final Value<String?> sessionDuplicateDecision;
   final Value<String?> sessionPartialDecision;
-  final Value<String> rangeMode;
+  final Value<String> scope;
+  final Value<int?> maxBytes;
+  final Value<bool> includeImages;
   final Value<String?> pauseReason;
-  final Value<String?> origin;
+  final Value<String> origin;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
-  const CaptureJobsCompanion({
+  const SaveRunsCompanion({
     this.id = const Value.absent(),
-    this.libraryItemId = const Value.absent(),
+    this.collectionId = const Value.absent(),
     this.startUrl = const Value.absent(),
     this.currentUrl = const Value.absent(),
-    this.requestedChapters = const Value.absent(),
-    this.completedChapters = const Value.absent(),
+    this.requestedEntries = const Value.absent(),
+    this.completedEntries = const Value.absent(),
     this.state = const Value.absent(),
     this.lastError = const Value.absent(),
+    this.stopReason = const Value.absent(),
     this.visitedUrls = const Value.absent(),
+    this.visitedCanonicals = const Value.absent(),
     this.duplicatePolicy = const Value.absent(),
     this.sessionDuplicateDecision = const Value.absent(),
     this.sessionPartialDecision = const Value.absent(),
-    this.rangeMode = const Value.absent(),
+    this.scope = const Value.absent(),
+    this.maxBytes = const Value.absent(),
+    this.includeImages = const Value.absent(),
     this.pauseReason = const Value.absent(),
     this.origin = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
-  CaptureJobsCompanion.insert({
+  SaveRunsCompanion.insert({
     required String id,
-    this.libraryItemId = const Value.absent(),
+    this.collectionId = const Value.absent(),
     required String startUrl,
     this.currentUrl = const Value.absent(),
-    required int requestedChapters,
-    this.completedChapters = const Value.absent(),
+    required int requestedEntries,
+    this.completedEntries = const Value.absent(),
     required String state,
     this.lastError = const Value.absent(),
+    this.stopReason = const Value.absent(),
     this.visitedUrls = const Value.absent(),
+    this.visitedCanonicals = const Value.absent(),
     this.duplicatePolicy = const Value.absent(),
     this.sessionDuplicateDecision = const Value.absent(),
     this.sessionPartialDecision = const Value.absent(),
-    this.rangeMode = const Value.absent(),
+    this.scope = const Value.absent(),
+    this.maxBytes = const Value.absent(),
+    this.includeImages = const Value.absent(),
     this.pauseReason = const Value.absent(),
     this.origin = const Value.absent(),
     required DateTime createdAt,
@@ -3829,24 +4676,28 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        startUrl = Value(startUrl),
-       requestedChapters = Value(requestedChapters),
+       requestedEntries = Value(requestedEntries),
        state = Value(state),
        createdAt = Value(createdAt),
        updatedAt = Value(updatedAt);
-  static Insertable<CaptureJob> custom({
+  static Insertable<SaveRun> custom({
     Expression<String>? id,
-    Expression<String>? libraryItemId,
+    Expression<String>? collectionId,
     Expression<String>? startUrl,
     Expression<String>? currentUrl,
-    Expression<int>? requestedChapters,
-    Expression<int>? completedChapters,
+    Expression<int>? requestedEntries,
+    Expression<int>? completedEntries,
     Expression<String>? state,
     Expression<String>? lastError,
+    Expression<String>? stopReason,
     Expression<String>? visitedUrls,
+    Expression<String>? visitedCanonicals,
     Expression<String>? duplicatePolicy,
     Expression<String>? sessionDuplicateDecision,
     Expression<String>? sessionPartialDecision,
-    Expression<String>? rangeMode,
+    Expression<String>? scope,
+    Expression<int>? maxBytes,
+    Expression<bool>? includeImages,
     Expression<String>? pauseReason,
     Expression<String>? origin,
     Expression<DateTime>? createdAt,
@@ -3855,20 +4706,24 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
-      if (libraryItemId != null) 'library_item_id': libraryItemId,
+      if (collectionId != null) 'collection_id': collectionId,
       if (startUrl != null) 'start_url': startUrl,
       if (currentUrl != null) 'current_url': currentUrl,
-      if (requestedChapters != null) 'requested_chapters': requestedChapters,
-      if (completedChapters != null) 'completed_chapters': completedChapters,
+      if (requestedEntries != null) 'requested_entries': requestedEntries,
+      if (completedEntries != null) 'completed_entries': completedEntries,
       if (state != null) 'state': state,
       if (lastError != null) 'last_error': lastError,
+      if (stopReason != null) 'stop_reason': stopReason,
       if (visitedUrls != null) 'visited_urls': visitedUrls,
+      if (visitedCanonicals != null) 'visited_canonicals': visitedCanonicals,
       if (duplicatePolicy != null) 'duplicate_policy': duplicatePolicy,
       if (sessionDuplicateDecision != null)
         'session_duplicate_decision': sessionDuplicateDecision,
       if (sessionPartialDecision != null)
         'session_partial_decision': sessionPartialDecision,
-      if (rangeMode != null) 'range_mode': rangeMode,
+      if (scope != null) 'scope': scope,
+      if (maxBytes != null) 'max_bytes': maxBytes,
+      if (includeImages != null) 'include_images': includeImages,
       if (pauseReason != null) 'pause_reason': pauseReason,
       if (origin != null) 'origin': origin,
       if (createdAt != null) 'created_at': createdAt,
@@ -3877,42 +4732,50 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     });
   }
 
-  CaptureJobsCompanion copyWith({
+  SaveRunsCompanion copyWith({
     Value<String>? id,
-    Value<String?>? libraryItemId,
+    Value<String?>? collectionId,
     Value<String>? startUrl,
     Value<String?>? currentUrl,
-    Value<int>? requestedChapters,
-    Value<int>? completedChapters,
+    Value<int>? requestedEntries,
+    Value<int>? completedEntries,
     Value<String>? state,
     Value<String?>? lastError,
+    Value<String?>? stopReason,
     Value<String>? visitedUrls,
+    Value<String>? visitedCanonicals,
     Value<String?>? duplicatePolicy,
     Value<String?>? sessionDuplicateDecision,
     Value<String?>? sessionPartialDecision,
-    Value<String>? rangeMode,
+    Value<String>? scope,
+    Value<int?>? maxBytes,
+    Value<bool>? includeImages,
     Value<String?>? pauseReason,
-    Value<String?>? origin,
+    Value<String>? origin,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
   }) {
-    return CaptureJobsCompanion(
+    return SaveRunsCompanion(
       id: id ?? this.id,
-      libraryItemId: libraryItemId ?? this.libraryItemId,
+      collectionId: collectionId ?? this.collectionId,
       startUrl: startUrl ?? this.startUrl,
       currentUrl: currentUrl ?? this.currentUrl,
-      requestedChapters: requestedChapters ?? this.requestedChapters,
-      completedChapters: completedChapters ?? this.completedChapters,
+      requestedEntries: requestedEntries ?? this.requestedEntries,
+      completedEntries: completedEntries ?? this.completedEntries,
       state: state ?? this.state,
       lastError: lastError ?? this.lastError,
+      stopReason: stopReason ?? this.stopReason,
       visitedUrls: visitedUrls ?? this.visitedUrls,
+      visitedCanonicals: visitedCanonicals ?? this.visitedCanonicals,
       duplicatePolicy: duplicatePolicy ?? this.duplicatePolicy,
       sessionDuplicateDecision:
           sessionDuplicateDecision ?? this.sessionDuplicateDecision,
       sessionPartialDecision:
           sessionPartialDecision ?? this.sessionPartialDecision,
-      rangeMode: rangeMode ?? this.rangeMode,
+      scope: scope ?? this.scope,
+      maxBytes: maxBytes ?? this.maxBytes,
+      includeImages: includeImages ?? this.includeImages,
       pauseReason: pauseReason ?? this.pauseReason,
       origin: origin ?? this.origin,
       createdAt: createdAt ?? this.createdAt,
@@ -3927,8 +4790,8 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     if (id.present) {
       map['id'] = Variable<String>(id.value);
     }
-    if (libraryItemId.present) {
-      map['library_item_id'] = Variable<String>(libraryItemId.value);
+    if (collectionId.present) {
+      map['collection_id'] = Variable<String>(collectionId.value);
     }
     if (startUrl.present) {
       map['start_url'] = Variable<String>(startUrl.value);
@@ -3936,11 +4799,11 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     if (currentUrl.present) {
       map['current_url'] = Variable<String>(currentUrl.value);
     }
-    if (requestedChapters.present) {
-      map['requested_chapters'] = Variable<int>(requestedChapters.value);
+    if (requestedEntries.present) {
+      map['requested_entries'] = Variable<int>(requestedEntries.value);
     }
-    if (completedChapters.present) {
-      map['completed_chapters'] = Variable<int>(completedChapters.value);
+    if (completedEntries.present) {
+      map['completed_entries'] = Variable<int>(completedEntries.value);
     }
     if (state.present) {
       map['state'] = Variable<String>(state.value);
@@ -3948,8 +4811,14 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
     if (lastError.present) {
       map['last_error'] = Variable<String>(lastError.value);
     }
+    if (stopReason.present) {
+      map['stop_reason'] = Variable<String>(stopReason.value);
+    }
     if (visitedUrls.present) {
       map['visited_urls'] = Variable<String>(visitedUrls.value);
+    }
+    if (visitedCanonicals.present) {
+      map['visited_canonicals'] = Variable<String>(visitedCanonicals.value);
     }
     if (duplicatePolicy.present) {
       map['duplicate_policy'] = Variable<String>(duplicatePolicy.value);
@@ -3964,8 +4833,14 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
         sessionPartialDecision.value,
       );
     }
-    if (rangeMode.present) {
-      map['range_mode'] = Variable<String>(rangeMode.value);
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (maxBytes.present) {
+      map['max_bytes'] = Variable<int>(maxBytes.value);
+    }
+    if (includeImages.present) {
+      map['include_images'] = Variable<bool>(includeImages.value);
     }
     if (pauseReason.present) {
       map['pause_reason'] = Variable<String>(pauseReason.value);
@@ -3987,20 +4862,24 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
 
   @override
   String toString() {
-    return (StringBuffer('CaptureJobsCompanion(')
+    return (StringBuffer('SaveRunsCompanion(')
           ..write('id: $id, ')
-          ..write('libraryItemId: $libraryItemId, ')
+          ..write('collectionId: $collectionId, ')
           ..write('startUrl: $startUrl, ')
           ..write('currentUrl: $currentUrl, ')
-          ..write('requestedChapters: $requestedChapters, ')
-          ..write('completedChapters: $completedChapters, ')
+          ..write('requestedEntries: $requestedEntries, ')
+          ..write('completedEntries: $completedEntries, ')
           ..write('state: $state, ')
           ..write('lastError: $lastError, ')
+          ..write('stopReason: $stopReason, ')
           ..write('visitedUrls: $visitedUrls, ')
+          ..write('visitedCanonicals: $visitedCanonicals, ')
           ..write('duplicatePolicy: $duplicatePolicy, ')
           ..write('sessionDuplicateDecision: $sessionDuplicateDecision, ')
           ..write('sessionPartialDecision: $sessionPartialDecision, ')
-          ..write('rangeMode: $rangeMode, ')
+          ..write('scope: $scope, ')
+          ..write('maxBytes: $maxBytes, ')
+          ..write('includeImages: $includeImages, ')
           ..write('pauseReason: $pauseReason, ')
           ..write('origin: $origin, ')
           ..write('createdAt: $createdAt, ')
@@ -4011,12 +4890,12 @@ class CaptureJobsCompanion extends UpdateCompanion<CaptureJob> {
   }
 }
 
-class $SiteRuleRowsTable extends SiteRuleRows
-    with TableInfo<$SiteRuleRowsTable, SiteRuleRow> {
+class $UserPageHintsTable extends UserPageHints
+    with TableInfo<$UserPageHintsTable, UserPageHintRow> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  $SiteRuleRowsTable(this.attachedDatabase, [this._alias]);
+  $UserPageHintsTable(this.attachedDatabase, [this._alias]);
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
   late final GeneratedColumn<String> id = GeneratedColumn<String>(
@@ -4035,12 +4914,12 @@ class $SiteRuleRowsTable extends SiteRuleRows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _seriesPathMeta = const VerificationMeta(
-    'seriesPath',
+  static const VerificationMeta _hintPathMeta = const VerificationMeta(
+    'hintPath',
   );
   @override
-  late final GeneratedColumn<String> seriesPath = GeneratedColumn<String>(
-    'series_path',
+  late final GeneratedColumn<String> hintPath = GeneratedColumn<String>(
+    'hint_path',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -4162,7 +5041,7 @@ class $SiteRuleRowsTable extends SiteRuleRows
   List<GeneratedColumn> get $columns => [
     id,
     host,
-    seriesPath,
+    hintPath,
     scope,
     kind,
     locatorJson,
@@ -4178,10 +5057,10 @@ class $SiteRuleRowsTable extends SiteRuleRows
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'site_rule_rows';
+  static const String $name = 'user_page_hints';
   @override
   VerificationContext validateIntegrity(
-    Insertable<SiteRuleRow> instance, {
+    Insertable<UserPageHintRow> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
@@ -4199,10 +5078,10 @@ class $SiteRuleRowsTable extends SiteRuleRows
     } else if (isInserting) {
       context.missing(_hostMeta);
     }
-    if (data.containsKey('series_path')) {
+    if (data.containsKey('hint_path')) {
       context.handle(
-        _seriesPathMeta,
-        seriesPath.isAcceptableOrUnknown(data['series_path']!, _seriesPathMeta),
+        _hintPathMeta,
+        hintPath.isAcceptableOrUnknown(data['hint_path']!, _hintPathMeta),
       );
     }
     if (data.containsKey('scope')) {
@@ -4300,9 +5179,9 @@ class $SiteRuleRowsTable extends SiteRuleRows
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  SiteRuleRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+  UserPageHintRow map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return SiteRuleRow(
+    return UserPageHintRow(
       id: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}id'],
@@ -4311,9 +5190,9 @@ class $SiteRuleRowsTable extends SiteRuleRows
         DriftSqlType.string,
         data['${effectivePrefix}host'],
       )!,
-      seriesPath: attachedDatabase.typeMapping.read(
+      hintPath: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}series_path'],
+        data['${effectivePrefix}hint_path'],
       ),
       scope: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -4359,22 +5238,22 @@ class $SiteRuleRowsTable extends SiteRuleRows
   }
 
   @override
-  $SiteRuleRowsTable createAlias(String alias) {
-    return $SiteRuleRowsTable(attachedDatabase, alias);
+  $UserPageHintsTable createAlias(String alias) {
+    return $UserPageHintsTable(attachedDatabase, alias);
   }
 }
 
-class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
+class UserPageHintRow extends DataClass implements Insertable<UserPageHintRow> {
   final String id;
   final String host;
 
-  /// Series fingerprint, or a path shape for `pathPattern` scope.
-  /// Null only for host-wide rules.
-  final String? seriesPath;
+  /// Collection fingerprint, or a path shape for `pathShape` scope. Null only
+  /// for site-wide hints, which the user has to opt into explicitly.
+  final String? hintPath;
   final String scope;
   final String kind;
 
-  /// Serialised [DomLocator] — a bag of independent signals, not one selector.
+  /// Serialised `DomLocator` — a bag of independent signals, not one selector.
   final String locatorJson;
   final String? exampleSourceUrl;
   final String? exampleTargetUrl;
@@ -4383,10 +5262,10 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
   final DateTime? lastUsedAt;
   final int successCount;
   final int failureCount;
-  const SiteRuleRow({
+  const UserPageHintRow({
     required this.id,
     required this.host,
-    this.seriesPath,
+    this.hintPath,
     required this.scope,
     required this.kind,
     required this.locatorJson,
@@ -4403,8 +5282,8 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['host'] = Variable<String>(host);
-    if (!nullToAbsent || seriesPath != null) {
-      map['series_path'] = Variable<String>(seriesPath);
+    if (!nullToAbsent || hintPath != null) {
+      map['hint_path'] = Variable<String>(hintPath);
     }
     map['scope'] = Variable<String>(scope);
     map['kind'] = Variable<String>(kind);
@@ -4425,13 +5304,13 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
     return map;
   }
 
-  SiteRuleRowsCompanion toCompanion(bool nullToAbsent) {
-    return SiteRuleRowsCompanion(
+  UserPageHintsCompanion toCompanion(bool nullToAbsent) {
+    return UserPageHintsCompanion(
       id: Value(id),
       host: Value(host),
-      seriesPath: seriesPath == null && nullToAbsent
+      hintPath: hintPath == null && nullToAbsent
           ? const Value.absent()
-          : Value(seriesPath),
+          : Value(hintPath),
       scope: Value(scope),
       kind: Value(kind),
       locatorJson: Value(locatorJson),
@@ -4451,15 +5330,15 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
     );
   }
 
-  factory SiteRuleRow.fromJson(
+  factory UserPageHintRow.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return SiteRuleRow(
+    return UserPageHintRow(
       id: serializer.fromJson<String>(json['id']),
       host: serializer.fromJson<String>(json['host']),
-      seriesPath: serializer.fromJson<String?>(json['seriesPath']),
+      hintPath: serializer.fromJson<String?>(json['hintPath']),
       scope: serializer.fromJson<String>(json['scope']),
       kind: serializer.fromJson<String>(json['kind']),
       locatorJson: serializer.fromJson<String>(json['locatorJson']),
@@ -4478,7 +5357,7 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'host': serializer.toJson<String>(host),
-      'seriesPath': serializer.toJson<String?>(seriesPath),
+      'hintPath': serializer.toJson<String?>(hintPath),
       'scope': serializer.toJson<String>(scope),
       'kind': serializer.toJson<String>(kind),
       'locatorJson': serializer.toJson<String>(locatorJson),
@@ -4492,10 +5371,10 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
     };
   }
 
-  SiteRuleRow copyWith({
+  UserPageHintRow copyWith({
     String? id,
     String? host,
-    Value<String?> seriesPath = const Value.absent(),
+    Value<String?> hintPath = const Value.absent(),
     String? scope,
     String? kind,
     String? locatorJson,
@@ -4506,10 +5385,10 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
     Value<DateTime?> lastUsedAt = const Value.absent(),
     int? successCount,
     int? failureCount,
-  }) => SiteRuleRow(
+  }) => UserPageHintRow(
     id: id ?? this.id,
     host: host ?? this.host,
-    seriesPath: seriesPath.present ? seriesPath.value : this.seriesPath,
+    hintPath: hintPath.present ? hintPath.value : this.hintPath,
     scope: scope ?? this.scope,
     kind: kind ?? this.kind,
     locatorJson: locatorJson ?? this.locatorJson,
@@ -4525,13 +5404,11 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
     successCount: successCount ?? this.successCount,
     failureCount: failureCount ?? this.failureCount,
   );
-  SiteRuleRow copyWithCompanion(SiteRuleRowsCompanion data) {
-    return SiteRuleRow(
+  UserPageHintRow copyWithCompanion(UserPageHintsCompanion data) {
+    return UserPageHintRow(
       id: data.id.present ? data.id.value : this.id,
       host: data.host.present ? data.host.value : this.host,
-      seriesPath: data.seriesPath.present
-          ? data.seriesPath.value
-          : this.seriesPath,
+      hintPath: data.hintPath.present ? data.hintPath.value : this.hintPath,
       scope: data.scope.present ? data.scope.value : this.scope,
       kind: data.kind.present ? data.kind.value : this.kind,
       locatorJson: data.locatorJson.present
@@ -4561,10 +5438,10 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
 
   @override
   String toString() {
-    return (StringBuffer('SiteRuleRow(')
+    return (StringBuffer('UserPageHintRow(')
           ..write('id: $id, ')
           ..write('host: $host, ')
-          ..write('seriesPath: $seriesPath, ')
+          ..write('hintPath: $hintPath, ')
           ..write('scope: $scope, ')
           ..write('kind: $kind, ')
           ..write('locatorJson: $locatorJson, ')
@@ -4583,7 +5460,7 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
   int get hashCode => Object.hash(
     id,
     host,
-    seriesPath,
+    hintPath,
     scope,
     kind,
     locatorJson,
@@ -4598,10 +5475,10 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is SiteRuleRow &&
+      (other is UserPageHintRow &&
           other.id == this.id &&
           other.host == this.host &&
-          other.seriesPath == this.seriesPath &&
+          other.hintPath == this.hintPath &&
           other.scope == this.scope &&
           other.kind == this.kind &&
           other.locatorJson == this.locatorJson &&
@@ -4614,10 +5491,10 @@ class SiteRuleRow extends DataClass implements Insertable<SiteRuleRow> {
           other.failureCount == this.failureCount);
 }
 
-class SiteRuleRowsCompanion extends UpdateCompanion<SiteRuleRow> {
+class UserPageHintsCompanion extends UpdateCompanion<UserPageHintRow> {
   final Value<String> id;
   final Value<String> host;
-  final Value<String?> seriesPath;
+  final Value<String?> hintPath;
   final Value<String> scope;
   final Value<String> kind;
   final Value<String> locatorJson;
@@ -4629,10 +5506,10 @@ class SiteRuleRowsCompanion extends UpdateCompanion<SiteRuleRow> {
   final Value<int> successCount;
   final Value<int> failureCount;
   final Value<int> rowid;
-  const SiteRuleRowsCompanion({
+  const UserPageHintsCompanion({
     this.id = const Value.absent(),
     this.host = const Value.absent(),
-    this.seriesPath = const Value.absent(),
+    this.hintPath = const Value.absent(),
     this.scope = const Value.absent(),
     this.kind = const Value.absent(),
     this.locatorJson = const Value.absent(),
@@ -4645,10 +5522,10 @@ class SiteRuleRowsCompanion extends UpdateCompanion<SiteRuleRow> {
     this.failureCount = const Value.absent(),
     this.rowid = const Value.absent(),
   });
-  SiteRuleRowsCompanion.insert({
+  UserPageHintsCompanion.insert({
     required String id,
     required String host,
-    this.seriesPath = const Value.absent(),
+    this.hintPath = const Value.absent(),
     required String scope,
     required String kind,
     required String locatorJson,
@@ -4666,10 +5543,10 @@ class SiteRuleRowsCompanion extends UpdateCompanion<SiteRuleRow> {
        kind = Value(kind),
        locatorJson = Value(locatorJson),
        createdAt = Value(createdAt);
-  static Insertable<SiteRuleRow> custom({
+  static Insertable<UserPageHintRow> custom({
     Expression<String>? id,
     Expression<String>? host,
-    Expression<String>? seriesPath,
+    Expression<String>? hintPath,
     Expression<String>? scope,
     Expression<String>? kind,
     Expression<String>? locatorJson,
@@ -4685,7 +5562,7 @@ class SiteRuleRowsCompanion extends UpdateCompanion<SiteRuleRow> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (host != null) 'host': host,
-      if (seriesPath != null) 'series_path': seriesPath,
+      if (hintPath != null) 'hint_path': hintPath,
       if (scope != null) 'scope': scope,
       if (kind != null) 'kind': kind,
       if (locatorJson != null) 'locator_json': locatorJson,
@@ -4700,10 +5577,10 @@ class SiteRuleRowsCompanion extends UpdateCompanion<SiteRuleRow> {
     });
   }
 
-  SiteRuleRowsCompanion copyWith({
+  UserPageHintsCompanion copyWith({
     Value<String>? id,
     Value<String>? host,
-    Value<String?>? seriesPath,
+    Value<String?>? hintPath,
     Value<String>? scope,
     Value<String>? kind,
     Value<String>? locatorJson,
@@ -4716,10 +5593,10 @@ class SiteRuleRowsCompanion extends UpdateCompanion<SiteRuleRow> {
     Value<int>? failureCount,
     Value<int>? rowid,
   }) {
-    return SiteRuleRowsCompanion(
+    return UserPageHintsCompanion(
       id: id ?? this.id,
       host: host ?? this.host,
-      seriesPath: seriesPath ?? this.seriesPath,
+      hintPath: hintPath ?? this.hintPath,
       scope: scope ?? this.scope,
       kind: kind ?? this.kind,
       locatorJson: locatorJson ?? this.locatorJson,
@@ -4743,8 +5620,8 @@ class SiteRuleRowsCompanion extends UpdateCompanion<SiteRuleRow> {
     if (host.present) {
       map['host'] = Variable<String>(host.value);
     }
-    if (seriesPath.present) {
-      map['series_path'] = Variable<String>(seriesPath.value);
+    if (hintPath.present) {
+      map['hint_path'] = Variable<String>(hintPath.value);
     }
     if (scope.present) {
       map['scope'] = Variable<String>(scope.value);
@@ -4784,10 +5661,10 @@ class SiteRuleRowsCompanion extends UpdateCompanion<SiteRuleRow> {
 
   @override
   String toString() {
-    return (StringBuffer('SiteRuleRowsCompanion(')
+    return (StringBuffer('UserPageHintsCompanion(')
           ..write('id: $id, ')
           ..write('host: $host, ')
-          ..write('seriesPath: $seriesPath, ')
+          ..write('hintPath: $hintPath, ')
           ..write('scope: $scope, ')
           ..write('kind: $kind, ')
           ..write('locatorJson: $locatorJson, ')
@@ -5035,12 +5912,12 @@ class $QueueTasksTable extends QueueTasks
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _libraryItemIdMeta = const VerificationMeta(
-    'libraryItemId',
+  static const VerificationMeta _collectionIdMeta = const VerificationMeta(
+    'collectionId',
   );
   @override
-  late final GeneratedColumn<String> libraryItemId = GeneratedColumn<String>(
-    'library_item_id',
+  late final GeneratedColumn<String> collectionId = GeneratedColumn<String>(
+    'collection_id',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -5057,16 +5934,42 @@ class $QueueTasksTable extends QueueTasks
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _chapterLimitMeta = const VerificationMeta(
-    'chapterLimit',
+  static const VerificationMeta _entryLimitMeta = const VerificationMeta(
+    'entryLimit',
   );
   @override
-  late final GeneratedColumn<int> chapterLimit = GeneratedColumn<int>(
-    'chapter_limit',
+  late final GeneratedColumn<int> entryLimit = GeneratedColumn<int>(
+    'entry_limit',
     aliasedName,
     true,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
+  );
+  static const VerificationMeta _maxBytesMeta = const VerificationMeta(
+    'maxBytes',
+  );
+  @override
+  late final GeneratedColumn<int> maxBytes = GeneratedColumn<int>(
+    'max_bytes',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _includeImagesMeta = const VerificationMeta(
+    'includeImages',
+  );
+  @override
+  late final GeneratedColumn<bool> includeImages = GeneratedColumn<bool>(
+    'include_images',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("include_images" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
   );
   static const VerificationMeta _duplicatePolicyMeta = const VerificationMeta(
     'duplicatePolicy',
@@ -5079,12 +5982,10 @@ class $QueueTasksTable extends QueueTasks
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _rangeModeMeta = const VerificationMeta(
-    'rangeMode',
-  );
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
   @override
-  late final GeneratedColumn<String> rangeMode = GeneratedColumn<String>(
-    'range_mode',
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -5105,9 +6006,10 @@ class $QueueTasksTable extends QueueTasks
   late final GeneratedColumn<String> origin = GeneratedColumn<String>(
     'origin',
     aliasedName,
-    true,
+    false,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
+    defaultValue: const Constant('queue'),
   );
   static const VerificationMeta _outcomeMeta = const VerificationMeta(
     'outcome',
@@ -5126,6 +6028,17 @@ class $QueueTasksTable extends QueueTasks
   @override
   late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
     'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _stopReasonMeta = const VerificationMeta(
+    'stopReason',
+  );
+  @override
+  late final GeneratedColumn<String> stopReason = GeneratedColumn<String>(
+    'stop_reason',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -5180,15 +6093,18 @@ class $QueueTasksTable extends QueueTasks
   List<GeneratedColumn> get $columns => [
     id,
     taskType,
-    libraryItemId,
+    collectionId,
     startUrl,
-    chapterLimit,
+    entryLimit,
+    maxBytes,
+    includeImages,
     duplicatePolicy,
-    rangeMode,
+    scope,
     state,
     origin,
     outcome,
     lastError,
+    stopReason,
     orderIndex,
     queuedAt,
     startedAt,
@@ -5219,12 +6135,12 @@ class $QueueTasksTable extends QueueTasks
     } else if (isInserting) {
       context.missing(_taskTypeMeta);
     }
-    if (data.containsKey('library_item_id')) {
+    if (data.containsKey('collection_id')) {
       context.handle(
-        _libraryItemIdMeta,
-        libraryItemId.isAcceptableOrUnknown(
-          data['library_item_id']!,
-          _libraryItemIdMeta,
+        _collectionIdMeta,
+        collectionId.isAcceptableOrUnknown(
+          data['collection_id']!,
+          _collectionIdMeta,
         ),
       );
     }
@@ -5234,12 +6150,24 @@ class $QueueTasksTable extends QueueTasks
         startUrl.isAcceptableOrUnknown(data['start_url']!, _startUrlMeta),
       );
     }
-    if (data.containsKey('chapter_limit')) {
+    if (data.containsKey('entry_limit')) {
       context.handle(
-        _chapterLimitMeta,
-        chapterLimit.isAcceptableOrUnknown(
-          data['chapter_limit']!,
-          _chapterLimitMeta,
+        _entryLimitMeta,
+        entryLimit.isAcceptableOrUnknown(data['entry_limit']!, _entryLimitMeta),
+      );
+    }
+    if (data.containsKey('max_bytes')) {
+      context.handle(
+        _maxBytesMeta,
+        maxBytes.isAcceptableOrUnknown(data['max_bytes']!, _maxBytesMeta),
+      );
+    }
+    if (data.containsKey('include_images')) {
+      context.handle(
+        _includeImagesMeta,
+        includeImages.isAcceptableOrUnknown(
+          data['include_images']!,
+          _includeImagesMeta,
         ),
       );
     }
@@ -5252,10 +6180,10 @@ class $QueueTasksTable extends QueueTasks
         ),
       );
     }
-    if (data.containsKey('range_mode')) {
+    if (data.containsKey('scope')) {
       context.handle(
-        _rangeModeMeta,
-        rangeMode.isAcceptableOrUnknown(data['range_mode']!, _rangeModeMeta),
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
       );
     }
     if (data.containsKey('state')) {
@@ -5280,6 +6208,12 @@ class $QueueTasksTable extends QueueTasks
       context.handle(
         _lastErrorMeta,
         lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    if (data.containsKey('stop_reason')) {
+      context.handle(
+        _stopReasonMeta,
+        stopReason.isAcceptableOrUnknown(data['stop_reason']!, _stopReasonMeta),
       );
     }
     if (data.containsKey('order_index')) {
@@ -5325,25 +6259,33 @@ class $QueueTasksTable extends QueueTasks
         DriftSqlType.string,
         data['${effectivePrefix}task_type'],
       )!,
-      libraryItemId: attachedDatabase.typeMapping.read(
+      collectionId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}library_item_id'],
+        data['${effectivePrefix}collection_id'],
       ),
       startUrl: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}start_url'],
       ),
-      chapterLimit: attachedDatabase.typeMapping.read(
+      entryLimit: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
-        data['${effectivePrefix}chapter_limit'],
+        data['${effectivePrefix}entry_limit'],
       ),
+      maxBytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}max_bytes'],
+      ),
+      includeImages: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}include_images'],
+      )!,
       duplicatePolicy: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}duplicate_policy'],
       ),
-      rangeMode: attachedDatabase.typeMapping.read(
+      scope: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}range_mode'],
+        data['${effectivePrefix}scope'],
       ),
       state: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -5352,7 +6294,7 @@ class $QueueTasksTable extends QueueTasks
       origin: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}origin'],
-      ),
+      )!,
       outcome: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}outcome'],
@@ -5360,6 +6302,10 @@ class $QueueTasksTable extends QueueTasks
       lastError: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}last_error'],
+      ),
+      stopReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}stop_reason'],
       ),
       orderIndex: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
@@ -5389,31 +6335,38 @@ class $QueueTasksTable extends QueueTasks
 class QueueTask extends DataClass implements Insertable<QueueTask> {
   final String id;
 
-  /// chapterCapture | multiChapterCapture | seriesCheck | checkAllSeries
+  /// entrySave | sequenceSave | collectionCheck | checkAllCollections |
+  /// offlineCleanup
   final String taskType;
-  final String? libraryItemId;
+  final String? collectionId;
   final String? startUrl;
-  final int? chapterLimit;
+
+  /// The explicit ceiling on new entries. Never null for a multi-entry task.
+  final int? entryLimit;
+  final int? maxBytes;
+  final bool includeImages;
   final String? duplicatePolicy;
 
-  /// currentChapter | fixedCount | untilEnd (null on rows from before v8 —
-  /// read as fixedCount).
-  final String? rangeMode;
+  /// `SaveScope.name`.
+  final String? scope;
 
   /// queued | running | completed | failed | cancelled
   final String state;
 
   /// `queue` | `direct` — whether this row is queued work or the record of a
-  /// capture the user started straight from the Browser (D58).
+  /// save the user started straight from the Browser.
   ///
-  /// A `direct` row is **only ever terminal**: a direct capture creates no
-  /// pending entry, so nothing here can be released by the queue pump. It
-  /// exists for Activity history and error reporting.
-  final String? origin;
+  /// A `direct` row is **only ever terminal**: a direct save creates no pending
+  /// entry, so nothing here can be released by the queue pump. It exists for
+  /// Activity history and error reporting.
+  final String origin;
 
-  /// Short human summary of how it ended ("3 captured, 1 skipped").
+  /// Short human summary of how it ended.
   final String? outcome;
   final String? lastError;
+
+  /// Which stopping condition ended it (`StopReason.name`), when one did.
+  final String? stopReason;
 
   /// FIFO order within the queue.
   final int orderIndex;
@@ -5423,15 +6376,18 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
   const QueueTask({
     required this.id,
     required this.taskType,
-    this.libraryItemId,
+    this.collectionId,
     this.startUrl,
-    this.chapterLimit,
+    this.entryLimit,
+    this.maxBytes,
+    required this.includeImages,
     this.duplicatePolicy,
-    this.rangeMode,
+    this.scope,
     required this.state,
-    this.origin,
+    required this.origin,
     this.outcome,
     this.lastError,
+    this.stopReason,
     required this.orderIndex,
     required this.queuedAt,
     this.startedAt,
@@ -5442,30 +6398,35 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['task_type'] = Variable<String>(taskType);
-    if (!nullToAbsent || libraryItemId != null) {
-      map['library_item_id'] = Variable<String>(libraryItemId);
+    if (!nullToAbsent || collectionId != null) {
+      map['collection_id'] = Variable<String>(collectionId);
     }
     if (!nullToAbsent || startUrl != null) {
       map['start_url'] = Variable<String>(startUrl);
     }
-    if (!nullToAbsent || chapterLimit != null) {
-      map['chapter_limit'] = Variable<int>(chapterLimit);
+    if (!nullToAbsent || entryLimit != null) {
+      map['entry_limit'] = Variable<int>(entryLimit);
     }
+    if (!nullToAbsent || maxBytes != null) {
+      map['max_bytes'] = Variable<int>(maxBytes);
+    }
+    map['include_images'] = Variable<bool>(includeImages);
     if (!nullToAbsent || duplicatePolicy != null) {
       map['duplicate_policy'] = Variable<String>(duplicatePolicy);
     }
-    if (!nullToAbsent || rangeMode != null) {
-      map['range_mode'] = Variable<String>(rangeMode);
+    if (!nullToAbsent || scope != null) {
+      map['scope'] = Variable<String>(scope);
     }
     map['state'] = Variable<String>(state);
-    if (!nullToAbsent || origin != null) {
-      map['origin'] = Variable<String>(origin);
-    }
+    map['origin'] = Variable<String>(origin);
     if (!nullToAbsent || outcome != null) {
       map['outcome'] = Variable<String>(outcome);
     }
     if (!nullToAbsent || lastError != null) {
       map['last_error'] = Variable<String>(lastError);
+    }
+    if (!nullToAbsent || stopReason != null) {
+      map['stop_reason'] = Variable<String>(stopReason);
     }
     map['order_index'] = Variable<int>(orderIndex);
     map['queued_at'] = Variable<DateTime>(queuedAt);
@@ -5482,31 +6443,36 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     return QueueTasksCompanion(
       id: Value(id),
       taskType: Value(taskType),
-      libraryItemId: libraryItemId == null && nullToAbsent
+      collectionId: collectionId == null && nullToAbsent
           ? const Value.absent()
-          : Value(libraryItemId),
+          : Value(collectionId),
       startUrl: startUrl == null && nullToAbsent
           ? const Value.absent()
           : Value(startUrl),
-      chapterLimit: chapterLimit == null && nullToAbsent
+      entryLimit: entryLimit == null && nullToAbsent
           ? const Value.absent()
-          : Value(chapterLimit),
+          : Value(entryLimit),
+      maxBytes: maxBytes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(maxBytes),
+      includeImages: Value(includeImages),
       duplicatePolicy: duplicatePolicy == null && nullToAbsent
           ? const Value.absent()
           : Value(duplicatePolicy),
-      rangeMode: rangeMode == null && nullToAbsent
+      scope: scope == null && nullToAbsent
           ? const Value.absent()
-          : Value(rangeMode),
+          : Value(scope),
       state: Value(state),
-      origin: origin == null && nullToAbsent
-          ? const Value.absent()
-          : Value(origin),
+      origin: Value(origin),
       outcome: outcome == null && nullToAbsent
           ? const Value.absent()
           : Value(outcome),
       lastError: lastError == null && nullToAbsent
           ? const Value.absent()
           : Value(lastError),
+      stopReason: stopReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(stopReason),
       orderIndex: Value(orderIndex),
       queuedAt: Value(queuedAt),
       startedAt: startedAt == null && nullToAbsent
@@ -5526,15 +6492,18 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     return QueueTask(
       id: serializer.fromJson<String>(json['id']),
       taskType: serializer.fromJson<String>(json['taskType']),
-      libraryItemId: serializer.fromJson<String?>(json['libraryItemId']),
+      collectionId: serializer.fromJson<String?>(json['collectionId']),
       startUrl: serializer.fromJson<String?>(json['startUrl']),
-      chapterLimit: serializer.fromJson<int?>(json['chapterLimit']),
+      entryLimit: serializer.fromJson<int?>(json['entryLimit']),
+      maxBytes: serializer.fromJson<int?>(json['maxBytes']),
+      includeImages: serializer.fromJson<bool>(json['includeImages']),
       duplicatePolicy: serializer.fromJson<String?>(json['duplicatePolicy']),
-      rangeMode: serializer.fromJson<String?>(json['rangeMode']),
+      scope: serializer.fromJson<String?>(json['scope']),
       state: serializer.fromJson<String>(json['state']),
-      origin: serializer.fromJson<String?>(json['origin']),
+      origin: serializer.fromJson<String>(json['origin']),
       outcome: serializer.fromJson<String?>(json['outcome']),
       lastError: serializer.fromJson<String?>(json['lastError']),
+      stopReason: serializer.fromJson<String?>(json['stopReason']),
       orderIndex: serializer.fromJson<int>(json['orderIndex']),
       queuedAt: serializer.fromJson<DateTime>(json['queuedAt']),
       startedAt: serializer.fromJson<DateTime?>(json['startedAt']),
@@ -5547,15 +6516,18 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'taskType': serializer.toJson<String>(taskType),
-      'libraryItemId': serializer.toJson<String?>(libraryItemId),
+      'collectionId': serializer.toJson<String?>(collectionId),
       'startUrl': serializer.toJson<String?>(startUrl),
-      'chapterLimit': serializer.toJson<int?>(chapterLimit),
+      'entryLimit': serializer.toJson<int?>(entryLimit),
+      'maxBytes': serializer.toJson<int?>(maxBytes),
+      'includeImages': serializer.toJson<bool>(includeImages),
       'duplicatePolicy': serializer.toJson<String?>(duplicatePolicy),
-      'rangeMode': serializer.toJson<String?>(rangeMode),
+      'scope': serializer.toJson<String?>(scope),
       'state': serializer.toJson<String>(state),
-      'origin': serializer.toJson<String?>(origin),
+      'origin': serializer.toJson<String>(origin),
       'outcome': serializer.toJson<String?>(outcome),
       'lastError': serializer.toJson<String?>(lastError),
+      'stopReason': serializer.toJson<String?>(stopReason),
       'orderIndex': serializer.toJson<int>(orderIndex),
       'queuedAt': serializer.toJson<DateTime>(queuedAt),
       'startedAt': serializer.toJson<DateTime?>(startedAt),
@@ -5566,15 +6538,18 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
   QueueTask copyWith({
     String? id,
     String? taskType,
-    Value<String?> libraryItemId = const Value.absent(),
+    Value<String?> collectionId = const Value.absent(),
     Value<String?> startUrl = const Value.absent(),
-    Value<int?> chapterLimit = const Value.absent(),
+    Value<int?> entryLimit = const Value.absent(),
+    Value<int?> maxBytes = const Value.absent(),
+    bool? includeImages,
     Value<String?> duplicatePolicy = const Value.absent(),
-    Value<String?> rangeMode = const Value.absent(),
+    Value<String?> scope = const Value.absent(),
     String? state,
-    Value<String?> origin = const Value.absent(),
+    String? origin,
     Value<String?> outcome = const Value.absent(),
     Value<String?> lastError = const Value.absent(),
+    Value<String?> stopReason = const Value.absent(),
     int? orderIndex,
     DateTime? queuedAt,
     Value<DateTime?> startedAt = const Value.absent(),
@@ -5582,19 +6557,20 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
   }) => QueueTask(
     id: id ?? this.id,
     taskType: taskType ?? this.taskType,
-    libraryItemId: libraryItemId.present
-        ? libraryItemId.value
-        : this.libraryItemId,
+    collectionId: collectionId.present ? collectionId.value : this.collectionId,
     startUrl: startUrl.present ? startUrl.value : this.startUrl,
-    chapterLimit: chapterLimit.present ? chapterLimit.value : this.chapterLimit,
+    entryLimit: entryLimit.present ? entryLimit.value : this.entryLimit,
+    maxBytes: maxBytes.present ? maxBytes.value : this.maxBytes,
+    includeImages: includeImages ?? this.includeImages,
     duplicatePolicy: duplicatePolicy.present
         ? duplicatePolicy.value
         : this.duplicatePolicy,
-    rangeMode: rangeMode.present ? rangeMode.value : this.rangeMode,
+    scope: scope.present ? scope.value : this.scope,
     state: state ?? this.state,
-    origin: origin.present ? origin.value : this.origin,
+    origin: origin ?? this.origin,
     outcome: outcome.present ? outcome.value : this.outcome,
     lastError: lastError.present ? lastError.value : this.lastError,
+    stopReason: stopReason.present ? stopReason.value : this.stopReason,
     orderIndex: orderIndex ?? this.orderIndex,
     queuedAt: queuedAt ?? this.queuedAt,
     startedAt: startedAt.present ? startedAt.value : this.startedAt,
@@ -5604,21 +6580,28 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     return QueueTask(
       id: data.id.present ? data.id.value : this.id,
       taskType: data.taskType.present ? data.taskType.value : this.taskType,
-      libraryItemId: data.libraryItemId.present
-          ? data.libraryItemId.value
-          : this.libraryItemId,
+      collectionId: data.collectionId.present
+          ? data.collectionId.value
+          : this.collectionId,
       startUrl: data.startUrl.present ? data.startUrl.value : this.startUrl,
-      chapterLimit: data.chapterLimit.present
-          ? data.chapterLimit.value
-          : this.chapterLimit,
+      entryLimit: data.entryLimit.present
+          ? data.entryLimit.value
+          : this.entryLimit,
+      maxBytes: data.maxBytes.present ? data.maxBytes.value : this.maxBytes,
+      includeImages: data.includeImages.present
+          ? data.includeImages.value
+          : this.includeImages,
       duplicatePolicy: data.duplicatePolicy.present
           ? data.duplicatePolicy.value
           : this.duplicatePolicy,
-      rangeMode: data.rangeMode.present ? data.rangeMode.value : this.rangeMode,
+      scope: data.scope.present ? data.scope.value : this.scope,
       state: data.state.present ? data.state.value : this.state,
       origin: data.origin.present ? data.origin.value : this.origin,
       outcome: data.outcome.present ? data.outcome.value : this.outcome,
       lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      stopReason: data.stopReason.present
+          ? data.stopReason.value
+          : this.stopReason,
       orderIndex: data.orderIndex.present
           ? data.orderIndex.value
           : this.orderIndex,
@@ -5635,15 +6618,18 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     return (StringBuffer('QueueTask(')
           ..write('id: $id, ')
           ..write('taskType: $taskType, ')
-          ..write('libraryItemId: $libraryItemId, ')
+          ..write('collectionId: $collectionId, ')
           ..write('startUrl: $startUrl, ')
-          ..write('chapterLimit: $chapterLimit, ')
+          ..write('entryLimit: $entryLimit, ')
+          ..write('maxBytes: $maxBytes, ')
+          ..write('includeImages: $includeImages, ')
           ..write('duplicatePolicy: $duplicatePolicy, ')
-          ..write('rangeMode: $rangeMode, ')
+          ..write('scope: $scope, ')
           ..write('state: $state, ')
           ..write('origin: $origin, ')
           ..write('outcome: $outcome, ')
           ..write('lastError: $lastError, ')
+          ..write('stopReason: $stopReason, ')
           ..write('orderIndex: $orderIndex, ')
           ..write('queuedAt: $queuedAt, ')
           ..write('startedAt: $startedAt, ')
@@ -5656,15 +6642,18 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
   int get hashCode => Object.hash(
     id,
     taskType,
-    libraryItemId,
+    collectionId,
     startUrl,
-    chapterLimit,
+    entryLimit,
+    maxBytes,
+    includeImages,
     duplicatePolicy,
-    rangeMode,
+    scope,
     state,
     origin,
     outcome,
     lastError,
+    stopReason,
     orderIndex,
     queuedAt,
     startedAt,
@@ -5676,15 +6665,18 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
       (other is QueueTask &&
           other.id == this.id &&
           other.taskType == this.taskType &&
-          other.libraryItemId == this.libraryItemId &&
+          other.collectionId == this.collectionId &&
           other.startUrl == this.startUrl &&
-          other.chapterLimit == this.chapterLimit &&
+          other.entryLimit == this.entryLimit &&
+          other.maxBytes == this.maxBytes &&
+          other.includeImages == this.includeImages &&
           other.duplicatePolicy == this.duplicatePolicy &&
-          other.rangeMode == this.rangeMode &&
+          other.scope == this.scope &&
           other.state == this.state &&
           other.origin == this.origin &&
           other.outcome == this.outcome &&
           other.lastError == this.lastError &&
+          other.stopReason == this.stopReason &&
           other.orderIndex == this.orderIndex &&
           other.queuedAt == this.queuedAt &&
           other.startedAt == this.startedAt &&
@@ -5694,15 +6686,18 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
 class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
   final Value<String> id;
   final Value<String> taskType;
-  final Value<String?> libraryItemId;
+  final Value<String?> collectionId;
   final Value<String?> startUrl;
-  final Value<int?> chapterLimit;
+  final Value<int?> entryLimit;
+  final Value<int?> maxBytes;
+  final Value<bool> includeImages;
   final Value<String?> duplicatePolicy;
-  final Value<String?> rangeMode;
+  final Value<String?> scope;
   final Value<String> state;
-  final Value<String?> origin;
+  final Value<String> origin;
   final Value<String?> outcome;
   final Value<String?> lastError;
+  final Value<String?> stopReason;
   final Value<int> orderIndex;
   final Value<DateTime> queuedAt;
   final Value<DateTime?> startedAt;
@@ -5711,15 +6706,18 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
   const QueueTasksCompanion({
     this.id = const Value.absent(),
     this.taskType = const Value.absent(),
-    this.libraryItemId = const Value.absent(),
+    this.collectionId = const Value.absent(),
     this.startUrl = const Value.absent(),
-    this.chapterLimit = const Value.absent(),
+    this.entryLimit = const Value.absent(),
+    this.maxBytes = const Value.absent(),
+    this.includeImages = const Value.absent(),
     this.duplicatePolicy = const Value.absent(),
-    this.rangeMode = const Value.absent(),
+    this.scope = const Value.absent(),
     this.state = const Value.absent(),
     this.origin = const Value.absent(),
     this.outcome = const Value.absent(),
     this.lastError = const Value.absent(),
+    this.stopReason = const Value.absent(),
     this.orderIndex = const Value.absent(),
     this.queuedAt = const Value.absent(),
     this.startedAt = const Value.absent(),
@@ -5729,15 +6727,18 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
   QueueTasksCompanion.insert({
     required String id,
     required String taskType,
-    this.libraryItemId = const Value.absent(),
+    this.collectionId = const Value.absent(),
     this.startUrl = const Value.absent(),
-    this.chapterLimit = const Value.absent(),
+    this.entryLimit = const Value.absent(),
+    this.maxBytes = const Value.absent(),
+    this.includeImages = const Value.absent(),
     this.duplicatePolicy = const Value.absent(),
-    this.rangeMode = const Value.absent(),
+    this.scope = const Value.absent(),
     this.state = const Value.absent(),
     this.origin = const Value.absent(),
     this.outcome = const Value.absent(),
     this.lastError = const Value.absent(),
+    this.stopReason = const Value.absent(),
     this.orderIndex = const Value.absent(),
     required DateTime queuedAt,
     this.startedAt = const Value.absent(),
@@ -5749,15 +6750,18 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
   static Insertable<QueueTask> custom({
     Expression<String>? id,
     Expression<String>? taskType,
-    Expression<String>? libraryItemId,
+    Expression<String>? collectionId,
     Expression<String>? startUrl,
-    Expression<int>? chapterLimit,
+    Expression<int>? entryLimit,
+    Expression<int>? maxBytes,
+    Expression<bool>? includeImages,
     Expression<String>? duplicatePolicy,
-    Expression<String>? rangeMode,
+    Expression<String>? scope,
     Expression<String>? state,
     Expression<String>? origin,
     Expression<String>? outcome,
     Expression<String>? lastError,
+    Expression<String>? stopReason,
     Expression<int>? orderIndex,
     Expression<DateTime>? queuedAt,
     Expression<DateTime>? startedAt,
@@ -5767,15 +6771,18 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (taskType != null) 'task_type': taskType,
-      if (libraryItemId != null) 'library_item_id': libraryItemId,
+      if (collectionId != null) 'collection_id': collectionId,
       if (startUrl != null) 'start_url': startUrl,
-      if (chapterLimit != null) 'chapter_limit': chapterLimit,
+      if (entryLimit != null) 'entry_limit': entryLimit,
+      if (maxBytes != null) 'max_bytes': maxBytes,
+      if (includeImages != null) 'include_images': includeImages,
       if (duplicatePolicy != null) 'duplicate_policy': duplicatePolicy,
-      if (rangeMode != null) 'range_mode': rangeMode,
+      if (scope != null) 'scope': scope,
       if (state != null) 'state': state,
       if (origin != null) 'origin': origin,
       if (outcome != null) 'outcome': outcome,
       if (lastError != null) 'last_error': lastError,
+      if (stopReason != null) 'stop_reason': stopReason,
       if (orderIndex != null) 'order_index': orderIndex,
       if (queuedAt != null) 'queued_at': queuedAt,
       if (startedAt != null) 'started_at': startedAt,
@@ -5787,15 +6794,18 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
   QueueTasksCompanion copyWith({
     Value<String>? id,
     Value<String>? taskType,
-    Value<String?>? libraryItemId,
+    Value<String?>? collectionId,
     Value<String?>? startUrl,
-    Value<int?>? chapterLimit,
+    Value<int?>? entryLimit,
+    Value<int?>? maxBytes,
+    Value<bool>? includeImages,
     Value<String?>? duplicatePolicy,
-    Value<String?>? rangeMode,
+    Value<String?>? scope,
     Value<String>? state,
-    Value<String?>? origin,
+    Value<String>? origin,
     Value<String?>? outcome,
     Value<String?>? lastError,
+    Value<String?>? stopReason,
     Value<int>? orderIndex,
     Value<DateTime>? queuedAt,
     Value<DateTime?>? startedAt,
@@ -5805,15 +6815,18 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     return QueueTasksCompanion(
       id: id ?? this.id,
       taskType: taskType ?? this.taskType,
-      libraryItemId: libraryItemId ?? this.libraryItemId,
+      collectionId: collectionId ?? this.collectionId,
       startUrl: startUrl ?? this.startUrl,
-      chapterLimit: chapterLimit ?? this.chapterLimit,
+      entryLimit: entryLimit ?? this.entryLimit,
+      maxBytes: maxBytes ?? this.maxBytes,
+      includeImages: includeImages ?? this.includeImages,
       duplicatePolicy: duplicatePolicy ?? this.duplicatePolicy,
-      rangeMode: rangeMode ?? this.rangeMode,
+      scope: scope ?? this.scope,
       state: state ?? this.state,
       origin: origin ?? this.origin,
       outcome: outcome ?? this.outcome,
       lastError: lastError ?? this.lastError,
+      stopReason: stopReason ?? this.stopReason,
       orderIndex: orderIndex ?? this.orderIndex,
       queuedAt: queuedAt ?? this.queuedAt,
       startedAt: startedAt ?? this.startedAt,
@@ -5831,20 +6844,26 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     if (taskType.present) {
       map['task_type'] = Variable<String>(taskType.value);
     }
-    if (libraryItemId.present) {
-      map['library_item_id'] = Variable<String>(libraryItemId.value);
+    if (collectionId.present) {
+      map['collection_id'] = Variable<String>(collectionId.value);
     }
     if (startUrl.present) {
       map['start_url'] = Variable<String>(startUrl.value);
     }
-    if (chapterLimit.present) {
-      map['chapter_limit'] = Variable<int>(chapterLimit.value);
+    if (entryLimit.present) {
+      map['entry_limit'] = Variable<int>(entryLimit.value);
+    }
+    if (maxBytes.present) {
+      map['max_bytes'] = Variable<int>(maxBytes.value);
+    }
+    if (includeImages.present) {
+      map['include_images'] = Variable<bool>(includeImages.value);
     }
     if (duplicatePolicy.present) {
       map['duplicate_policy'] = Variable<String>(duplicatePolicy.value);
     }
-    if (rangeMode.present) {
-      map['range_mode'] = Variable<String>(rangeMode.value);
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
     }
     if (state.present) {
       map['state'] = Variable<String>(state.value);
@@ -5857,6 +6876,9 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     }
     if (lastError.present) {
       map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (stopReason.present) {
+      map['stop_reason'] = Variable<String>(stopReason.value);
     }
     if (orderIndex.present) {
       map['order_index'] = Variable<int>(orderIndex.value);
@@ -5881,15 +6903,18 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     return (StringBuffer('QueueTasksCompanion(')
           ..write('id: $id, ')
           ..write('taskType: $taskType, ')
-          ..write('libraryItemId: $libraryItemId, ')
+          ..write('collectionId: $collectionId, ')
           ..write('startUrl: $startUrl, ')
-          ..write('chapterLimit: $chapterLimit, ')
+          ..write('entryLimit: $entryLimit, ')
+          ..write('maxBytes: $maxBytes, ')
+          ..write('includeImages: $includeImages, ')
           ..write('duplicatePolicy: $duplicatePolicy, ')
-          ..write('rangeMode: $rangeMode, ')
+          ..write('scope: $scope, ')
           ..write('state: $state, ')
           ..write('origin: $origin, ')
           ..write('outcome: $outcome, ')
           ..write('lastError: $lastError, ')
+          ..write('stopReason: $stopReason, ')
           ..write('orderIndex: $orderIndex, ')
           ..write('queuedAt: $queuedAt, ')
           ..write('startedAt: $startedAt, ')
@@ -6142,12 +7167,10 @@ class $BrowsingHistoryTable extends BrowsingHistory
 class BrowsingHistoryData extends DataClass
     implements Insertable<BrowsingHistoryData> {
   final String id;
-
-  /// The address as the user would read it back.
   final String url;
 
-  /// [normalizeUrl] of [url]. Grouping, dedup-within-a-window and
-  /// "remove every visit to this page" all key off this, never the raw text.
+  /// Normalised [url]. Grouping, dedup-within-a-window and "remove every visit
+  /// to this page" all key off this, never the raw text.
   final String urlKey;
   final String host;
   final String title;
@@ -6158,13 +7181,12 @@ class BrowsingHistoryData extends DataClass
   final String source;
 
   /// The address the load actually settled on, when a redirect moved it.
-  /// Null when nothing redirected.
   final String? finalUrl;
 
-  /// Only completed, user-visible destinations are recorded, so this is true
-  /// for every row written today. Kept because "the load finished" is the
-  /// property the recording rule turns on, and an explicit column is what
-  /// makes that rule inspectable rather than implied by absence.
+  /// Only completed, user-visible destinations are recorded, so this is true for
+  /// every row written today. Kept because "the load finished" is the property
+  /// the recording rule turns on, and an explicit column is what makes that rule
+  /// inspectable rather than implied by absence.
   final bool completed;
   final DateTime visitedAt;
   const BrowsingHistoryData({
@@ -6575,21 +7597,6 @@ class $SavedSitesTable extends SavedSites
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
-  static const VerificationMeta _isDefaultMeta = const VerificationMeta(
-    'isDefault',
-  );
-  @override
-  late final GeneratedColumn<bool> isDefault = GeneratedColumn<bool>(
-    'is_default',
-    aliasedName,
-    false,
-    type: DriftSqlType.bool,
-    requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("is_default" IN (0, 1))',
-    ),
-    defaultValue: const Constant(false),
-  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -6602,7 +7609,6 @@ class $SavedSitesTable extends SavedSites
     updatedAt,
     lastOpenedAt,
     orderIndex,
-    isDefault,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -6690,12 +7696,6 @@ class $SavedSitesTable extends SavedSites
         orderIndex.isAcceptableOrUnknown(data['order_index']!, _orderIndexMeta),
       );
     }
-    if (data.containsKey('is_default')) {
-      context.handle(
-        _isDefaultMeta,
-        isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
-      );
-    }
     return context;
   }
 
@@ -6745,10 +7745,6 @@ class $SavedSitesTable extends SavedSites
         DriftSqlType.int,
         data['${effectivePrefix}order_index'],
       )!,
-      isDefault: attachedDatabase.typeMapping.read(
-        DriftSqlType.bool,
-        data['${effectivePrefix}is_default'],
-      )!,
     );
   }
 
@@ -6766,8 +7762,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
   /// may not share a normalised URL.
   final String urlKey;
   final String host;
-
-  /// The title as captured from the page (or derived from the host).
   final String title;
 
   /// What the user typed instead. Presentation only — [title] is kept so
@@ -6780,11 +7774,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
   /// Hand-ordered position. Ties fall back to [createdAt], so a row that was
   /// never reordered still has a stable place.
   final int orderIndex;
-
-  /// True for the Google row seeded on a clean install. Only meaningful to
-  /// the seeder: the user may rename, re-point, reorder or remove it exactly
-  /// like any other row, and it is never recreated afterwards (D54).
-  final bool isDefault;
   const SavedSite({
     required this.id,
     required this.url,
@@ -6796,7 +7785,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
     required this.updatedAt,
     this.lastOpenedAt,
     required this.orderIndex,
-    required this.isDefault,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6815,7 +7803,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
       map['last_opened_at'] = Variable<DateTime>(lastOpenedAt);
     }
     map['order_index'] = Variable<int>(orderIndex);
-    map['is_default'] = Variable<bool>(isDefault);
     return map;
   }
 
@@ -6835,7 +7822,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
           ? const Value.absent()
           : Value(lastOpenedAt),
       orderIndex: Value(orderIndex),
-      isDefault: Value(isDefault),
     );
   }
 
@@ -6855,7 +7841,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       lastOpenedAt: serializer.fromJson<DateTime?>(json['lastOpenedAt']),
       orderIndex: serializer.fromJson<int>(json['orderIndex']),
-      isDefault: serializer.fromJson<bool>(json['isDefault']),
     );
   }
   @override
@@ -6872,7 +7857,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'lastOpenedAt': serializer.toJson<DateTime?>(lastOpenedAt),
       'orderIndex': serializer.toJson<int>(orderIndex),
-      'isDefault': serializer.toJson<bool>(isDefault),
     };
   }
 
@@ -6887,7 +7871,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
     DateTime? updatedAt,
     Value<DateTime?> lastOpenedAt = const Value.absent(),
     int? orderIndex,
-    bool? isDefault,
   }) => SavedSite(
     id: id ?? this.id,
     url: url ?? this.url,
@@ -6899,7 +7882,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
     updatedAt: updatedAt ?? this.updatedAt,
     lastOpenedAt: lastOpenedAt.present ? lastOpenedAt.value : this.lastOpenedAt,
     orderIndex: orderIndex ?? this.orderIndex,
-    isDefault: isDefault ?? this.isDefault,
   );
   SavedSite copyWithCompanion(SavedSitesCompanion data) {
     return SavedSite(
@@ -6917,7 +7899,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
       orderIndex: data.orderIndex.present
           ? data.orderIndex.value
           : this.orderIndex,
-      isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
     );
   }
 
@@ -6933,8 +7914,7 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('lastOpenedAt: $lastOpenedAt, ')
-          ..write('orderIndex: $orderIndex, ')
-          ..write('isDefault: $isDefault')
+          ..write('orderIndex: $orderIndex')
           ..write(')'))
         .toString();
   }
@@ -6951,7 +7931,6 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
     updatedAt,
     lastOpenedAt,
     orderIndex,
-    isDefault,
   );
   @override
   bool operator ==(Object other) =>
@@ -6966,8 +7945,7 @@ class SavedSite extends DataClass implements Insertable<SavedSite> {
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.lastOpenedAt == this.lastOpenedAt &&
-          other.orderIndex == this.orderIndex &&
-          other.isDefault == this.isDefault);
+          other.orderIndex == this.orderIndex);
 }
 
 class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
@@ -6981,7 +7959,6 @@ class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
   final Value<DateTime> updatedAt;
   final Value<DateTime?> lastOpenedAt;
   final Value<int> orderIndex;
-  final Value<bool> isDefault;
   final Value<int> rowid;
   const SavedSitesCompanion({
     this.id = const Value.absent(),
@@ -6994,7 +7971,6 @@ class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
     this.updatedAt = const Value.absent(),
     this.lastOpenedAt = const Value.absent(),
     this.orderIndex = const Value.absent(),
-    this.isDefault = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   SavedSitesCompanion.insert({
@@ -7008,7 +7984,6 @@ class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
     required DateTime updatedAt,
     this.lastOpenedAt = const Value.absent(),
     this.orderIndex = const Value.absent(),
-    this.isDefault = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        url = Value(url),
@@ -7028,7 +8003,6 @@ class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? lastOpenedAt,
     Expression<int>? orderIndex,
-    Expression<bool>? isDefault,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7042,7 +8016,6 @@ class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
       if (updatedAt != null) 'updated_at': updatedAt,
       if (lastOpenedAt != null) 'last_opened_at': lastOpenedAt,
       if (orderIndex != null) 'order_index': orderIndex,
-      if (isDefault != null) 'is_default': isDefault,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7058,7 +8031,6 @@ class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
     Value<DateTime>? updatedAt,
     Value<DateTime?>? lastOpenedAt,
     Value<int>? orderIndex,
-    Value<bool>? isDefault,
     Value<int>? rowid,
   }) {
     return SavedSitesCompanion(
@@ -7072,7 +8044,6 @@ class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
       updatedAt: updatedAt ?? this.updatedAt,
       lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
       orderIndex: orderIndex ?? this.orderIndex,
-      isDefault: isDefault ?? this.isDefault,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -7110,9 +8081,6 @@ class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
     if (orderIndex.present) {
       map['order_index'] = Variable<int>(orderIndex.value);
     }
-    if (isDefault.present) {
-      map['is_default'] = Variable<bool>(isDefault.value);
-    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -7132,7 +8100,6 @@ class SavedSitesCompanion extends UpdateCompanion<SavedSite> {
           ..write('updatedAt: $updatedAt, ')
           ..write('lastOpenedAt: $lastOpenedAt, ')
           ..write('orderIndex: $orderIndex, ')
-          ..write('isDefault: $isDefault, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -7266,11 +8233,9 @@ class FaviconCacheData extends DataClass
   final String host;
 
   /// The icon bytes, or null when the last attempt failed. A null row is a
-  /// *negative* cache entry — it stops every list rebuild from re-requesting
-  /// an icon the site does not have.
+  /// *negative* cache entry — it stops every list rebuild from re-requesting an
+  /// icon the site does not have.
   final Uint8List? bytes;
-
-  /// Where the bytes came from, for debugging a wrong icon.
   final String? sourceUrl;
   final DateTime fetchedAt;
   const FaviconCacheData({
@@ -7463,10 +8428,10 @@ class FaviconCacheCompanion extends UpdateCompanion<FaviconCacheData> {
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
-  late final $LibraryItemsTable libraryItems = $LibraryItemsTable(this);
-  late final $ChaptersTable chapters = $ChaptersTable(this);
-  late final $CaptureJobsTable captureJobs = $CaptureJobsTable(this);
-  late final $SiteRuleRowsTable siteRuleRows = $SiteRuleRowsTable(this);
+  late final $CollectionsTable collections = $CollectionsTable(this);
+  late final $EntriesTable entries = $EntriesTable(this);
+  late final $SaveRunsTable saveRuns = $SaveRunsTable(this);
+  late final $UserPageHintsTable userPageHints = $UserPageHintsTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
   late final $QueueTasksTable queueTasks = $QueueTasksTable(this);
   late final $BrowsingHistoryTable browsingHistory = $BrowsingHistoryTable(
@@ -7479,10 +8444,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities => [
-    libraryItems,
-    chapters,
-    captureJobs,
-    siteRuleRows,
+    collections,
+    entries,
+    saveRuns,
+    userPageHints,
     settings,
     queueTasks,
     browsingHistory,
@@ -7491,22 +8456,27 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   ];
 }
 
-typedef $$LibraryItemsTableCreateCompanionBuilder =
-    LibraryItemsCompanion Function({
+typedef $$CollectionsTableCreateCompanionBuilder =
+    CollectionsCompanion Function({
       required String id,
       required String title,
       Value<String?> userTitle,
       required String sourceUrl,
       required String host,
-      Value<String?> seriesKey,
-      Value<String?> seriesUrl,
+      Value<String?> collectionKey,
+      Value<String?> collectionIndexUrl,
       Value<String?> identityBasis,
       Value<String?> identityConfidence,
+      Value<String> contentKind,
+      Value<String> sequenceKind,
+      Value<String> orderingBasis,
+      Value<String> shapeConfidence,
+      Value<int?> knownEntryTotal,
       required DateTime createdAt,
       Value<DateTime?> lastOpenedAt,
-      Value<DateTime?> lastCapturedAt,
-      Value<String?> lastOpenedChapterId,
-      Value<String?> lastCompletedChapterId,
+      Value<DateTime?> lastSavedAt,
+      Value<String?> lastOpenedEntryId,
+      Value<String?> lastCompletedEntryId,
       Value<DateTime?> lastReadAt,
       Value<DateTime?> lastCheckAt,
       Value<DateTime?> lastCheckSuccessAt,
@@ -7514,25 +8484,30 @@ typedef $$LibraryItemsTableCreateCompanionBuilder =
       Value<String?> lastCheckResult,
       Value<String> lifecycle,
       Value<DateTime?> archivedAt,
-      Value<String?> finishedCleanup,
+      Value<String?> cleanupPreference,
       Value<int> rowid,
     });
-typedef $$LibraryItemsTableUpdateCompanionBuilder =
-    LibraryItemsCompanion Function({
+typedef $$CollectionsTableUpdateCompanionBuilder =
+    CollectionsCompanion Function({
       Value<String> id,
       Value<String> title,
       Value<String?> userTitle,
       Value<String> sourceUrl,
       Value<String> host,
-      Value<String?> seriesKey,
-      Value<String?> seriesUrl,
+      Value<String?> collectionKey,
+      Value<String?> collectionIndexUrl,
       Value<String?> identityBasis,
       Value<String?> identityConfidence,
+      Value<String> contentKind,
+      Value<String> sequenceKind,
+      Value<String> orderingBasis,
+      Value<String> shapeConfidence,
+      Value<int?> knownEntryTotal,
       Value<DateTime> createdAt,
       Value<DateTime?> lastOpenedAt,
-      Value<DateTime?> lastCapturedAt,
-      Value<String?> lastOpenedChapterId,
-      Value<String?> lastCompletedChapterId,
+      Value<DateTime?> lastSavedAt,
+      Value<String?> lastOpenedEntryId,
+      Value<String?> lastCompletedEntryId,
       Value<DateTime?> lastReadAt,
       Value<DateTime?> lastCheckAt,
       Value<DateTime?> lastCheckSuccessAt,
@@ -7540,37 +8515,37 @@ typedef $$LibraryItemsTableUpdateCompanionBuilder =
       Value<String?> lastCheckResult,
       Value<String> lifecycle,
       Value<DateTime?> archivedAt,
-      Value<String?> finishedCleanup,
+      Value<String?> cleanupPreference,
       Value<int> rowid,
     });
 
-final class $$LibraryItemsTableReferences
-    extends BaseReferences<_$AppDatabase, $LibraryItemsTable, LibraryItem> {
-  $$LibraryItemsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+final class $$CollectionsTableReferences
+    extends BaseReferences<_$AppDatabase, $CollectionsTable, Collection> {
+  $$CollectionsTableReferences(super.$_db, super.$_table, super.$_typedResult);
 
-  static MultiTypedResultKey<$ChaptersTable, List<Chapter>> _chaptersRefsTable(
+  static MultiTypedResultKey<$EntriesTable, List<Entry>> _entriesRefsTable(
     _$AppDatabase db,
   ) => MultiTypedResultKey.fromTable(
-    db.chapters,
-    aliasName: 'library_items__id__chapters__library_item_id',
+    db.entries,
+    aliasName: 'collections__id__entries__collection_id',
   );
 
-  $$ChaptersTableProcessedTableManager get chaptersRefs {
-    final manager = $$ChaptersTableTableManager(
+  $$EntriesTableProcessedTableManager get entriesRefs {
+    final manager = $$EntriesTableTableManager(
       $_db,
-      $_db.chapters,
-    ).filter((f) => f.libraryItemId.id.sqlEquals($_itemColumn<String>('id')!));
+      $_db.entries,
+    ).filter((f) => f.collectionId.id.sqlEquals($_itemColumn<String>('id')!));
 
-    final cache = $_typedResult.readTableOrNull(_chaptersRefsTable($_db));
+    final cache = $_typedResult.readTableOrNull(_entriesRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
 }
 
-class $$LibraryItemsTableFilterComposer
-    extends Composer<_$AppDatabase, $LibraryItemsTable> {
-  $$LibraryItemsTableFilterComposer({
+class $$CollectionsTableFilterComposer
+    extends Composer<_$AppDatabase, $CollectionsTable> {
+  $$CollectionsTableFilterComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -7602,13 +8577,13 @@ class $$LibraryItemsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get seriesKey => $composableBuilder(
-    column: $table.seriesKey,
+  ColumnFilters<String> get collectionKey => $composableBuilder(
+    column: $table.collectionKey,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get seriesUrl => $composableBuilder(
-    column: $table.seriesUrl,
+  ColumnFilters<String> get collectionIndexUrl => $composableBuilder(
+    column: $table.collectionIndexUrl,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7622,6 +8597,31 @@ class $$LibraryItemsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get contentKind => $composableBuilder(
+    column: $table.contentKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sequenceKind => $composableBuilder(
+    column: $table.sequenceKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get orderingBasis => $composableBuilder(
+    column: $table.orderingBasis,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get shapeConfidence => $composableBuilder(
+    column: $table.shapeConfidence,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get knownEntryTotal => $composableBuilder(
+    column: $table.knownEntryTotal,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnFilters(column),
@@ -7632,18 +8632,18 @@ class $$LibraryItemsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<DateTime> get lastCapturedAt => $composableBuilder(
-    column: $table.lastCapturedAt,
+  ColumnFilters<DateTime> get lastSavedAt => $composableBuilder(
+    column: $table.lastSavedAt,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get lastOpenedChapterId => $composableBuilder(
-    column: $table.lastOpenedChapterId,
+  ColumnFilters<String> get lastOpenedEntryId => $composableBuilder(
+    column: $table.lastOpenedEntryId,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get lastCompletedChapterId => $composableBuilder(
-    column: $table.lastCompletedChapterId,
+  ColumnFilters<String> get lastCompletedEntryId => $composableBuilder(
+    column: $table.lastCompletedEntryId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7682,27 +8682,27 @@ class $$LibraryItemsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get finishedCleanup => $composableBuilder(
-    column: $table.finishedCleanup,
+  ColumnFilters<String> get cleanupPreference => $composableBuilder(
+    column: $table.cleanupPreference,
     builder: (column) => ColumnFilters(column),
   );
 
-  Expression<bool> chaptersRefs(
-    Expression<bool> Function($$ChaptersTableFilterComposer f) f,
+  Expression<bool> entriesRefs(
+    Expression<bool> Function($$EntriesTableFilterComposer f) f,
   ) {
-    final $$ChaptersTableFilterComposer composer = $composerBuilder(
+    final $$EntriesTableFilterComposer composer = $composerBuilder(
       composer: this,
       getCurrentColumn: (t) => t.id,
-      referencedTable: $db.chapters,
-      getReferencedColumn: (t) => t.libraryItemId,
+      referencedTable: $db.entries,
+      getReferencedColumn: (t) => t.collectionId,
       builder:
           (
             joinBuilder, {
             $addJoinBuilderToRootComposer,
             $removeJoinBuilderFromRootComposer,
-          }) => $$ChaptersTableFilterComposer(
+          }) => $$EntriesTableFilterComposer(
             $db: $db,
-            $table: $db.chapters,
+            $table: $db.entries,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -7713,9 +8713,9 @@ class $$LibraryItemsTableFilterComposer
   }
 }
 
-class $$LibraryItemsTableOrderingComposer
-    extends Composer<_$AppDatabase, $LibraryItemsTable> {
-  $$LibraryItemsTableOrderingComposer({
+class $$CollectionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $CollectionsTable> {
+  $$CollectionsTableOrderingComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -7747,13 +8747,13 @@ class $$LibraryItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get seriesKey => $composableBuilder(
-    column: $table.seriesKey,
+  ColumnOrderings<String> get collectionKey => $composableBuilder(
+    column: $table.collectionKey,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get seriesUrl => $composableBuilder(
-    column: $table.seriesUrl,
+  ColumnOrderings<String> get collectionIndexUrl => $composableBuilder(
+    column: $table.collectionIndexUrl,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -7767,6 +8767,31 @@ class $$LibraryItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get contentKind => $composableBuilder(
+    column: $table.contentKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sequenceKind => $composableBuilder(
+    column: $table.sequenceKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get orderingBasis => $composableBuilder(
+    column: $table.orderingBasis,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get shapeConfidence => $composableBuilder(
+    column: $table.shapeConfidence,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get knownEntryTotal => $composableBuilder(
+    column: $table.knownEntryTotal,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -7777,18 +8802,18 @@ class $$LibraryItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<DateTime> get lastCapturedAt => $composableBuilder(
-    column: $table.lastCapturedAt,
+  ColumnOrderings<DateTime> get lastSavedAt => $composableBuilder(
+    column: $table.lastSavedAt,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get lastOpenedChapterId => $composableBuilder(
-    column: $table.lastOpenedChapterId,
+  ColumnOrderings<String> get lastOpenedEntryId => $composableBuilder(
+    column: $table.lastOpenedEntryId,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get lastCompletedChapterId => $composableBuilder(
-    column: $table.lastCompletedChapterId,
+  ColumnOrderings<String> get lastCompletedEntryId => $composableBuilder(
+    column: $table.lastCompletedEntryId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -7827,15 +8852,15 @@ class $$LibraryItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get finishedCleanup => $composableBuilder(
-    column: $table.finishedCleanup,
+  ColumnOrderings<String> get cleanupPreference => $composableBuilder(
+    column: $table.cleanupPreference,
     builder: (column) => ColumnOrderings(column),
   );
 }
 
-class $$LibraryItemsTableAnnotationComposer
-    extends Composer<_$AppDatabase, $LibraryItemsTable> {
-  $$LibraryItemsTableAnnotationComposer({
+class $$CollectionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CollectionsTable> {
+  $$CollectionsTableAnnotationComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -7857,11 +8882,15 @@ class $$LibraryItemsTableAnnotationComposer
   GeneratedColumn<String> get host =>
       $composableBuilder(column: $table.host, builder: (column) => column);
 
-  GeneratedColumn<String> get seriesKey =>
-      $composableBuilder(column: $table.seriesKey, builder: (column) => column);
+  GeneratedColumn<String> get collectionKey => $composableBuilder(
+    column: $table.collectionKey,
+    builder: (column) => column,
+  );
 
-  GeneratedColumn<String> get seriesUrl =>
-      $composableBuilder(column: $table.seriesUrl, builder: (column) => column);
+  GeneratedColumn<String> get collectionIndexUrl => $composableBuilder(
+    column: $table.collectionIndexUrl,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get identityBasis => $composableBuilder(
     column: $table.identityBasis,
@@ -7873,6 +8902,31 @@ class $$LibraryItemsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get contentKind => $composableBuilder(
+    column: $table.contentKind,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sequenceKind => $composableBuilder(
+    column: $table.sequenceKind,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get orderingBasis => $composableBuilder(
+    column: $table.orderingBasis,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get shapeConfidence => $composableBuilder(
+    column: $table.shapeConfidence,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get knownEntryTotal => $composableBuilder(
+    column: $table.knownEntryTotal,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -7881,18 +8935,18 @@ class $$LibraryItemsTableAnnotationComposer
     builder: (column) => column,
   );
 
-  GeneratedColumn<DateTime> get lastCapturedAt => $composableBuilder(
-    column: $table.lastCapturedAt,
+  GeneratedColumn<DateTime> get lastSavedAt => $composableBuilder(
+    column: $table.lastSavedAt,
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get lastOpenedChapterId => $composableBuilder(
-    column: $table.lastOpenedChapterId,
+  GeneratedColumn<String> get lastOpenedEntryId => $composableBuilder(
+    column: $table.lastOpenedEntryId,
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get lastCompletedChapterId => $composableBuilder(
-    column: $table.lastCompletedChapterId,
+  GeneratedColumn<String> get lastCompletedEntryId => $composableBuilder(
+    column: $table.lastCompletedEntryId,
     builder: (column) => column,
   );
 
@@ -7929,27 +8983,27 @@ class $$LibraryItemsTableAnnotationComposer
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get finishedCleanup => $composableBuilder(
-    column: $table.finishedCleanup,
+  GeneratedColumn<String> get cleanupPreference => $composableBuilder(
+    column: $table.cleanupPreference,
     builder: (column) => column,
   );
 
-  Expression<T> chaptersRefs<T extends Object>(
-    Expression<T> Function($$ChaptersTableAnnotationComposer a) f,
+  Expression<T> entriesRefs<T extends Object>(
+    Expression<T> Function($$EntriesTableAnnotationComposer a) f,
   ) {
-    final $$ChaptersTableAnnotationComposer composer = $composerBuilder(
+    final $$EntriesTableAnnotationComposer composer = $composerBuilder(
       composer: this,
       getCurrentColumn: (t) => t.id,
-      referencedTable: $db.chapters,
-      getReferencedColumn: (t) => t.libraryItemId,
+      referencedTable: $db.entries,
+      getReferencedColumn: (t) => t.collectionId,
       builder:
           (
             joinBuilder, {
             $addJoinBuilderToRootComposer,
             $removeJoinBuilderFromRootComposer,
-          }) => $$ChaptersTableAnnotationComposer(
+          }) => $$EntriesTableAnnotationComposer(
             $db: $db,
-            $table: $db.chapters,
+            $table: $db.entries,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -7960,32 +9014,32 @@ class $$LibraryItemsTableAnnotationComposer
   }
 }
 
-class $$LibraryItemsTableTableManager
+class $$CollectionsTableTableManager
     extends
         RootTableManager<
           _$AppDatabase,
-          $LibraryItemsTable,
-          LibraryItem,
-          $$LibraryItemsTableFilterComposer,
-          $$LibraryItemsTableOrderingComposer,
-          $$LibraryItemsTableAnnotationComposer,
-          $$LibraryItemsTableCreateCompanionBuilder,
-          $$LibraryItemsTableUpdateCompanionBuilder,
-          (LibraryItem, $$LibraryItemsTableReferences),
-          LibraryItem,
-          PrefetchHooks Function({bool chaptersRefs})
+          $CollectionsTable,
+          Collection,
+          $$CollectionsTableFilterComposer,
+          $$CollectionsTableOrderingComposer,
+          $$CollectionsTableAnnotationComposer,
+          $$CollectionsTableCreateCompanionBuilder,
+          $$CollectionsTableUpdateCompanionBuilder,
+          (Collection, $$CollectionsTableReferences),
+          Collection,
+          PrefetchHooks Function({bool entriesRefs})
         > {
-  $$LibraryItemsTableTableManager(_$AppDatabase db, $LibraryItemsTable table)
+  $$CollectionsTableTableManager(_$AppDatabase db, $CollectionsTable table)
     : super(
         TableManagerState(
           db: db,
           table: table,
           createFilteringComposer: () =>
-              $$LibraryItemsTableFilterComposer($db: db, $table: table),
+              $$CollectionsTableFilterComposer($db: db, $table: table),
           createOrderingComposer: () =>
-              $$LibraryItemsTableOrderingComposer($db: db, $table: table),
+              $$CollectionsTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
-              $$LibraryItemsTableAnnotationComposer($db: db, $table: table),
+              $$CollectionsTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback:
               ({
                 Value<String> id = const Value.absent(),
@@ -7993,15 +9047,20 @@ class $$LibraryItemsTableTableManager
                 Value<String?> userTitle = const Value.absent(),
                 Value<String> sourceUrl = const Value.absent(),
                 Value<String> host = const Value.absent(),
-                Value<String?> seriesKey = const Value.absent(),
-                Value<String?> seriesUrl = const Value.absent(),
+                Value<String?> collectionKey = const Value.absent(),
+                Value<String?> collectionIndexUrl = const Value.absent(),
                 Value<String?> identityBasis = const Value.absent(),
                 Value<String?> identityConfidence = const Value.absent(),
+                Value<String> contentKind = const Value.absent(),
+                Value<String> sequenceKind = const Value.absent(),
+                Value<String> orderingBasis = const Value.absent(),
+                Value<String> shapeConfidence = const Value.absent(),
+                Value<int?> knownEntryTotal = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime?> lastOpenedAt = const Value.absent(),
-                Value<DateTime?> lastCapturedAt = const Value.absent(),
-                Value<String?> lastOpenedChapterId = const Value.absent(),
-                Value<String?> lastCompletedChapterId = const Value.absent(),
+                Value<DateTime?> lastSavedAt = const Value.absent(),
+                Value<String?> lastOpenedEntryId = const Value.absent(),
+                Value<String?> lastCompletedEntryId = const Value.absent(),
                 Value<DateTime?> lastReadAt = const Value.absent(),
                 Value<DateTime?> lastCheckAt = const Value.absent(),
                 Value<DateTime?> lastCheckSuccessAt = const Value.absent(),
@@ -8009,23 +9068,28 @@ class $$LibraryItemsTableTableManager
                 Value<String?> lastCheckResult = const Value.absent(),
                 Value<String> lifecycle = const Value.absent(),
                 Value<DateTime?> archivedAt = const Value.absent(),
-                Value<String?> finishedCleanup = const Value.absent(),
+                Value<String?> cleanupPreference = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => LibraryItemsCompanion(
+              }) => CollectionsCompanion(
                 id: id,
                 title: title,
                 userTitle: userTitle,
                 sourceUrl: sourceUrl,
                 host: host,
-                seriesKey: seriesKey,
-                seriesUrl: seriesUrl,
+                collectionKey: collectionKey,
+                collectionIndexUrl: collectionIndexUrl,
                 identityBasis: identityBasis,
                 identityConfidence: identityConfidence,
+                contentKind: contentKind,
+                sequenceKind: sequenceKind,
+                orderingBasis: orderingBasis,
+                shapeConfidence: shapeConfidence,
+                knownEntryTotal: knownEntryTotal,
                 createdAt: createdAt,
                 lastOpenedAt: lastOpenedAt,
-                lastCapturedAt: lastCapturedAt,
-                lastOpenedChapterId: lastOpenedChapterId,
-                lastCompletedChapterId: lastCompletedChapterId,
+                lastSavedAt: lastSavedAt,
+                lastOpenedEntryId: lastOpenedEntryId,
+                lastCompletedEntryId: lastCompletedEntryId,
                 lastReadAt: lastReadAt,
                 lastCheckAt: lastCheckAt,
                 lastCheckSuccessAt: lastCheckSuccessAt,
@@ -8033,7 +9097,7 @@ class $$LibraryItemsTableTableManager
                 lastCheckResult: lastCheckResult,
                 lifecycle: lifecycle,
                 archivedAt: archivedAt,
-                finishedCleanup: finishedCleanup,
+                cleanupPreference: cleanupPreference,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -8043,15 +9107,20 @@ class $$LibraryItemsTableTableManager
                 Value<String?> userTitle = const Value.absent(),
                 required String sourceUrl,
                 required String host,
-                Value<String?> seriesKey = const Value.absent(),
-                Value<String?> seriesUrl = const Value.absent(),
+                Value<String?> collectionKey = const Value.absent(),
+                Value<String?> collectionIndexUrl = const Value.absent(),
                 Value<String?> identityBasis = const Value.absent(),
                 Value<String?> identityConfidence = const Value.absent(),
+                Value<String> contentKind = const Value.absent(),
+                Value<String> sequenceKind = const Value.absent(),
+                Value<String> orderingBasis = const Value.absent(),
+                Value<String> shapeConfidence = const Value.absent(),
+                Value<int?> knownEntryTotal = const Value.absent(),
                 required DateTime createdAt,
                 Value<DateTime?> lastOpenedAt = const Value.absent(),
-                Value<DateTime?> lastCapturedAt = const Value.absent(),
-                Value<String?> lastOpenedChapterId = const Value.absent(),
-                Value<String?> lastCompletedChapterId = const Value.absent(),
+                Value<DateTime?> lastSavedAt = const Value.absent(),
+                Value<String?> lastOpenedEntryId = const Value.absent(),
+                Value<String?> lastCompletedEntryId = const Value.absent(),
                 Value<DateTime?> lastReadAt = const Value.absent(),
                 Value<DateTime?> lastCheckAt = const Value.absent(),
                 Value<DateTime?> lastCheckSuccessAt = const Value.absent(),
@@ -8059,23 +9128,28 @@ class $$LibraryItemsTableTableManager
                 Value<String?> lastCheckResult = const Value.absent(),
                 Value<String> lifecycle = const Value.absent(),
                 Value<DateTime?> archivedAt = const Value.absent(),
-                Value<String?> finishedCleanup = const Value.absent(),
+                Value<String?> cleanupPreference = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => LibraryItemsCompanion.insert(
+              }) => CollectionsCompanion.insert(
                 id: id,
                 title: title,
                 userTitle: userTitle,
                 sourceUrl: sourceUrl,
                 host: host,
-                seriesKey: seriesKey,
-                seriesUrl: seriesUrl,
+                collectionKey: collectionKey,
+                collectionIndexUrl: collectionIndexUrl,
                 identityBasis: identityBasis,
                 identityConfidence: identityConfidence,
+                contentKind: contentKind,
+                sequenceKind: sequenceKind,
+                orderingBasis: orderingBasis,
+                shapeConfidence: shapeConfidence,
+                knownEntryTotal: knownEntryTotal,
                 createdAt: createdAt,
                 lastOpenedAt: lastOpenedAt,
-                lastCapturedAt: lastCapturedAt,
-                lastOpenedChapterId: lastOpenedChapterId,
-                lastCompletedChapterId: lastCompletedChapterId,
+                lastSavedAt: lastSavedAt,
+                lastOpenedEntryId: lastOpenedEntryId,
+                lastCompletedEntryId: lastCompletedEntryId,
                 lastReadAt: lastReadAt,
                 lastCheckAt: lastCheckAt,
                 lastCheckSuccessAt: lastCheckSuccessAt,
@@ -8083,42 +9157,42 @@ class $$LibraryItemsTableTableManager
                 lastCheckResult: lastCheckResult,
                 lifecycle: lifecycle,
                 archivedAt: archivedAt,
-                finishedCleanup: finishedCleanup,
+                cleanupPreference: cleanupPreference,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
               .map(
                 (e) => (
                   e.readTable(table),
-                  $$LibraryItemsTableReferences(db, table, e),
+                  $$CollectionsTableReferences(db, table, e),
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({chaptersRefs = false}) {
+          prefetchHooksCallback: ({entriesRefs = false}) {
             return PrefetchHooks(
               db: db,
-              explicitlyWatchedTables: [if (chaptersRefs) db.chapters],
+              explicitlyWatchedTables: [if (entriesRefs) db.entries],
               addJoins: null,
               getPrefetchedDataCallback: (items) async {
                 return [
-                  if (chaptersRefs)
+                  if (entriesRefs)
                     await $_getPrefetchedData<
-                      LibraryItem,
-                      $LibraryItemsTable,
-                      Chapter
+                      Collection,
+                      $CollectionsTable,
+                      Entry
                     >(
                       currentTable: table,
-                      referencedTable: $$LibraryItemsTableReferences
-                          ._chaptersRefsTable(db),
+                      referencedTable: $$CollectionsTableReferences
+                          ._entriesRefsTable(db),
                       managerFromTypedResult: (p0) =>
-                          $$LibraryItemsTableReferences(
+                          $$CollectionsTableReferences(
                             db,
                             table,
                             p0,
-                          ).chaptersRefs,
+                          ).entriesRefs,
                       referencedItemsForCurrentItem: (item, referencedItems) =>
                           referencedItems.where(
-                            (e) => e.libraryItemId == item.id,
+                            (e) => e.collectionId == item.id,
                           ),
                       typedResults: items,
                     ),
@@ -8130,42 +9204,49 @@ class $$LibraryItemsTableTableManager
       );
 }
 
-typedef $$LibraryItemsTableProcessedTableManager =
+typedef $$CollectionsTableProcessedTableManager =
     ProcessedTableManager<
       _$AppDatabase,
-      $LibraryItemsTable,
-      LibraryItem,
-      $$LibraryItemsTableFilterComposer,
-      $$LibraryItemsTableOrderingComposer,
-      $$LibraryItemsTableAnnotationComposer,
-      $$LibraryItemsTableCreateCompanionBuilder,
-      $$LibraryItemsTableUpdateCompanionBuilder,
-      (LibraryItem, $$LibraryItemsTableReferences),
-      LibraryItem,
-      PrefetchHooks Function({bool chaptersRefs})
+      $CollectionsTable,
+      Collection,
+      $$CollectionsTableFilterComposer,
+      $$CollectionsTableOrderingComposer,
+      $$CollectionsTableAnnotationComposer,
+      $$CollectionsTableCreateCompanionBuilder,
+      $$CollectionsTableUpdateCompanionBuilder,
+      (Collection, $$CollectionsTableReferences),
+      Collection,
+      PrefetchHooks Function({bool entriesRefs})
     >;
-typedef $$ChaptersTableCreateCompanionBuilder =
-    ChaptersCompanion Function({
+typedef $$EntriesTableCreateCompanionBuilder =
+    EntriesCompanion Function({
       required String id,
-      required String libraryItemId,
+      Value<String?> collectionId,
       required String title,
       required String sourceUrl,
       required String urlKey,
-      required String captureStatus,
+      Value<String?> canonicalUrl,
+      Value<String> host,
+      Value<String?> sourceTitle,
+      Value<DateTime?> publishedAt,
+      Value<String> contentKind,
+      Value<String> contentKindConfidence,
+      Value<bool> contentKindIsUserSet,
+      required String saveStatus,
       Value<String?> contentPath,
-      Value<DateTime?> capturedAt,
-      Value<int> detectedImageCount,
-      Value<int> storedImageCount,
+      Value<DateTime?> savedAt,
+      Value<int> detectedAssetCount,
+      Value<int> storedAssetCount,
       Value<String?> nextSourceUrl,
-      Value<int> sequence,
-      Value<String?> captureError,
+      Value<int> entryOrder,
+      Value<String?> saveError,
       Value<int> byteSize,
-      Value<double?> chapterNumber,
-      Value<String?> chapterLabel,
+      Value<double?> entryNumber,
+      Value<String?> sourceMarker,
       Value<String> readStatus,
       Value<double> progressFraction,
-      Value<int> progressImageIndex,
-      Value<double> progressOffsetInImage,
+      Value<int> progressPageIndex,
+      Value<double> progressOffsetInPage,
       Value<DateTime?> firstOpenedAt,
       Value<DateTime?> lastReadAt,
       Value<DateTime?> completedAt,
@@ -8176,28 +9257,35 @@ typedef $$ChaptersTableCreateCompanionBuilder =
       Value<DateTime?> offlineRemovedAt,
       Value<int> rowid,
     });
-typedef $$ChaptersTableUpdateCompanionBuilder =
-    ChaptersCompanion Function({
+typedef $$EntriesTableUpdateCompanionBuilder =
+    EntriesCompanion Function({
       Value<String> id,
-      Value<String> libraryItemId,
+      Value<String?> collectionId,
       Value<String> title,
       Value<String> sourceUrl,
       Value<String> urlKey,
-      Value<String> captureStatus,
+      Value<String?> canonicalUrl,
+      Value<String> host,
+      Value<String?> sourceTitle,
+      Value<DateTime?> publishedAt,
+      Value<String> contentKind,
+      Value<String> contentKindConfidence,
+      Value<bool> contentKindIsUserSet,
+      Value<String> saveStatus,
       Value<String?> contentPath,
-      Value<DateTime?> capturedAt,
-      Value<int> detectedImageCount,
-      Value<int> storedImageCount,
+      Value<DateTime?> savedAt,
+      Value<int> detectedAssetCount,
+      Value<int> storedAssetCount,
       Value<String?> nextSourceUrl,
-      Value<int> sequence,
-      Value<String?> captureError,
+      Value<int> entryOrder,
+      Value<String?> saveError,
       Value<int> byteSize,
-      Value<double?> chapterNumber,
-      Value<String?> chapterLabel,
+      Value<double?> entryNumber,
+      Value<String?> sourceMarker,
       Value<String> readStatus,
       Value<double> progressFraction,
-      Value<int> progressImageIndex,
-      Value<double> progressOffsetInImage,
+      Value<int> progressPageIndex,
+      Value<double> progressOffsetInPage,
       Value<DateTime?> firstOpenedAt,
       Value<DateTime?> lastReadAt,
       Value<DateTime?> completedAt,
@@ -8209,22 +9297,21 @@ typedef $$ChaptersTableUpdateCompanionBuilder =
       Value<int> rowid,
     });
 
-final class $$ChaptersTableReferences
-    extends BaseReferences<_$AppDatabase, $ChaptersTable, Chapter> {
-  $$ChaptersTableReferences(super.$_db, super.$_table, super.$_typedResult);
+final class $$EntriesTableReferences
+    extends BaseReferences<_$AppDatabase, $EntriesTable, Entry> {
+  $$EntriesTableReferences(super.$_db, super.$_table, super.$_typedResult);
 
-  static $LibraryItemsTable _libraryItemIdTable(_$AppDatabase db) => db
-      .libraryItems
-      .createAlias('chapters__library_item_id__library_items__id');
+  static $CollectionsTable _collectionIdTable(_$AppDatabase db) =>
+      db.collections.createAlias('entries__collection_id__collections__id');
 
-  $$LibraryItemsTableProcessedTableManager get libraryItemId {
-    final $_column = $_itemColumn<String>('library_item_id')!;
-
-    final manager = $$LibraryItemsTableTableManager(
+  $$CollectionsTableProcessedTableManager? get collectionId {
+    final $_column = $_itemColumn<String>('collection_id');
+    if ($_column == null) return null;
+    final manager = $$CollectionsTableTableManager(
       $_db,
-      $_db.libraryItems,
+      $_db.collections,
     ).filter((f) => f.id.sqlEquals($_column));
-    final item = $_typedResult.readTableOrNull(_libraryItemIdTable($_db));
+    final item = $_typedResult.readTableOrNull(_collectionIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: [item]),
@@ -8232,9 +9319,9 @@ final class $$ChaptersTableReferences
   }
 }
 
-class $$ChaptersTableFilterComposer
-    extends Composer<_$AppDatabase, $ChaptersTable> {
-  $$ChaptersTableFilterComposer({
+class $$EntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $EntriesTable> {
+  $$EntriesTableFilterComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -8261,8 +9348,43 @@ class $$ChaptersTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get captureStatus => $composableBuilder(
-    column: $table.captureStatus,
+  ColumnFilters<String> get canonicalUrl => $composableBuilder(
+    column: $table.canonicalUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceTitle => $composableBuilder(
+    column: $table.sourceTitle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get publishedAt => $composableBuilder(
+    column: $table.publishedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contentKind => $composableBuilder(
+    column: $table.contentKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contentKindConfidence => $composableBuilder(
+    column: $table.contentKindConfidence,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get contentKindIsUserSet => $composableBuilder(
+    column: $table.contentKindIsUserSet,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get saveStatus => $composableBuilder(
+    column: $table.saveStatus,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8271,18 +9393,18 @@ class $$ChaptersTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<DateTime> get capturedAt => $composableBuilder(
-    column: $table.capturedAt,
+  ColumnFilters<DateTime> get savedAt => $composableBuilder(
+    column: $table.savedAt,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get detectedImageCount => $composableBuilder(
-    column: $table.detectedImageCount,
+  ColumnFilters<int> get detectedAssetCount => $composableBuilder(
+    column: $table.detectedAssetCount,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get storedImageCount => $composableBuilder(
-    column: $table.storedImageCount,
+  ColumnFilters<int> get storedAssetCount => $composableBuilder(
+    column: $table.storedAssetCount,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8291,13 +9413,13 @@ class $$ChaptersTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get sequence => $composableBuilder(
-    column: $table.sequence,
+  ColumnFilters<int> get entryOrder => $composableBuilder(
+    column: $table.entryOrder,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get captureError => $composableBuilder(
-    column: $table.captureError,
+  ColumnFilters<String> get saveError => $composableBuilder(
+    column: $table.saveError,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8306,13 +9428,13 @@ class $$ChaptersTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<double> get chapterNumber => $composableBuilder(
-    column: $table.chapterNumber,
+  ColumnFilters<double> get entryNumber => $composableBuilder(
+    column: $table.entryNumber,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get chapterLabel => $composableBuilder(
-    column: $table.chapterLabel,
+  ColumnFilters<String> get sourceMarker => $composableBuilder(
+    column: $table.sourceMarker,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8326,13 +9448,13 @@ class $$ChaptersTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get progressImageIndex => $composableBuilder(
-    column: $table.progressImageIndex,
+  ColumnFilters<int> get progressPageIndex => $composableBuilder(
+    column: $table.progressPageIndex,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<double> get progressOffsetInImage => $composableBuilder(
-    column: $table.progressOffsetInImage,
+  ColumnFilters<double> get progressOffsetInPage => $composableBuilder(
+    column: $table.progressOffsetInPage,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8376,20 +9498,20 @@ class $$ChaptersTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  $$LibraryItemsTableFilterComposer get libraryItemId {
-    final $$LibraryItemsTableFilterComposer composer = $composerBuilder(
+  $$CollectionsTableFilterComposer get collectionId {
+    final $$CollectionsTableFilterComposer composer = $composerBuilder(
       composer: this,
-      getCurrentColumn: (t) => t.libraryItemId,
-      referencedTable: $db.libraryItems,
+      getCurrentColumn: (t) => t.collectionId,
+      referencedTable: $db.collections,
       getReferencedColumn: (t) => t.id,
       builder:
           (
             joinBuilder, {
             $addJoinBuilderToRootComposer,
             $removeJoinBuilderFromRootComposer,
-          }) => $$LibraryItemsTableFilterComposer(
+          }) => $$CollectionsTableFilterComposer(
             $db: $db,
-            $table: $db.libraryItems,
+            $table: $db.collections,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -8400,9 +9522,9 @@ class $$ChaptersTableFilterComposer
   }
 }
 
-class $$ChaptersTableOrderingComposer
-    extends Composer<_$AppDatabase, $ChaptersTable> {
-  $$ChaptersTableOrderingComposer({
+class $$EntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $EntriesTable> {
+  $$EntriesTableOrderingComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -8429,8 +9551,43 @@ class $$ChaptersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get captureStatus => $composableBuilder(
-    column: $table.captureStatus,
+  ColumnOrderings<String> get canonicalUrl => $composableBuilder(
+    column: $table.canonicalUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceTitle => $composableBuilder(
+    column: $table.sourceTitle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get publishedAt => $composableBuilder(
+    column: $table.publishedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get contentKind => $composableBuilder(
+    column: $table.contentKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get contentKindConfidence => $composableBuilder(
+    column: $table.contentKindConfidence,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get contentKindIsUserSet => $composableBuilder(
+    column: $table.contentKindIsUserSet,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get saveStatus => $composableBuilder(
+    column: $table.saveStatus,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -8439,18 +9596,18 @@ class $$ChaptersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<DateTime> get capturedAt => $composableBuilder(
-    column: $table.capturedAt,
+  ColumnOrderings<DateTime> get savedAt => $composableBuilder(
+    column: $table.savedAt,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get detectedImageCount => $composableBuilder(
-    column: $table.detectedImageCount,
+  ColumnOrderings<int> get detectedAssetCount => $composableBuilder(
+    column: $table.detectedAssetCount,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get storedImageCount => $composableBuilder(
-    column: $table.storedImageCount,
+  ColumnOrderings<int> get storedAssetCount => $composableBuilder(
+    column: $table.storedAssetCount,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -8459,13 +9616,13 @@ class $$ChaptersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get sequence => $composableBuilder(
-    column: $table.sequence,
+  ColumnOrderings<int> get entryOrder => $composableBuilder(
+    column: $table.entryOrder,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get captureError => $composableBuilder(
-    column: $table.captureError,
+  ColumnOrderings<String> get saveError => $composableBuilder(
+    column: $table.saveError,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -8474,13 +9631,13 @@ class $$ChaptersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<double> get chapterNumber => $composableBuilder(
-    column: $table.chapterNumber,
+  ColumnOrderings<double> get entryNumber => $composableBuilder(
+    column: $table.entryNumber,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get chapterLabel => $composableBuilder(
-    column: $table.chapterLabel,
+  ColumnOrderings<String> get sourceMarker => $composableBuilder(
+    column: $table.sourceMarker,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -8494,13 +9651,13 @@ class $$ChaptersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get progressImageIndex => $composableBuilder(
-    column: $table.progressImageIndex,
+  ColumnOrderings<int> get progressPageIndex => $composableBuilder(
+    column: $table.progressPageIndex,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<double> get progressOffsetInImage => $composableBuilder(
-    column: $table.progressOffsetInImage,
+  ColumnOrderings<double> get progressOffsetInPage => $composableBuilder(
+    column: $table.progressOffsetInPage,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -8544,20 +9701,20 @@ class $$ChaptersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  $$LibraryItemsTableOrderingComposer get libraryItemId {
-    final $$LibraryItemsTableOrderingComposer composer = $composerBuilder(
+  $$CollectionsTableOrderingComposer get collectionId {
+    final $$CollectionsTableOrderingComposer composer = $composerBuilder(
       composer: this,
-      getCurrentColumn: (t) => t.libraryItemId,
-      referencedTable: $db.libraryItems,
+      getCurrentColumn: (t) => t.collectionId,
+      referencedTable: $db.collections,
       getReferencedColumn: (t) => t.id,
       builder:
           (
             joinBuilder, {
             $addJoinBuilderToRootComposer,
             $removeJoinBuilderFromRootComposer,
-          }) => $$LibraryItemsTableOrderingComposer(
+          }) => $$CollectionsTableOrderingComposer(
             $db: $db,
-            $table: $db.libraryItems,
+            $table: $db.collections,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -8568,9 +9725,9 @@ class $$ChaptersTableOrderingComposer
   }
 }
 
-class $$ChaptersTableAnnotationComposer
-    extends Composer<_$AppDatabase, $ChaptersTable> {
-  $$ChaptersTableAnnotationComposer({
+class $$EntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EntriesTable> {
+  $$EntriesTableAnnotationComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -8589,8 +9746,41 @@ class $$ChaptersTableAnnotationComposer
   GeneratedColumn<String> get urlKey =>
       $composableBuilder(column: $table.urlKey, builder: (column) => column);
 
-  GeneratedColumn<String> get captureStatus => $composableBuilder(
-    column: $table.captureStatus,
+  GeneratedColumn<String> get canonicalUrl => $composableBuilder(
+    column: $table.canonicalUrl,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get host =>
+      $composableBuilder(column: $table.host, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceTitle => $composableBuilder(
+    column: $table.sourceTitle,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get publishedAt => $composableBuilder(
+    column: $table.publishedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get contentKind => $composableBuilder(
+    column: $table.contentKind,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get contentKindConfidence => $composableBuilder(
+    column: $table.contentKindConfidence,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get contentKindIsUserSet => $composableBuilder(
+    column: $table.contentKindIsUserSet,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get saveStatus => $composableBuilder(
+    column: $table.saveStatus,
     builder: (column) => column,
   );
 
@@ -8599,18 +9789,16 @@ class $$ChaptersTableAnnotationComposer
     builder: (column) => column,
   );
 
-  GeneratedColumn<DateTime> get capturedAt => $composableBuilder(
-    column: $table.capturedAt,
+  GeneratedColumn<DateTime> get savedAt =>
+      $composableBuilder(column: $table.savedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get detectedAssetCount => $composableBuilder(
+    column: $table.detectedAssetCount,
     builder: (column) => column,
   );
 
-  GeneratedColumn<int> get detectedImageCount => $composableBuilder(
-    column: $table.detectedImageCount,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<int> get storedImageCount => $composableBuilder(
-    column: $table.storedImageCount,
+  GeneratedColumn<int> get storedAssetCount => $composableBuilder(
+    column: $table.storedAssetCount,
     builder: (column) => column,
   );
 
@@ -8619,24 +9807,24 @@ class $$ChaptersTableAnnotationComposer
     builder: (column) => column,
   );
 
-  GeneratedColumn<int> get sequence =>
-      $composableBuilder(column: $table.sequence, builder: (column) => column);
-
-  GeneratedColumn<String> get captureError => $composableBuilder(
-    column: $table.captureError,
+  GeneratedColumn<int> get entryOrder => $composableBuilder(
+    column: $table.entryOrder,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get saveError =>
+      $composableBuilder(column: $table.saveError, builder: (column) => column);
 
   GeneratedColumn<int> get byteSize =>
       $composableBuilder(column: $table.byteSize, builder: (column) => column);
 
-  GeneratedColumn<double> get chapterNumber => $composableBuilder(
-    column: $table.chapterNumber,
+  GeneratedColumn<double> get entryNumber => $composableBuilder(
+    column: $table.entryNumber,
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get chapterLabel => $composableBuilder(
-    column: $table.chapterLabel,
+  GeneratedColumn<String> get sourceMarker => $composableBuilder(
+    column: $table.sourceMarker,
     builder: (column) => column,
   );
 
@@ -8650,13 +9838,13 @@ class $$ChaptersTableAnnotationComposer
     builder: (column) => column,
   );
 
-  GeneratedColumn<int> get progressImageIndex => $composableBuilder(
-    column: $table.progressImageIndex,
+  GeneratedColumn<int> get progressPageIndex => $composableBuilder(
+    column: $table.progressPageIndex,
     builder: (column) => column,
   );
 
-  GeneratedColumn<double> get progressOffsetInImage => $composableBuilder(
-    column: $table.progressOffsetInImage,
+  GeneratedColumn<double> get progressOffsetInPage => $composableBuilder(
+    column: $table.progressOffsetInPage,
     builder: (column) => column,
   );
 
@@ -8700,20 +9888,20 @@ class $$ChaptersTableAnnotationComposer
     builder: (column) => column,
   );
 
-  $$LibraryItemsTableAnnotationComposer get libraryItemId {
-    final $$LibraryItemsTableAnnotationComposer composer = $composerBuilder(
+  $$CollectionsTableAnnotationComposer get collectionId {
+    final $$CollectionsTableAnnotationComposer composer = $composerBuilder(
       composer: this,
-      getCurrentColumn: (t) => t.libraryItemId,
-      referencedTable: $db.libraryItems,
+      getCurrentColumn: (t) => t.collectionId,
+      referencedTable: $db.collections,
       getReferencedColumn: (t) => t.id,
       builder:
           (
             joinBuilder, {
             $addJoinBuilderToRootComposer,
             $removeJoinBuilderFromRootComposer,
-          }) => $$LibraryItemsTableAnnotationComposer(
+          }) => $$CollectionsTableAnnotationComposer(
             $db: $db,
-            $table: $db.libraryItems,
+            $table: $db.collections,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -8724,54 +9912,61 @@ class $$ChaptersTableAnnotationComposer
   }
 }
 
-class $$ChaptersTableTableManager
+class $$EntriesTableTableManager
     extends
         RootTableManager<
           _$AppDatabase,
-          $ChaptersTable,
-          Chapter,
-          $$ChaptersTableFilterComposer,
-          $$ChaptersTableOrderingComposer,
-          $$ChaptersTableAnnotationComposer,
-          $$ChaptersTableCreateCompanionBuilder,
-          $$ChaptersTableUpdateCompanionBuilder,
-          (Chapter, $$ChaptersTableReferences),
-          Chapter,
-          PrefetchHooks Function({bool libraryItemId})
+          $EntriesTable,
+          Entry,
+          $$EntriesTableFilterComposer,
+          $$EntriesTableOrderingComposer,
+          $$EntriesTableAnnotationComposer,
+          $$EntriesTableCreateCompanionBuilder,
+          $$EntriesTableUpdateCompanionBuilder,
+          (Entry, $$EntriesTableReferences),
+          Entry,
+          PrefetchHooks Function({bool collectionId})
         > {
-  $$ChaptersTableTableManager(_$AppDatabase db, $ChaptersTable table)
+  $$EntriesTableTableManager(_$AppDatabase db, $EntriesTable table)
     : super(
         TableManagerState(
           db: db,
           table: table,
           createFilteringComposer: () =>
-              $$ChaptersTableFilterComposer($db: db, $table: table),
+              $$EntriesTableFilterComposer($db: db, $table: table),
           createOrderingComposer: () =>
-              $$ChaptersTableOrderingComposer($db: db, $table: table),
+              $$EntriesTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
-              $$ChaptersTableAnnotationComposer($db: db, $table: table),
+              $$EntriesTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback:
               ({
                 Value<String> id = const Value.absent(),
-                Value<String> libraryItemId = const Value.absent(),
+                Value<String?> collectionId = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String> sourceUrl = const Value.absent(),
                 Value<String> urlKey = const Value.absent(),
-                Value<String> captureStatus = const Value.absent(),
+                Value<String?> canonicalUrl = const Value.absent(),
+                Value<String> host = const Value.absent(),
+                Value<String?> sourceTitle = const Value.absent(),
+                Value<DateTime?> publishedAt = const Value.absent(),
+                Value<String> contentKind = const Value.absent(),
+                Value<String> contentKindConfidence = const Value.absent(),
+                Value<bool> contentKindIsUserSet = const Value.absent(),
+                Value<String> saveStatus = const Value.absent(),
                 Value<String?> contentPath = const Value.absent(),
-                Value<DateTime?> capturedAt = const Value.absent(),
-                Value<int> detectedImageCount = const Value.absent(),
-                Value<int> storedImageCount = const Value.absent(),
+                Value<DateTime?> savedAt = const Value.absent(),
+                Value<int> detectedAssetCount = const Value.absent(),
+                Value<int> storedAssetCount = const Value.absent(),
                 Value<String?> nextSourceUrl = const Value.absent(),
-                Value<int> sequence = const Value.absent(),
-                Value<String?> captureError = const Value.absent(),
+                Value<int> entryOrder = const Value.absent(),
+                Value<String?> saveError = const Value.absent(),
                 Value<int> byteSize = const Value.absent(),
-                Value<double?> chapterNumber = const Value.absent(),
-                Value<String?> chapterLabel = const Value.absent(),
+                Value<double?> entryNumber = const Value.absent(),
+                Value<String?> sourceMarker = const Value.absent(),
                 Value<String> readStatus = const Value.absent(),
                 Value<double> progressFraction = const Value.absent(),
-                Value<int> progressImageIndex = const Value.absent(),
-                Value<double> progressOffsetInImage = const Value.absent(),
+                Value<int> progressPageIndex = const Value.absent(),
+                Value<double> progressOffsetInPage = const Value.absent(),
                 Value<DateTime?> firstOpenedAt = const Value.absent(),
                 Value<DateTime?> lastReadAt = const Value.absent(),
                 Value<DateTime?> completedAt = const Value.absent(),
@@ -8781,27 +9976,34 @@ class $$ChaptersTableTableManager
                 Value<String?> discoveryConfidence = const Value.absent(),
                 Value<DateTime?> offlineRemovedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => ChaptersCompanion(
+              }) => EntriesCompanion(
                 id: id,
-                libraryItemId: libraryItemId,
+                collectionId: collectionId,
                 title: title,
                 sourceUrl: sourceUrl,
                 urlKey: urlKey,
-                captureStatus: captureStatus,
+                canonicalUrl: canonicalUrl,
+                host: host,
+                sourceTitle: sourceTitle,
+                publishedAt: publishedAt,
+                contentKind: contentKind,
+                contentKindConfidence: contentKindConfidence,
+                contentKindIsUserSet: contentKindIsUserSet,
+                saveStatus: saveStatus,
                 contentPath: contentPath,
-                capturedAt: capturedAt,
-                detectedImageCount: detectedImageCount,
-                storedImageCount: storedImageCount,
+                savedAt: savedAt,
+                detectedAssetCount: detectedAssetCount,
+                storedAssetCount: storedAssetCount,
                 nextSourceUrl: nextSourceUrl,
-                sequence: sequence,
-                captureError: captureError,
+                entryOrder: entryOrder,
+                saveError: saveError,
                 byteSize: byteSize,
-                chapterNumber: chapterNumber,
-                chapterLabel: chapterLabel,
+                entryNumber: entryNumber,
+                sourceMarker: sourceMarker,
                 readStatus: readStatus,
                 progressFraction: progressFraction,
-                progressImageIndex: progressImageIndex,
-                progressOffsetInImage: progressOffsetInImage,
+                progressPageIndex: progressPageIndex,
+                progressOffsetInPage: progressOffsetInPage,
                 firstOpenedAt: firstOpenedAt,
                 lastReadAt: lastReadAt,
                 completedAt: completedAt,
@@ -8815,25 +10017,32 @@ class $$ChaptersTableTableManager
           createCompanionCallback:
               ({
                 required String id,
-                required String libraryItemId,
+                Value<String?> collectionId = const Value.absent(),
                 required String title,
                 required String sourceUrl,
                 required String urlKey,
-                required String captureStatus,
+                Value<String?> canonicalUrl = const Value.absent(),
+                Value<String> host = const Value.absent(),
+                Value<String?> sourceTitle = const Value.absent(),
+                Value<DateTime?> publishedAt = const Value.absent(),
+                Value<String> contentKind = const Value.absent(),
+                Value<String> contentKindConfidence = const Value.absent(),
+                Value<bool> contentKindIsUserSet = const Value.absent(),
+                required String saveStatus,
                 Value<String?> contentPath = const Value.absent(),
-                Value<DateTime?> capturedAt = const Value.absent(),
-                Value<int> detectedImageCount = const Value.absent(),
-                Value<int> storedImageCount = const Value.absent(),
+                Value<DateTime?> savedAt = const Value.absent(),
+                Value<int> detectedAssetCount = const Value.absent(),
+                Value<int> storedAssetCount = const Value.absent(),
                 Value<String?> nextSourceUrl = const Value.absent(),
-                Value<int> sequence = const Value.absent(),
-                Value<String?> captureError = const Value.absent(),
+                Value<int> entryOrder = const Value.absent(),
+                Value<String?> saveError = const Value.absent(),
                 Value<int> byteSize = const Value.absent(),
-                Value<double?> chapterNumber = const Value.absent(),
-                Value<String?> chapterLabel = const Value.absent(),
+                Value<double?> entryNumber = const Value.absent(),
+                Value<String?> sourceMarker = const Value.absent(),
                 Value<String> readStatus = const Value.absent(),
                 Value<double> progressFraction = const Value.absent(),
-                Value<int> progressImageIndex = const Value.absent(),
-                Value<double> progressOffsetInImage = const Value.absent(),
+                Value<int> progressPageIndex = const Value.absent(),
+                Value<double> progressOffsetInPage = const Value.absent(),
                 Value<DateTime?> firstOpenedAt = const Value.absent(),
                 Value<DateTime?> lastReadAt = const Value.absent(),
                 Value<DateTime?> completedAt = const Value.absent(),
@@ -8843,27 +10052,34 @@ class $$ChaptersTableTableManager
                 Value<String?> discoveryConfidence = const Value.absent(),
                 Value<DateTime?> offlineRemovedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => ChaptersCompanion.insert(
+              }) => EntriesCompanion.insert(
                 id: id,
-                libraryItemId: libraryItemId,
+                collectionId: collectionId,
                 title: title,
                 sourceUrl: sourceUrl,
                 urlKey: urlKey,
-                captureStatus: captureStatus,
+                canonicalUrl: canonicalUrl,
+                host: host,
+                sourceTitle: sourceTitle,
+                publishedAt: publishedAt,
+                contentKind: contentKind,
+                contentKindConfidence: contentKindConfidence,
+                contentKindIsUserSet: contentKindIsUserSet,
+                saveStatus: saveStatus,
                 contentPath: contentPath,
-                capturedAt: capturedAt,
-                detectedImageCount: detectedImageCount,
-                storedImageCount: storedImageCount,
+                savedAt: savedAt,
+                detectedAssetCount: detectedAssetCount,
+                storedAssetCount: storedAssetCount,
                 nextSourceUrl: nextSourceUrl,
-                sequence: sequence,
-                captureError: captureError,
+                entryOrder: entryOrder,
+                saveError: saveError,
                 byteSize: byteSize,
-                chapterNumber: chapterNumber,
-                chapterLabel: chapterLabel,
+                entryNumber: entryNumber,
+                sourceMarker: sourceMarker,
                 readStatus: readStatus,
                 progressFraction: progressFraction,
-                progressImageIndex: progressImageIndex,
-                progressOffsetInImage: progressOffsetInImage,
+                progressPageIndex: progressPageIndex,
+                progressOffsetInPage: progressOffsetInPage,
                 firstOpenedAt: firstOpenedAt,
                 lastReadAt: lastReadAt,
                 completedAt: completedAt,
@@ -8878,11 +10094,11 @@ class $$ChaptersTableTableManager
               .map(
                 (e) => (
                   e.readTable(table),
-                  $$ChaptersTableReferences(db, table, e),
+                  $$EntriesTableReferences(db, table, e),
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({libraryItemId = false}) {
+          prefetchHooksCallback: ({collectionId = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [],
@@ -8902,15 +10118,15 @@ class $$ChaptersTableTableManager
                       dynamic
                     >
                   >(state) {
-                    if (libraryItemId) {
+                    if (collectionId) {
                       state =
                           state.withJoin(
                                 currentTable: table,
-                                currentColumn: table.libraryItemId,
-                                referencedTable: $$ChaptersTableReferences
-                                    ._libraryItemIdTable(db),
-                                referencedColumn: $$ChaptersTableReferences
-                                    ._libraryItemIdTable(db)
+                                currentColumn: table.collectionId,
+                                referencedTable: $$EntriesTableReferences
+                                    ._collectionIdTable(db),
+                                referencedColumn: $$EntriesTableReferences
+                                    ._collectionIdTable(db)
                                     .id,
                               )
                               as T;
@@ -8927,66 +10143,74 @@ class $$ChaptersTableTableManager
       );
 }
 
-typedef $$ChaptersTableProcessedTableManager =
+typedef $$EntriesTableProcessedTableManager =
     ProcessedTableManager<
       _$AppDatabase,
-      $ChaptersTable,
-      Chapter,
-      $$ChaptersTableFilterComposer,
-      $$ChaptersTableOrderingComposer,
-      $$ChaptersTableAnnotationComposer,
-      $$ChaptersTableCreateCompanionBuilder,
-      $$ChaptersTableUpdateCompanionBuilder,
-      (Chapter, $$ChaptersTableReferences),
-      Chapter,
-      PrefetchHooks Function({bool libraryItemId})
+      $EntriesTable,
+      Entry,
+      $$EntriesTableFilterComposer,
+      $$EntriesTableOrderingComposer,
+      $$EntriesTableAnnotationComposer,
+      $$EntriesTableCreateCompanionBuilder,
+      $$EntriesTableUpdateCompanionBuilder,
+      (Entry, $$EntriesTableReferences),
+      Entry,
+      PrefetchHooks Function({bool collectionId})
     >;
-typedef $$CaptureJobsTableCreateCompanionBuilder =
-    CaptureJobsCompanion Function({
+typedef $$SaveRunsTableCreateCompanionBuilder =
+    SaveRunsCompanion Function({
       required String id,
-      Value<String?> libraryItemId,
+      Value<String?> collectionId,
       required String startUrl,
       Value<String?> currentUrl,
-      required int requestedChapters,
-      Value<int> completedChapters,
+      required int requestedEntries,
+      Value<int> completedEntries,
       required String state,
       Value<String?> lastError,
+      Value<String?> stopReason,
       Value<String> visitedUrls,
+      Value<String> visitedCanonicals,
       Value<String?> duplicatePolicy,
       Value<String?> sessionDuplicateDecision,
       Value<String?> sessionPartialDecision,
-      Value<String> rangeMode,
+      Value<String> scope,
+      Value<int?> maxBytes,
+      Value<bool> includeImages,
       Value<String?> pauseReason,
-      Value<String?> origin,
+      Value<String> origin,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
     });
-typedef $$CaptureJobsTableUpdateCompanionBuilder =
-    CaptureJobsCompanion Function({
+typedef $$SaveRunsTableUpdateCompanionBuilder =
+    SaveRunsCompanion Function({
       Value<String> id,
-      Value<String?> libraryItemId,
+      Value<String?> collectionId,
       Value<String> startUrl,
       Value<String?> currentUrl,
-      Value<int> requestedChapters,
-      Value<int> completedChapters,
+      Value<int> requestedEntries,
+      Value<int> completedEntries,
       Value<String> state,
       Value<String?> lastError,
+      Value<String?> stopReason,
       Value<String> visitedUrls,
+      Value<String> visitedCanonicals,
       Value<String?> duplicatePolicy,
       Value<String?> sessionDuplicateDecision,
       Value<String?> sessionPartialDecision,
-      Value<String> rangeMode,
+      Value<String> scope,
+      Value<int?> maxBytes,
+      Value<bool> includeImages,
       Value<String?> pauseReason,
-      Value<String?> origin,
+      Value<String> origin,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
     });
 
-class $$CaptureJobsTableFilterComposer
-    extends Composer<_$AppDatabase, $CaptureJobsTable> {
-  $$CaptureJobsTableFilterComposer({
+class $$SaveRunsTableFilterComposer
+    extends Composer<_$AppDatabase, $SaveRunsTable> {
+  $$SaveRunsTableFilterComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -8998,8 +10222,8 @@ class $$CaptureJobsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get libraryItemId => $composableBuilder(
-    column: $table.libraryItemId,
+  ColumnFilters<String> get collectionId => $composableBuilder(
+    column: $table.collectionId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9013,13 +10237,13 @@ class $$CaptureJobsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get requestedChapters => $composableBuilder(
-    column: $table.requestedChapters,
+  ColumnFilters<int> get requestedEntries => $composableBuilder(
+    column: $table.requestedEntries,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get completedChapters => $composableBuilder(
-    column: $table.completedChapters,
+  ColumnFilters<int> get completedEntries => $composableBuilder(
+    column: $table.completedEntries,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9033,8 +10257,18 @@ class $$CaptureJobsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get stopReason => $composableBuilder(
+    column: $table.stopReason,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get visitedUrls => $composableBuilder(
     column: $table.visitedUrls,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get visitedCanonicals => $composableBuilder(
+    column: $table.visitedCanonicals,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9053,8 +10287,18 @@ class $$CaptureJobsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get rangeMode => $composableBuilder(
-    column: $table.rangeMode,
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get maxBytes => $composableBuilder(
+    column: $table.maxBytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get includeImages => $composableBuilder(
+    column: $table.includeImages,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9079,9 +10323,9 @@ class $$CaptureJobsTableFilterComposer
   );
 }
 
-class $$CaptureJobsTableOrderingComposer
-    extends Composer<_$AppDatabase, $CaptureJobsTable> {
-  $$CaptureJobsTableOrderingComposer({
+class $$SaveRunsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SaveRunsTable> {
+  $$SaveRunsTableOrderingComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -9093,8 +10337,8 @@ class $$CaptureJobsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get libraryItemId => $composableBuilder(
-    column: $table.libraryItemId,
+  ColumnOrderings<String> get collectionId => $composableBuilder(
+    column: $table.collectionId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -9108,13 +10352,13 @@ class $$CaptureJobsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get requestedChapters => $composableBuilder(
-    column: $table.requestedChapters,
+  ColumnOrderings<int> get requestedEntries => $composableBuilder(
+    column: $table.requestedEntries,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get completedChapters => $composableBuilder(
-    column: $table.completedChapters,
+  ColumnOrderings<int> get completedEntries => $composableBuilder(
+    column: $table.completedEntries,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -9128,8 +10372,18 @@ class $$CaptureJobsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get stopReason => $composableBuilder(
+    column: $table.stopReason,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get visitedUrls => $composableBuilder(
     column: $table.visitedUrls,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get visitedCanonicals => $composableBuilder(
+    column: $table.visitedCanonicals,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -9148,8 +10402,18 @@ class $$CaptureJobsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get rangeMode => $composableBuilder(
-    column: $table.rangeMode,
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get maxBytes => $composableBuilder(
+    column: $table.maxBytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get includeImages => $composableBuilder(
+    column: $table.includeImages,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -9174,9 +10438,9 @@ class $$CaptureJobsTableOrderingComposer
   );
 }
 
-class $$CaptureJobsTableAnnotationComposer
-    extends Composer<_$AppDatabase, $CaptureJobsTable> {
-  $$CaptureJobsTableAnnotationComposer({
+class $$SaveRunsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SaveRunsTable> {
+  $$SaveRunsTableAnnotationComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -9186,8 +10450,8 @@ class $$CaptureJobsTableAnnotationComposer
   GeneratedColumn<String> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
-  GeneratedColumn<String> get libraryItemId => $composableBuilder(
-    column: $table.libraryItemId,
+  GeneratedColumn<String> get collectionId => $composableBuilder(
+    column: $table.collectionId,
     builder: (column) => column,
   );
 
@@ -9199,13 +10463,13 @@ class $$CaptureJobsTableAnnotationComposer
     builder: (column) => column,
   );
 
-  GeneratedColumn<int> get requestedChapters => $composableBuilder(
-    column: $table.requestedChapters,
+  GeneratedColumn<int> get requestedEntries => $composableBuilder(
+    column: $table.requestedEntries,
     builder: (column) => column,
   );
 
-  GeneratedColumn<int> get completedChapters => $composableBuilder(
-    column: $table.completedChapters,
+  GeneratedColumn<int> get completedEntries => $composableBuilder(
+    column: $table.completedEntries,
     builder: (column) => column,
   );
 
@@ -9215,8 +10479,18 @@ class $$CaptureJobsTableAnnotationComposer
   GeneratedColumn<String> get lastError =>
       $composableBuilder(column: $table.lastError, builder: (column) => column);
 
+  GeneratedColumn<String> get stopReason => $composableBuilder(
+    column: $table.stopReason,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get visitedUrls => $composableBuilder(
     column: $table.visitedUrls,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get visitedCanonicals => $composableBuilder(
+    column: $table.visitedCanonicals,
     builder: (column) => column,
   );
 
@@ -9235,8 +10509,16 @@ class $$CaptureJobsTableAnnotationComposer
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get rangeMode =>
-      $composableBuilder(column: $table.rangeMode, builder: (column) => column);
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<int> get maxBytes =>
+      $composableBuilder(column: $table.maxBytes, builder: (column) => column);
+
+  GeneratedColumn<bool> get includeImages => $composableBuilder(
+    column: $table.includeImages,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get pauseReason => $composableBuilder(
     column: $table.pauseReason,
@@ -9253,69 +10535,74 @@ class $$CaptureJobsTableAnnotationComposer
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 }
 
-class $$CaptureJobsTableTableManager
+class $$SaveRunsTableTableManager
     extends
         RootTableManager<
           _$AppDatabase,
-          $CaptureJobsTable,
-          CaptureJob,
-          $$CaptureJobsTableFilterComposer,
-          $$CaptureJobsTableOrderingComposer,
-          $$CaptureJobsTableAnnotationComposer,
-          $$CaptureJobsTableCreateCompanionBuilder,
-          $$CaptureJobsTableUpdateCompanionBuilder,
-          (
-            CaptureJob,
-            BaseReferences<_$AppDatabase, $CaptureJobsTable, CaptureJob>,
-          ),
-          CaptureJob,
+          $SaveRunsTable,
+          SaveRun,
+          $$SaveRunsTableFilterComposer,
+          $$SaveRunsTableOrderingComposer,
+          $$SaveRunsTableAnnotationComposer,
+          $$SaveRunsTableCreateCompanionBuilder,
+          $$SaveRunsTableUpdateCompanionBuilder,
+          (SaveRun, BaseReferences<_$AppDatabase, $SaveRunsTable, SaveRun>),
+          SaveRun,
           PrefetchHooks Function()
         > {
-  $$CaptureJobsTableTableManager(_$AppDatabase db, $CaptureJobsTable table)
+  $$SaveRunsTableTableManager(_$AppDatabase db, $SaveRunsTable table)
     : super(
         TableManagerState(
           db: db,
           table: table,
           createFilteringComposer: () =>
-              $$CaptureJobsTableFilterComposer($db: db, $table: table),
+              $$SaveRunsTableFilterComposer($db: db, $table: table),
           createOrderingComposer: () =>
-              $$CaptureJobsTableOrderingComposer($db: db, $table: table),
+              $$SaveRunsTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
-              $$CaptureJobsTableAnnotationComposer($db: db, $table: table),
+              $$SaveRunsTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback:
               ({
                 Value<String> id = const Value.absent(),
-                Value<String?> libraryItemId = const Value.absent(),
+                Value<String?> collectionId = const Value.absent(),
                 Value<String> startUrl = const Value.absent(),
                 Value<String?> currentUrl = const Value.absent(),
-                Value<int> requestedChapters = const Value.absent(),
-                Value<int> completedChapters = const Value.absent(),
+                Value<int> requestedEntries = const Value.absent(),
+                Value<int> completedEntries = const Value.absent(),
                 Value<String> state = const Value.absent(),
                 Value<String?> lastError = const Value.absent(),
+                Value<String?> stopReason = const Value.absent(),
                 Value<String> visitedUrls = const Value.absent(),
+                Value<String> visitedCanonicals = const Value.absent(),
                 Value<String?> duplicatePolicy = const Value.absent(),
                 Value<String?> sessionDuplicateDecision = const Value.absent(),
                 Value<String?> sessionPartialDecision = const Value.absent(),
-                Value<String> rangeMode = const Value.absent(),
+                Value<String> scope = const Value.absent(),
+                Value<int?> maxBytes = const Value.absent(),
+                Value<bool> includeImages = const Value.absent(),
                 Value<String?> pauseReason = const Value.absent(),
-                Value<String?> origin = const Value.absent(),
+                Value<String> origin = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => CaptureJobsCompanion(
+              }) => SaveRunsCompanion(
                 id: id,
-                libraryItemId: libraryItemId,
+                collectionId: collectionId,
                 startUrl: startUrl,
                 currentUrl: currentUrl,
-                requestedChapters: requestedChapters,
-                completedChapters: completedChapters,
+                requestedEntries: requestedEntries,
+                completedEntries: completedEntries,
                 state: state,
                 lastError: lastError,
+                stopReason: stopReason,
                 visitedUrls: visitedUrls,
+                visitedCanonicals: visitedCanonicals,
                 duplicatePolicy: duplicatePolicy,
                 sessionDuplicateDecision: sessionDuplicateDecision,
                 sessionPartialDecision: sessionPartialDecision,
-                rangeMode: rangeMode,
+                scope: scope,
+                maxBytes: maxBytes,
+                includeImages: includeImages,
                 pauseReason: pauseReason,
                 origin: origin,
                 createdAt: createdAt,
@@ -9325,37 +10612,45 @@ class $$CaptureJobsTableTableManager
           createCompanionCallback:
               ({
                 required String id,
-                Value<String?> libraryItemId = const Value.absent(),
+                Value<String?> collectionId = const Value.absent(),
                 required String startUrl,
                 Value<String?> currentUrl = const Value.absent(),
-                required int requestedChapters,
-                Value<int> completedChapters = const Value.absent(),
+                required int requestedEntries,
+                Value<int> completedEntries = const Value.absent(),
                 required String state,
                 Value<String?> lastError = const Value.absent(),
+                Value<String?> stopReason = const Value.absent(),
                 Value<String> visitedUrls = const Value.absent(),
+                Value<String> visitedCanonicals = const Value.absent(),
                 Value<String?> duplicatePolicy = const Value.absent(),
                 Value<String?> sessionDuplicateDecision = const Value.absent(),
                 Value<String?> sessionPartialDecision = const Value.absent(),
-                Value<String> rangeMode = const Value.absent(),
+                Value<String> scope = const Value.absent(),
+                Value<int?> maxBytes = const Value.absent(),
+                Value<bool> includeImages = const Value.absent(),
                 Value<String?> pauseReason = const Value.absent(),
-                Value<String?> origin = const Value.absent(),
+                Value<String> origin = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
-              }) => CaptureJobsCompanion.insert(
+              }) => SaveRunsCompanion.insert(
                 id: id,
-                libraryItemId: libraryItemId,
+                collectionId: collectionId,
                 startUrl: startUrl,
                 currentUrl: currentUrl,
-                requestedChapters: requestedChapters,
-                completedChapters: completedChapters,
+                requestedEntries: requestedEntries,
+                completedEntries: completedEntries,
                 state: state,
                 lastError: lastError,
+                stopReason: stopReason,
                 visitedUrls: visitedUrls,
+                visitedCanonicals: visitedCanonicals,
                 duplicatePolicy: duplicatePolicy,
                 sessionDuplicateDecision: sessionDuplicateDecision,
                 sessionPartialDecision: sessionPartialDecision,
-                rangeMode: rangeMode,
+                scope: scope,
+                maxBytes: maxBytes,
+                includeImages: includeImages,
                 pauseReason: pauseReason,
                 origin: origin,
                 createdAt: createdAt,
@@ -9370,28 +10665,25 @@ class $$CaptureJobsTableTableManager
       );
 }
 
-typedef $$CaptureJobsTableProcessedTableManager =
+typedef $$SaveRunsTableProcessedTableManager =
     ProcessedTableManager<
       _$AppDatabase,
-      $CaptureJobsTable,
-      CaptureJob,
-      $$CaptureJobsTableFilterComposer,
-      $$CaptureJobsTableOrderingComposer,
-      $$CaptureJobsTableAnnotationComposer,
-      $$CaptureJobsTableCreateCompanionBuilder,
-      $$CaptureJobsTableUpdateCompanionBuilder,
-      (
-        CaptureJob,
-        BaseReferences<_$AppDatabase, $CaptureJobsTable, CaptureJob>,
-      ),
-      CaptureJob,
+      $SaveRunsTable,
+      SaveRun,
+      $$SaveRunsTableFilterComposer,
+      $$SaveRunsTableOrderingComposer,
+      $$SaveRunsTableAnnotationComposer,
+      $$SaveRunsTableCreateCompanionBuilder,
+      $$SaveRunsTableUpdateCompanionBuilder,
+      (SaveRun, BaseReferences<_$AppDatabase, $SaveRunsTable, SaveRun>),
+      SaveRun,
       PrefetchHooks Function()
     >;
-typedef $$SiteRuleRowsTableCreateCompanionBuilder =
-    SiteRuleRowsCompanion Function({
+typedef $$UserPageHintsTableCreateCompanionBuilder =
+    UserPageHintsCompanion Function({
       required String id,
       required String host,
-      Value<String?> seriesPath,
+      Value<String?> hintPath,
       required String scope,
       required String kind,
       required String locatorJson,
@@ -9404,11 +10696,11 @@ typedef $$SiteRuleRowsTableCreateCompanionBuilder =
       Value<int> failureCount,
       Value<int> rowid,
     });
-typedef $$SiteRuleRowsTableUpdateCompanionBuilder =
-    SiteRuleRowsCompanion Function({
+typedef $$UserPageHintsTableUpdateCompanionBuilder =
+    UserPageHintsCompanion Function({
       Value<String> id,
       Value<String> host,
-      Value<String?> seriesPath,
+      Value<String?> hintPath,
       Value<String> scope,
       Value<String> kind,
       Value<String> locatorJson,
@@ -9422,9 +10714,9 @@ typedef $$SiteRuleRowsTableUpdateCompanionBuilder =
       Value<int> rowid,
     });
 
-class $$SiteRuleRowsTableFilterComposer
-    extends Composer<_$AppDatabase, $SiteRuleRowsTable> {
-  $$SiteRuleRowsTableFilterComposer({
+class $$UserPageHintsTableFilterComposer
+    extends Composer<_$AppDatabase, $UserPageHintsTable> {
+  $$UserPageHintsTableFilterComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -9441,8 +10733,8 @@ class $$SiteRuleRowsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get seriesPath => $composableBuilder(
-    column: $table.seriesPath,
+  ColumnFilters<String> get hintPath => $composableBuilder(
+    column: $table.hintPath,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9497,9 +10789,9 @@ class $$SiteRuleRowsTableFilterComposer
   );
 }
 
-class $$SiteRuleRowsTableOrderingComposer
-    extends Composer<_$AppDatabase, $SiteRuleRowsTable> {
-  $$SiteRuleRowsTableOrderingComposer({
+class $$UserPageHintsTableOrderingComposer
+    extends Composer<_$AppDatabase, $UserPageHintsTable> {
+  $$UserPageHintsTableOrderingComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -9516,8 +10808,8 @@ class $$SiteRuleRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get seriesPath => $composableBuilder(
-    column: $table.seriesPath,
+  ColumnOrderings<String> get hintPath => $composableBuilder(
+    column: $table.hintPath,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -9572,9 +10864,9 @@ class $$SiteRuleRowsTableOrderingComposer
   );
 }
 
-class $$SiteRuleRowsTableAnnotationComposer
-    extends Composer<_$AppDatabase, $SiteRuleRowsTable> {
-  $$SiteRuleRowsTableAnnotationComposer({
+class $$UserPageHintsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $UserPageHintsTable> {
+  $$UserPageHintsTableAnnotationComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -9587,10 +10879,8 @@ class $$SiteRuleRowsTableAnnotationComposer
   GeneratedColumn<String> get host =>
       $composableBuilder(column: $table.host, builder: (column) => column);
 
-  GeneratedColumn<String> get seriesPath => $composableBuilder(
-    column: $table.seriesPath,
-    builder: (column) => column,
-  );
+  GeneratedColumn<String> get hintPath =>
+      $composableBuilder(column: $table.hintPath, builder: (column) => column);
 
   GeneratedColumn<String> get scope =>
       $composableBuilder(column: $table.scope, builder: (column) => column);
@@ -9637,40 +10927,40 @@ class $$SiteRuleRowsTableAnnotationComposer
   );
 }
 
-class $$SiteRuleRowsTableTableManager
+class $$UserPageHintsTableTableManager
     extends
         RootTableManager<
           _$AppDatabase,
-          $SiteRuleRowsTable,
-          SiteRuleRow,
-          $$SiteRuleRowsTableFilterComposer,
-          $$SiteRuleRowsTableOrderingComposer,
-          $$SiteRuleRowsTableAnnotationComposer,
-          $$SiteRuleRowsTableCreateCompanionBuilder,
-          $$SiteRuleRowsTableUpdateCompanionBuilder,
+          $UserPageHintsTable,
+          UserPageHintRow,
+          $$UserPageHintsTableFilterComposer,
+          $$UserPageHintsTableOrderingComposer,
+          $$UserPageHintsTableAnnotationComposer,
+          $$UserPageHintsTableCreateCompanionBuilder,
+          $$UserPageHintsTableUpdateCompanionBuilder,
           (
-            SiteRuleRow,
-            BaseReferences<_$AppDatabase, $SiteRuleRowsTable, SiteRuleRow>,
+            UserPageHintRow,
+            BaseReferences<_$AppDatabase, $UserPageHintsTable, UserPageHintRow>,
           ),
-          SiteRuleRow,
+          UserPageHintRow,
           PrefetchHooks Function()
         > {
-  $$SiteRuleRowsTableTableManager(_$AppDatabase db, $SiteRuleRowsTable table)
+  $$UserPageHintsTableTableManager(_$AppDatabase db, $UserPageHintsTable table)
     : super(
         TableManagerState(
           db: db,
           table: table,
           createFilteringComposer: () =>
-              $$SiteRuleRowsTableFilterComposer($db: db, $table: table),
+              $$UserPageHintsTableFilterComposer($db: db, $table: table),
           createOrderingComposer: () =>
-              $$SiteRuleRowsTableOrderingComposer($db: db, $table: table),
+              $$UserPageHintsTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
-              $$SiteRuleRowsTableAnnotationComposer($db: db, $table: table),
+              $$UserPageHintsTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback:
               ({
                 Value<String> id = const Value.absent(),
                 Value<String> host = const Value.absent(),
-                Value<String?> seriesPath = const Value.absent(),
+                Value<String?> hintPath = const Value.absent(),
                 Value<String> scope = const Value.absent(),
                 Value<String> kind = const Value.absent(),
                 Value<String> locatorJson = const Value.absent(),
@@ -9682,10 +10972,10 @@ class $$SiteRuleRowsTableTableManager
                 Value<int> successCount = const Value.absent(),
                 Value<int> failureCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => SiteRuleRowsCompanion(
+              }) => UserPageHintsCompanion(
                 id: id,
                 host: host,
-                seriesPath: seriesPath,
+                hintPath: hintPath,
                 scope: scope,
                 kind: kind,
                 locatorJson: locatorJson,
@@ -9702,7 +10992,7 @@ class $$SiteRuleRowsTableTableManager
               ({
                 required String id,
                 required String host,
-                Value<String?> seriesPath = const Value.absent(),
+                Value<String?> hintPath = const Value.absent(),
                 required String scope,
                 required String kind,
                 required String locatorJson,
@@ -9714,10 +11004,10 @@ class $$SiteRuleRowsTableTableManager
                 Value<int> successCount = const Value.absent(),
                 Value<int> failureCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => SiteRuleRowsCompanion.insert(
+              }) => UserPageHintsCompanion.insert(
                 id: id,
                 host: host,
-                seriesPath: seriesPath,
+                hintPath: hintPath,
                 scope: scope,
                 kind: kind,
                 locatorJson: locatorJson,
@@ -9738,21 +11028,21 @@ class $$SiteRuleRowsTableTableManager
       );
 }
 
-typedef $$SiteRuleRowsTableProcessedTableManager =
+typedef $$UserPageHintsTableProcessedTableManager =
     ProcessedTableManager<
       _$AppDatabase,
-      $SiteRuleRowsTable,
-      SiteRuleRow,
-      $$SiteRuleRowsTableFilterComposer,
-      $$SiteRuleRowsTableOrderingComposer,
-      $$SiteRuleRowsTableAnnotationComposer,
-      $$SiteRuleRowsTableCreateCompanionBuilder,
-      $$SiteRuleRowsTableUpdateCompanionBuilder,
+      $UserPageHintsTable,
+      UserPageHintRow,
+      $$UserPageHintsTableFilterComposer,
+      $$UserPageHintsTableOrderingComposer,
+      $$UserPageHintsTableAnnotationComposer,
+      $$UserPageHintsTableCreateCompanionBuilder,
+      $$UserPageHintsTableUpdateCompanionBuilder,
       (
-        SiteRuleRow,
-        BaseReferences<_$AppDatabase, $SiteRuleRowsTable, SiteRuleRow>,
+        UserPageHintRow,
+        BaseReferences<_$AppDatabase, $UserPageHintsTable, UserPageHintRow>,
       ),
-      SiteRuleRow,
+      UserPageHintRow,
       PrefetchHooks Function()
     >;
 typedef $$SettingsTableCreateCompanionBuilder =
@@ -9892,15 +11182,18 @@ typedef $$QueueTasksTableCreateCompanionBuilder =
     QueueTasksCompanion Function({
       required String id,
       required String taskType,
-      Value<String?> libraryItemId,
+      Value<String?> collectionId,
       Value<String?> startUrl,
-      Value<int?> chapterLimit,
+      Value<int?> entryLimit,
+      Value<int?> maxBytes,
+      Value<bool> includeImages,
       Value<String?> duplicatePolicy,
-      Value<String?> rangeMode,
+      Value<String?> scope,
       Value<String> state,
-      Value<String?> origin,
+      Value<String> origin,
       Value<String?> outcome,
       Value<String?> lastError,
+      Value<String?> stopReason,
       Value<int> orderIndex,
       required DateTime queuedAt,
       Value<DateTime?> startedAt,
@@ -9911,15 +11204,18 @@ typedef $$QueueTasksTableUpdateCompanionBuilder =
     QueueTasksCompanion Function({
       Value<String> id,
       Value<String> taskType,
-      Value<String?> libraryItemId,
+      Value<String?> collectionId,
       Value<String?> startUrl,
-      Value<int?> chapterLimit,
+      Value<int?> entryLimit,
+      Value<int?> maxBytes,
+      Value<bool> includeImages,
       Value<String?> duplicatePolicy,
-      Value<String?> rangeMode,
+      Value<String?> scope,
       Value<String> state,
-      Value<String?> origin,
+      Value<String> origin,
       Value<String?> outcome,
       Value<String?> lastError,
+      Value<String?> stopReason,
       Value<int> orderIndex,
       Value<DateTime> queuedAt,
       Value<DateTime?> startedAt,
@@ -9946,8 +11242,8 @@ class $$QueueTasksTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get libraryItemId => $composableBuilder(
-    column: $table.libraryItemId,
+  ColumnFilters<String> get collectionId => $composableBuilder(
+    column: $table.collectionId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9956,8 +11252,18 @@ class $$QueueTasksTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get chapterLimit => $composableBuilder(
-    column: $table.chapterLimit,
+  ColumnFilters<int> get entryLimit => $composableBuilder(
+    column: $table.entryLimit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get maxBytes => $composableBuilder(
+    column: $table.maxBytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get includeImages => $composableBuilder(
+    column: $table.includeImages,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9966,8 +11272,8 @@ class $$QueueTasksTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get rangeMode => $composableBuilder(
-    column: $table.rangeMode,
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9988,6 +11294,11 @@ class $$QueueTasksTableFilterComposer
 
   ColumnFilters<String> get lastError => $composableBuilder(
     column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get stopReason => $composableBuilder(
+    column: $table.stopReason,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10031,8 +11342,8 @@ class $$QueueTasksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get libraryItemId => $composableBuilder(
-    column: $table.libraryItemId,
+  ColumnOrderings<String> get collectionId => $composableBuilder(
+    column: $table.collectionId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -10041,8 +11352,18 @@ class $$QueueTasksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get chapterLimit => $composableBuilder(
-    column: $table.chapterLimit,
+  ColumnOrderings<int> get entryLimit => $composableBuilder(
+    column: $table.entryLimit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get maxBytes => $composableBuilder(
+    column: $table.maxBytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get includeImages => $composableBuilder(
+    column: $table.includeImages,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -10051,8 +11372,8 @@ class $$QueueTasksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get rangeMode => $composableBuilder(
-    column: $table.rangeMode,
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -10073,6 +11394,11 @@ class $$QueueTasksTableOrderingComposer
 
   ColumnOrderings<String> get lastError => $composableBuilder(
     column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get stopReason => $composableBuilder(
+    column: $table.stopReason,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -10112,16 +11438,24 @@ class $$QueueTasksTableAnnotationComposer
   GeneratedColumn<String> get taskType =>
       $composableBuilder(column: $table.taskType, builder: (column) => column);
 
-  GeneratedColumn<String> get libraryItemId => $composableBuilder(
-    column: $table.libraryItemId,
+  GeneratedColumn<String> get collectionId => $composableBuilder(
+    column: $table.collectionId,
     builder: (column) => column,
   );
 
   GeneratedColumn<String> get startUrl =>
       $composableBuilder(column: $table.startUrl, builder: (column) => column);
 
-  GeneratedColumn<int> get chapterLimit => $composableBuilder(
-    column: $table.chapterLimit,
+  GeneratedColumn<int> get entryLimit => $composableBuilder(
+    column: $table.entryLimit,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get maxBytes =>
+      $composableBuilder(column: $table.maxBytes, builder: (column) => column);
+
+  GeneratedColumn<bool> get includeImages => $composableBuilder(
+    column: $table.includeImages,
     builder: (column) => column,
   );
 
@@ -10130,8 +11464,8 @@ class $$QueueTasksTableAnnotationComposer
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get rangeMode =>
-      $composableBuilder(column: $table.rangeMode, builder: (column) => column);
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
 
   GeneratedColumn<String> get state =>
       $composableBuilder(column: $table.state, builder: (column) => column);
@@ -10144,6 +11478,11 @@ class $$QueueTasksTableAnnotationComposer
 
   GeneratedColumn<String> get lastError =>
       $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<String> get stopReason => $composableBuilder(
+    column: $table.stopReason,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<int> get orderIndex => $composableBuilder(
     column: $table.orderIndex,
@@ -10195,15 +11534,18 @@ class $$QueueTasksTableTableManager
               ({
                 Value<String> id = const Value.absent(),
                 Value<String> taskType = const Value.absent(),
-                Value<String?> libraryItemId = const Value.absent(),
+                Value<String?> collectionId = const Value.absent(),
                 Value<String?> startUrl = const Value.absent(),
-                Value<int?> chapterLimit = const Value.absent(),
+                Value<int?> entryLimit = const Value.absent(),
+                Value<int?> maxBytes = const Value.absent(),
+                Value<bool> includeImages = const Value.absent(),
                 Value<String?> duplicatePolicy = const Value.absent(),
-                Value<String?> rangeMode = const Value.absent(),
+                Value<String?> scope = const Value.absent(),
                 Value<String> state = const Value.absent(),
-                Value<String?> origin = const Value.absent(),
+                Value<String> origin = const Value.absent(),
                 Value<String?> outcome = const Value.absent(),
                 Value<String?> lastError = const Value.absent(),
+                Value<String?> stopReason = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),
                 Value<DateTime> queuedAt = const Value.absent(),
                 Value<DateTime?> startedAt = const Value.absent(),
@@ -10212,15 +11554,18 @@ class $$QueueTasksTableTableManager
               }) => QueueTasksCompanion(
                 id: id,
                 taskType: taskType,
-                libraryItemId: libraryItemId,
+                collectionId: collectionId,
                 startUrl: startUrl,
-                chapterLimit: chapterLimit,
+                entryLimit: entryLimit,
+                maxBytes: maxBytes,
+                includeImages: includeImages,
                 duplicatePolicy: duplicatePolicy,
-                rangeMode: rangeMode,
+                scope: scope,
                 state: state,
                 origin: origin,
                 outcome: outcome,
                 lastError: lastError,
+                stopReason: stopReason,
                 orderIndex: orderIndex,
                 queuedAt: queuedAt,
                 startedAt: startedAt,
@@ -10231,15 +11576,18 @@ class $$QueueTasksTableTableManager
               ({
                 required String id,
                 required String taskType,
-                Value<String?> libraryItemId = const Value.absent(),
+                Value<String?> collectionId = const Value.absent(),
                 Value<String?> startUrl = const Value.absent(),
-                Value<int?> chapterLimit = const Value.absent(),
+                Value<int?> entryLimit = const Value.absent(),
+                Value<int?> maxBytes = const Value.absent(),
+                Value<bool> includeImages = const Value.absent(),
                 Value<String?> duplicatePolicy = const Value.absent(),
-                Value<String?> rangeMode = const Value.absent(),
+                Value<String?> scope = const Value.absent(),
                 Value<String> state = const Value.absent(),
-                Value<String?> origin = const Value.absent(),
+                Value<String> origin = const Value.absent(),
                 Value<String?> outcome = const Value.absent(),
                 Value<String?> lastError = const Value.absent(),
+                Value<String?> stopReason = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),
                 required DateTime queuedAt,
                 Value<DateTime?> startedAt = const Value.absent(),
@@ -10248,15 +11596,18 @@ class $$QueueTasksTableTableManager
               }) => QueueTasksCompanion.insert(
                 id: id,
                 taskType: taskType,
-                libraryItemId: libraryItemId,
+                collectionId: collectionId,
                 startUrl: startUrl,
-                chapterLimit: chapterLimit,
+                entryLimit: entryLimit,
+                maxBytes: maxBytes,
+                includeImages: includeImages,
                 duplicatePolicy: duplicatePolicy,
-                rangeMode: rangeMode,
+                scope: scope,
                 state: state,
                 origin: origin,
                 outcome: outcome,
                 lastError: lastError,
+                stopReason: stopReason,
                 orderIndex: orderIndex,
                 queuedAt: queuedAt,
                 startedAt: startedAt,
@@ -10583,7 +11934,6 @@ typedef $$SavedSitesTableCreateCompanionBuilder =
       required DateTime updatedAt,
       Value<DateTime?> lastOpenedAt,
       Value<int> orderIndex,
-      Value<bool> isDefault,
       Value<int> rowid,
     });
 typedef $$SavedSitesTableUpdateCompanionBuilder =
@@ -10598,7 +11948,6 @@ typedef $$SavedSitesTableUpdateCompanionBuilder =
       Value<DateTime> updatedAt,
       Value<DateTime?> lastOpenedAt,
       Value<int> orderIndex,
-      Value<bool> isDefault,
       Value<int> rowid,
     });
 
@@ -10658,11 +12007,6 @@ class $$SavedSitesTableFilterComposer
 
   ColumnFilters<int> get orderIndex => $composableBuilder(
     column: $table.orderIndex,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<bool> get isDefault => $composableBuilder(
-    column: $table.isDefault,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -10725,11 +12069,6 @@ class $$SavedSitesTableOrderingComposer
     column: $table.orderIndex,
     builder: (column) => ColumnOrderings(column),
   );
-
-  ColumnOrderings<bool> get isDefault => $composableBuilder(
-    column: $table.isDefault,
-    builder: (column) => ColumnOrderings(column),
-  );
 }
 
 class $$SavedSitesTableAnnotationComposer
@@ -10774,9 +12113,6 @@ class $$SavedSitesTableAnnotationComposer
     column: $table.orderIndex,
     builder: (column) => column,
   );
-
-  GeneratedColumn<bool> get isDefault =>
-      $composableBuilder(column: $table.isDefault, builder: (column) => column);
 }
 
 class $$SavedSitesTableTableManager
@@ -10820,7 +12156,6 @@ class $$SavedSitesTableTableManager
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> lastOpenedAt = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),
-                Value<bool> isDefault = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SavedSitesCompanion(
                 id: id,
@@ -10833,7 +12168,6 @@ class $$SavedSitesTableTableManager
                 updatedAt: updatedAt,
                 lastOpenedAt: lastOpenedAt,
                 orderIndex: orderIndex,
-                isDefault: isDefault,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -10848,7 +12182,6 @@ class $$SavedSitesTableTableManager
                 required DateTime updatedAt,
                 Value<DateTime?> lastOpenedAt = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),
-                Value<bool> isDefault = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SavedSitesCompanion.insert(
                 id: id,
@@ -10861,7 +12194,6 @@ class $$SavedSitesTableTableManager
                 updatedAt: updatedAt,
                 lastOpenedAt: lastOpenedAt,
                 orderIndex: orderIndex,
-                isDefault: isDefault,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -11071,14 +12403,14 @@ typedef $$FaviconCacheTableProcessedTableManager =
 class $AppDatabaseManager {
   final _$AppDatabase _db;
   $AppDatabaseManager(this._db);
-  $$LibraryItemsTableTableManager get libraryItems =>
-      $$LibraryItemsTableTableManager(_db, _db.libraryItems);
-  $$ChaptersTableTableManager get chapters =>
-      $$ChaptersTableTableManager(_db, _db.chapters);
-  $$CaptureJobsTableTableManager get captureJobs =>
-      $$CaptureJobsTableTableManager(_db, _db.captureJobs);
-  $$SiteRuleRowsTableTableManager get siteRuleRows =>
-      $$SiteRuleRowsTableTableManager(_db, _db.siteRuleRows);
+  $$CollectionsTableTableManager get collections =>
+      $$CollectionsTableTableManager(_db, _db.collections);
+  $$EntriesTableTableManager get entries =>
+      $$EntriesTableTableManager(_db, _db.entries);
+  $$SaveRunsTableTableManager get saveRuns =>
+      $$SaveRunsTableTableManager(_db, _db.saveRuns);
+  $$UserPageHintsTableTableManager get userPageHints =>
+      $$UserPageHintsTableTableManager(_db, _db.userPageHints);
   $$SettingsTableTableManager get settings =>
       $$SettingsTableTableManager(_db, _db.settings);
   $$QueueTasksTableTableManager get queueTasks =>

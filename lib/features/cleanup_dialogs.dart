@@ -7,38 +7,40 @@ import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 
-/// The one-time cleanup question for a series (D37).
+/// The one-time cleanup question for a collection (D37).
 ///
-/// Asked on the first eligible forward transition inside a series that has no
+/// Asked on the first eligible forward transition inside a collection that has no
 /// stored decision, and never again unless the decision is reset. It is a
 /// choice between two named outcomes with an explicit *Save choice* — not a
-/// yes/no about the chapter in hand, because what is being saved is a rule for
-/// the series.
+/// yes/no about the entry in hand, because what is being saved is a rule for
+/// the collection.
 ///
 /// `Remove after continuing` is preselected, always. The preselection is a
-/// constant of this widget: no global setting, no other series and no previous
+/// constant of this widget: no global setting, no other collection and no previous
 /// answer can reach it. Dismissing without saving returns null, which stores
 /// nothing and keeps the files.
-Future<SeriesCleanupPref?> showSeriesCleanupDialog({
+Future<CollectionCleanupPreference?> showCollectionCleanupDialog({
   required BuildContext context,
-  required String seriesName,
-}) => showDialog<SeriesCleanupPref>(
+  required String collectionName,
+}) => showDialog<CollectionCleanupPreference>(
   context: context,
-  builder: (context) => _SeriesCleanupDialog(seriesName: seriesName),
+  builder: (context) =>
+      _CollectionCleanupDialog(collectionName: collectionName),
 );
 
-class _SeriesCleanupDialog extends StatefulWidget {
-  const _SeriesCleanupDialog({required this.seriesName});
+class _CollectionCleanupDialog extends StatefulWidget {
+  const _CollectionCleanupDialog({required this.collectionName});
 
-  final String seriesName;
+  final String collectionName;
 
   @override
-  State<_SeriesCleanupDialog> createState() => _SeriesCleanupDialogState();
+  State<_CollectionCleanupDialog> createState() =>
+      _CollectionCleanupDialogState();
 }
 
-class _SeriesCleanupDialogState extends State<_SeriesCleanupDialog> {
+class _CollectionCleanupDialogState extends State<_CollectionCleanupDialog> {
   /// The preselected answer, fixed by the product model (D37).
-  SeriesCleanupPref _choice = SeriesCleanupPref.remove;
+  CollectionCleanupPreference _choice = CollectionCleanupPreference.remove;
 
   @override
   Widget build(BuildContext context) {
@@ -48,13 +50,13 @@ class _SeriesCleanupDialogState extends State<_SeriesCleanupDialog> {
       // in landscape: the content scrolls rather than overflowing.
       scrollable: true,
       icon: Icon(Icons.folder_open, size: 26, color: palette.inkMuted),
-      title: const Text('Downloaded chapters in this series'),
+      title: const Text('Downloaded entries in this collection'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            widget.seriesName,
+            widget.collectionName,
             style: TextStyle(
               fontSize: 12,
               fontVariations: wght(600),
@@ -64,8 +66,8 @@ class _SeriesCleanupDialogState extends State<_SeriesCleanupDialog> {
           ),
           const SizedBox(height: 6),
           Text(
-            "What should happen to a finished chapter's downloaded files "
-            'after you continue to the next chapter?',
+            "What should happen to a finished entry's downloaded files "
+            'after you continue to the next entry?',
             style: TextStyle(
               fontSize: 13,
               height: 1.55,
@@ -75,7 +77,7 @@ class _SeriesCleanupDialogState extends State<_SeriesCleanupDialog> {
           const SizedBox(height: 13),
           for (final option in _cleanupOptions) ...[
             CleanupPrefOption(
-              optionKey: 'seriesCleanup-${option.$1?.name ?? 'ask'}',
+              optionKey: 'collectionCleanup-${option.$1?.name ?? 'ask'}',
               label: option.$2,
               sub: option.$3,
               selected: _choice == option.$1,
@@ -85,8 +87,8 @@ class _SeriesCleanupDialogState extends State<_SeriesCleanupDialog> {
           ],
           const SizedBox(height: 3),
           Text(
-            'This choice applies only to this series. You can change it later '
-            'from the series settings.',
+            'This choice applies only to this collection. You can change it later '
+            'from the collection settings.',
             style: TextStyle(
               fontSize: 11.5,
               height: 1.5,
@@ -97,7 +99,7 @@ class _SeriesCleanupDialogState extends State<_SeriesCleanupDialog> {
       ),
       actions: [
         FilledButton(
-          key: const ValueKey('saveSeriesCleanup'),
+          key: const ValueKey('saveCollectionCleanup'),
           onPressed: () => Navigator.pop(context, _choice),
           child: const Text('Save choice'),
         ),
@@ -107,23 +109,23 @@ class _SeriesCleanupDialogState extends State<_SeriesCleanupDialog> {
 }
 
 /// The two outcomes, in the order they are offered. Shared by the dialog and
-/// the series sheet so a rename can never drift between them.
-const _cleanupOptions = <(SeriesCleanupPref?, String, String)>[
+/// the collection sheet so a rename can never drift between them.
+const _cleanupOptions = <(CollectionCleanupPreference?, String, String)>[
   (
-    SeriesCleanupPref.remove,
+    CollectionCleanupPreference.remove,
     'Remove after continuing',
-    'When you move on to the next chapter, the finished one\'s downloaded '
+    'When you move on to the next entry, the finished one\'s downloaded '
         'files are removed. It stays in your library with your reading '
-        'history, and you can capture it again any time.',
+        'history, and you can save it again any time.',
   ),
   (
-    SeriesCleanupPref.keep,
+    CollectionCleanupPreference.keep,
     'Keep downloaded files',
-    'Finished chapters stay on this device until you remove them yourself.',
+    'Finished entries stay on this device until you remove them yourself.',
   ),
 ];
 
-/// Settings-sheet-shaped radio row. Public because the series sheet and the
+/// Settings-sheet-shaped radio row. Public because the collection sheet and the
 /// first-transition dialog draw the same control.
 class CleanupPrefOption extends StatelessWidget {
   const CleanupPrefOption({
@@ -203,8 +205,8 @@ class CleanupPrefOption extends StatelessWidget {
   }
 }
 
-/// One removal confirmation for every scope: a single chapter, a selection,
-/// a whole series, or every finished chapter. Facts are computed by the
+/// One removal confirmation for every scope: a single entry, a selection,
+/// a whole collection, or every finished entry. Facts are computed by the
 /// caller so this widget never guesses at sizes.
 class RemovalSummary {
   const RemovalSummary({
@@ -218,10 +220,10 @@ class RemovalSummary {
   final String title;
   final String body;
 
-  /// key → value rows ("Chapters" → "412", "Space freed" → "~3.4 GB").
+  /// key → value rows ("Entries" → "412", "Space freed" → "~3.4 GB").
   final List<(String, String)> facts;
 
-  /// Chapters that will be kept because something is using them.
+  /// Entries that will be kept because something is using them.
   final String? lockNote;
   final String cta;
 }
@@ -377,58 +379,58 @@ void showCleanupToast(
   );
 }
 
-/// Series detail › "Downloaded chapters": change or reset this series'
-/// decision (D37).
+/// Collection detail › "Downloaded entries": change or reset this collection's /// decision (D37).
 ///
 /// Three options, because a decision that cannot be un-made is a trap: the two
 /// outcomes, plus *Ask again next time*, which clears the stored value so the
 /// question comes back on the next eligible transition. There is no "use the
 /// global setting" — no global setting exists.
 ///
-/// Each tap writes immediately and only ever to [seriesId], captured when the
+/// Each tap writes immediately and only ever to [collectionId], saved when the
 /// sheet was opened.
-Future<void> showSeriesCleanupSheet({
+Future<void> showCollectionCleanupSheet({
   required BuildContext context,
   required WidgetRef ref,
-  required String seriesId,
-  required String seriesName,
-  required SeriesCleanupPref? current,
+  required String collectionId,
+  required String collectionName,
+  required CollectionCleanupPreference? current,
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
-  builder: (sheetContext) => _SeriesCleanupSheet(
-    seriesId: seriesId,
-    seriesName: seriesName,
+  builder: (sheetContext) => _CollectionCleanupSheet(
+    collectionId: collectionId,
+    collectionName: collectionName,
     initial: current,
   ),
 );
 
-class _SeriesCleanupSheet extends ConsumerStatefulWidget {
-  const _SeriesCleanupSheet({
-    required this.seriesId,
-    required this.seriesName,
+class _CollectionCleanupSheet extends ConsumerStatefulWidget {
+  const _CollectionCleanupSheet({
+    required this.collectionId,
+    required this.collectionName,
     required this.initial,
   });
 
-  final String seriesId;
-  final String seriesName;
-  final SeriesCleanupPref? initial;
+  final String collectionId;
+  final String collectionName;
+  final CollectionCleanupPreference? initial;
 
   @override
-  ConsumerState<_SeriesCleanupSheet> createState() =>
-      _SeriesCleanupSheetState();
+  ConsumerState<_CollectionCleanupSheet> createState() =>
+      _CollectionCleanupSheetState();
 }
 
-class _SeriesCleanupSheetState extends ConsumerState<_SeriesCleanupSheet> {
-  late SeriesCleanupPref? _value = widget.initial;
+class _CollectionCleanupSheetState
+    extends ConsumerState<_CollectionCleanupSheet> {
+  late CollectionCleanupPreference? _value = widget.initial;
 
-  Future<void> _select(SeriesCleanupPref? pref) async {
+  Future<void> _select(CollectionCleanupPreference? pref) async {
     setState(() => _value = pref);
     // Writes a rule, never a command: nothing already downloaded moves because
     // of this tap.
     await ref
         .read(databaseProvider)
-        .setSeriesFinishedCleanup(widget.seriesId, pref?.name);
+        .setCollectionCleanupPreference(widget.collectionId, pref?.name);
   }
 
   @override
@@ -442,13 +444,13 @@ class _SeriesCleanupSheetState extends ConsumerState<_SeriesCleanupSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Downloaded chapters',
+              'Downloaded entries',
               style: serifStyle(size: 20, color: palette.ink),
             ),
             const SizedBox(height: 5),
             Text(
-              'What happens to a finished chapter\'s downloaded files in '
-              '${widget.seriesName} when you continue to the next chapter. '
+              'What happens to a finished entry\'s downloaded files in '
+              '${widget.collectionName} when you continue to the next entry. '
               'Changing this never removes anything you already have.',
               style: TextStyle(
                 fontSize: 12.5,
@@ -462,12 +464,13 @@ class _SeriesCleanupSheetState extends ConsumerState<_SeriesCleanupSheet> {
               (
                 null,
                 'Ask again next time',
-                'Clears this choice. The next time you finish a chapter here '
+                'Clears this choice. The next time you finish an entry here '
                     'and continue, the question comes back.',
               ),
             ]) ...[
               CleanupPrefOption(
-                optionKey: 'seriesCleanupPref-${option.$1?.name ?? 'ask'}',
+                optionKey:
+                    'collectionCleanupPreference-${option.$1?.name ?? 'ask'}',
                 label: option.$2,
                 sub: option.$3,
                 selected: _value == option.$1,
@@ -477,7 +480,7 @@ class _SeriesCleanupSheetState extends ConsumerState<_SeriesCleanupSheet> {
             ],
             const SizedBox(height: 3),
             Text(
-              'This applies to this series only. Other series keep their own '
+              'This applies to this collection only. Other collection keep their own '
               'choice.',
               style: TextStyle(
                 fontSize: 11.5,
@@ -506,13 +509,14 @@ class _SeriesCleanupSheetState extends ConsumerState<_SeriesCleanupSheet> {
   }
 }
 
-/// The one-line summary of a series' decision, for the menu row that opens
-/// [showSeriesCleanupSheet].
-String seriesCleanupSummary(SeriesCleanupPref? pref) => switch (pref) {
-  SeriesCleanupPref.remove => 'Remove after continuing',
-  SeriesCleanupPref.keep => 'Keep downloaded files',
-  null => 'Not set · asked when you finish a chapter',
-};
+/// The one-line summary of a collection's decision, for the menu row that opens
+/// [showCollectionCleanupSheet].
+String collectionCleanupSummary(CollectionCleanupPreference? pref) =>
+    switch (pref) {
+      CollectionCleanupPreference.remove => 'Remove after continuing',
+      CollectionCleanupPreference.keep => 'Keep downloaded files',
+      null => 'Not set · asked when you finish an entry',
+    };
 
 /// The design's leave-Browser modal. Returns true when the user chose
 /// "Leave and pause".
@@ -532,8 +536,8 @@ Future<bool> showLeaveBrowserDialog({
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Capture needs the Browser to stay open. Leaving now pauses it — '
-              'nothing captured so far is lost, and it resumes when you come '
+              'Save needs the Browser to stay open. Leaving now pauses it — '
+              'nothing saved so far is lost, and it resumes when you come '
               'back.',
               style: TextStyle(
                 fontSize: 13,

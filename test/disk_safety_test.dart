@@ -4,8 +4,8 @@ import 'package:drift/native.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:web_reader/capture/capture_job.dart';
-import 'package:web_reader/capture/capture_preflight.dart';
+import 'package:web_reader/save/save_run.dart';
+import 'package:web_reader/save/save_preflight.dart';
 import 'package:web_reader/core/config.dart';
 import 'package:web_reader/core/device_storage.dart';
 import 'package:web_reader/storage/database.dart';
@@ -14,7 +14,7 @@ import 'package:web_reader/storage/file_store.dart';
 import 'helpers/fake_browser.dart';
 import '../tool/fixture/fixture_site.dart';
 
-/// Disk-space policy: preflight floor, rolling per-chapter check, the
+/// Disk-space policy: preflight floor, rolling per-entry check, the
 /// both-copies replacement check, distinct error class, and the platform
 /// channel itself.
 void main() {
@@ -63,7 +63,7 @@ void main() {
     });
   });
 
-  group('capture job policy', () {
+  group('save run policy', () {
     late AppDatabase db;
     late Directory root;
     late FileStore store;
@@ -72,9 +72,9 @@ void main() {
     late String assetBase;
 
     const host = 'https://x.example';
-    String chapterUrl(int n) => '$host/manga/foo/$n';
+    String entryUrl(int n) => '$host/guide/foo/$n';
 
-    const config = CaptureConfig(
+    const config = SaveConfig(
       scrollDelay: Duration.zero,
       quietPeriod: Duration.zero,
       requiredStableChecks: 1,
@@ -83,8 +83,8 @@ void main() {
       domReadyTimeout: Duration(seconds: 2),
       maxAssetWait: Duration(seconds: 2),
       downloadRetries: 0,
-      cooldownBetweenChapters: Duration.zero,
-      maxChaptersPerJob: 10,
+      cooldownBetweenEntries: Duration.zero,
+      maxEntriesPerRun: 10,
     );
 
     setUpAll(() async {
@@ -102,7 +102,7 @@ void main() {
         req.response.headers.contentType = ContentType('image', 'png');
         req.response.add(
           panelPng(
-            chapter: int.parse(match.group(1)!),
+            entry: int.parse(match.group(1)!),
             index: int.parse(match.group(2)!),
           ),
         );
@@ -135,14 +135,14 @@ void main() {
     void servePages(int count) {
       for (var n = 1; n <= count; n++) {
         browser.addPage(
-          chapterUrl(n),
-          chapterProbe(
-            url: chapterUrl(n),
-            title: 'Foo Chapter $n',
+          entryUrl(n),
+          entryProbe(
+            url: entryUrl(n),
+            title: 'Foo Entry $n',
             imageUrls: [
               for (var i = 1; i <= 3; i++) '$assetBase/img/$n/$i.png',
             ],
-            nextHref: n < count ? chapterUrl(n + 1) : null,
+            nextHref: n < count ? entryUrl(n + 1) : null,
           ),
         );
       }
@@ -150,14 +150,14 @@ void main() {
 
     test('the rolling check stops mid-run and keeps what is stored', () async {
       servePages(4);
-      browser.setUrl(chapterUrl(1));
-      // Plenty of space for chapter 1, below the reserve afterwards.
+      browser.setUrl(entryUrl(1));
+      // Plenty of space for entry 1, below the reserve afterwards.
       final storage = _ScriptedStorage([
         4 * 1024 * 1024 * 1024, // preflight
-        4 * 1024 * 1024 * 1024, // before chapter 1
-        100 * 1024 * 1024, // before chapter 2 -> stop
+        4 * 1024 * 1024 * 1024, // before entry 1
+        100 * 1024 * 1024, // before entry 2 -> stop
       ]);
-      final job = CaptureJobController(
+      final run = SaveRunController(
         browser: browser,
         db: db,
         fileStore: store,
@@ -165,15 +165,19 @@ void main() {
         deviceStorage: storage,
       );
 
-      await job.start(chapterLimit: 4, startUrl: chapterUrl(1));
+      await run.start(
+        range: SaveScope.fixedCount,
+        entryLimit: 4,
+        startUrl: entryUrl(1),
+      );
 
       expect(
-        (await db.allChapters()).length,
+        (await db.allEntries()).length,
         1,
-        reason: 'chapter 1 landed before space ran out, and is kept',
+        reason: 'entry 1 landed before space ran out, and is kept',
       );
-      expect(job.progress.lastError, 'insufficientStorage');
-      expect(job.progress.message, contains('not enough disk space'));
+      expect(run.progress.lastError, 'insufficientStorage');
+      expect(run.progress.message, contains('not enough disk space'));
       // Staging left nothing behind.
       final tmp = Directory(p.join(root.path, FileStore.tmpFolderName));
       expect(tmp.listSync(), isEmpty);
@@ -181,31 +185,33 @@ void main() {
 
     test('replacement is refused when both copies cannot fit', () async {
       servePages(1);
-      browser.setUrl(chapterUrl(1));
+      browser.setUrl(entryUrl(1));
 
-      // First: capture normally with generous space.
-      final first = CaptureJobController(
+      // First: save normally with generous space.
+      final first = SaveRunController(
         browser: browser,
         db: db,
         fileStore: store,
         config: config,
         deviceStorage: _ScriptedStorage([for (var i = 0; i < 9; i++) 1 << 40]),
       );
-      await first.start(chapterLimit: 1, startUrl: chapterUrl(1));
-      final chapter = (await db.allChapters()).single;
-      final contentDir = Directory(store.resolve(chapter.contentPath!));
+      await first.start(
+        range: SaveScope.fixedCount,
+        entryLimit: 1,
+        startUrl: entryUrl(1),
+      );
+      final entry = (await db.allEntries()).single;
+      final contentDir = Directory(store.resolve(entry.contentPath!));
       final filesBefore = contentDir
           .listSync(recursive: true)
           .whereType<File>()
           .length;
       expect(filesBefore, greaterThan(0));
 
-      // Give the existing chapter a huge recorded size, then re-capture with
+      // Give the existing entry a huge recorded size, then re-save with
       // free space that cannot hold two of it plus the reserve.
-      await db.upsertChapter(
-        chapter.copyWith(byteSize: 2 * 1024 * 1024 * 1024),
-      );
-      final second = CaptureJobController(
+      await db.upsertEntry(entry.copyWith(byteSize: 2 * 1024 * 1024 * 1024));
+      final second = SaveRunController(
         browser: browser,
         db: db,
         fileStore: store,
@@ -218,8 +224,9 @@ void main() {
         ]),
       );
       await second.start(
-        chapterLimit: 1,
-        startUrl: chapterUrl(1),
+        range: SaveScope.fixedCount,
+        entryLimit: 1,
+        startUrl: entryUrl(1),
         policy: DuplicatePolicy.replaceAll,
       );
 
@@ -237,8 +244,8 @@ void main() {
 
     test('a disk stop with zero stored reports failed, not complete', () async {
       servePages(2);
-      browser.setUrl(chapterUrl(1));
-      final job = CaptureJobController(
+      browser.setUrl(entryUrl(1));
+      final run = SaveRunController(
         browser: browser,
         db: db,
         fileStore: store,
@@ -248,11 +255,15 @@ void main() {
           100 * 1024 * 1024, // first rolling check already too low
         ]),
       );
-      await job.start(chapterLimit: 2, startUrl: chapterUrl(1));
+      await run.start(
+        range: SaveScope.fixedCount,
+        entryLimit: 2,
+        startUrl: entryUrl(1),
+      );
 
-      expect(job.progress.state.name, 'failed');
-      expect(job.progress.lastError, 'insufficientStorage');
-      expect(await db.allChapters(), isEmpty);
+      expect(run.progress.state.name, 'failed');
+      expect(run.progress.lastError, 'insufficientStorage');
+      expect(await db.allEntries(), isEmpty);
     });
   });
 }

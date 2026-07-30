@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../capture/capture_job.dart';
+import '../save/save_run.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../storage/database.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
-import 'capture_queue_ui.dart';
+import 'save_queue_ui.dart';
 import 'library_screen.dart' show formatRelative;
+import '../library/entry_labels.dart';
+import '../core/config.dart';
 
 /// Everything the app is doing on the user's behalf, grouped by what the user
 /// can do about it: Running (stop it), Queued (drop it), Failed (retry it),
@@ -22,7 +24,7 @@ class ActivityScreen extends ConsumerWidget {
     final palette = AppPalette.of(context);
     final queue = ref.watch(taskQueueProvider);
     final tasks = ref.watch(queueTasksProvider);
-    final job = ref.watch(captureJobProvider);
+    final run = ref.watch(saveRunProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -33,7 +35,7 @@ class ActivityScreen extends ConsumerWidget {
           if ((tasks.value ?? const <QueueTask>[]).any(
             (t) =>
                 t.state == QueueTaskState.queued.name &&
-                t.taskType == QueueTaskType.seriesCheck.name,
+                t.taskType == QueueTaskType.collectionCheck.name,
           ))
             TextButton(
               onPressed: () => queue.cancelQueuedChecks(),
@@ -50,7 +52,7 @@ class ActivityScreen extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Activity error: $e')),
         data: (list) {
           final queuedAll = _of(list, QueueTaskState.queued);
-          // Two different kinds of "queued": captures that are waiting for
+          // Two different kinds of "queued": saves that are waiting for
           // the user to press Start, and checks/cleanup that will drain on
           // their own. Showing them together makes the first look stuck.
           final waitingToStart = [
@@ -91,14 +93,14 @@ class ActivityScreen extends ConsumerWidget {
                     ? _ResumeOffer(queue: queue)
                     : const SizedBox.shrink(),
               ),
-              // A capture started from the Browser has no pending row to
+              // A save started from the Browser has no pending row to
               // show — it was never queued (D58) — so it is presented from
-              // the job itself, as what it is: an active direct capture.
+              // the run itself, as what it is: an active direct save.
               ListenableBuilder(
-                listenable: Listenable.merge([queue, job]),
+                listenable: Listenable.merge([queue, run]),
                 builder: (context, _) =>
-                    job.hasActiveRun && queue.runningTaskId == null
-                    ? _DirectCaptureRow(job: job, queue: queue)
+                    run.hasActiveRun && queue.runningTaskId == null
+                    ? _DirectSaveRow(run: run, queue: queue)
                     : const SizedBox.shrink(),
               ),
               _BatchSummary(tasks: list),
@@ -106,14 +108,14 @@ class ActivityScreen extends ConsumerWidget {
                 SectionLabel(
                   'WAITING TO START',
                   trailing: Text(
-                    '${waitingToStart.length} capture'
+                    '${waitingToStart.length} save'
                     '${waitingToStart.length == 1 ? '' : 's'}',
                     style: monoStyle(color: palette.inkFaint),
                   ),
                 ),
                 _QueueControls(count: waitingToStart.length),
                 for (final (i, task) in waitingToStart.indexed)
-                  _QueuedCaptureRow(
+                  _QueuedSaveRow(
                     task: task,
                     queue: queue,
                     position: i + 1,
@@ -130,7 +132,7 @@ class ActivityScreen extends ConsumerWidget {
                     ),
                   ),
                   for (final task in group)
-                    _TaskRow(task: task, queue: queue, job: job),
+                    _TaskRow(task: task, queue: queue, run: run),
                 ],
             ],
           );
@@ -201,24 +203,24 @@ class _ResumeOffer extends StatelessWidget {
   }
 }
 
-/// The capture the user started from the Browser, while it runs.
+/// The save the user started from the Browser, while it runs.
 ///
-/// Classified as a **direct** capture, never as a queued task: it holds no
+/// Classified as a **direct** save, never as a queued task: it holds no
 /// place in the queue, releases nothing behind it, and the pending rows below
 /// it are untouched by how it ends (D58).
-class _DirectCaptureRow extends ConsumerWidget {
-  const _DirectCaptureRow({required this.job, required this.queue});
+class _DirectSaveRow extends ConsumerWidget {
+  const _DirectSaveRow({required this.run, required this.queue});
 
-  final CaptureJobController job;
+  final SaveRunController run;
   final TaskQueueController queue;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final palette = AppPalette.of(context);
-    final p = job.progress;
-    final browserRequired = job.pauseReason == kPauseBrowserHidden;
+    final p = run.progress;
+    final browserRequired = run.pauseReason == kPauseBrowserHidden;
     return Container(
-      key: const ValueKey('directCaptureRow'),
+      key: const ValueKey('directSaveRow'),
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
@@ -239,9 +241,9 @@ class _DirectCaptureRow extends ConsumerWidget {
               const SizedBox(width: 9),
               Expanded(
                 child: Text(
-                  job.origin == CaptureOrigin.direct
-                      ? 'Capturing now · started from the Browser'
-                      : 'Capturing now',
+                  run.origin == SaveOrigin.direct
+                      ? 'Saving now · started from the Browser'
+                      : 'Saving now',
                   style: TextStyle(
                     fontSize: 13,
                     fontVariations: wght(600),
@@ -256,7 +258,7 @@ class _DirectCaptureRow extends ConsumerWidget {
           Text(
             browserRequired
                 ? 'paused — Browser required'
-                : '${p.state.label} · ${job.progressSummary}',
+                : '${p.state.label} · ${run.progressSummary}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -269,7 +271,7 @@ class _DirectCaptureRow extends ConsumerWidget {
           Row(
             children: [
               FilledButton.icon(
-                key: const ValueKey('directCaptureOpenBrowser'),
+                key: const ValueKey('directSaveOpenBrowser'),
                 onPressed: () {
                   ref.read(shellTabRequestProvider).value = 1;
                   Navigator.of(context).maybePop();
@@ -279,8 +281,17 @@ class _DirectCaptureRow extends ConsumerWidget {
               ),
               const SizedBox(width: 8),
               TextButton(
-                key: const ValueKey('directCaptureStop'),
-                onPressed: job.stop,
+                key: const ValueKey('directSaveStop'),
+                // A direct run has no queue row to cancel, but it discards the
+                // same partial progress — so it asks the same question (D64).
+                onPressed: () async {
+                  if (await confirmStopRunningTask(
+                    context,
+                    QueueTaskType.entrySave,
+                  )) {
+                    run.stop();
+                  }
+                },
                 child: const Text('Stop'),
               ),
             ],
@@ -292,18 +303,18 @@ class _DirectCaptureRow extends ConsumerWidget {
 }
 
 class _TaskRow extends ConsumerWidget {
-  const _TaskRow({required this.task, required this.queue, this.job});
+  const _TaskRow({required this.task, required this.queue, this.run});
 
   final QueueTask task;
   final TaskQueueController queue;
-  final CaptureJobController? job;
+  final SaveRunController? run;
 
-  /// A running capture that is holding for the Browser is not "downloading" —
+  /// A running save that is holding for the Browser is not "downloading" —
   /// it needs the user, and says so with the way back.
   bool get _browserRequired =>
       task.state == QueueTaskState.running.name &&
-      job != null &&
-      job!.pauseReason == kPauseBrowserHidden;
+      run != null &&
+      run!.pauseReason == kPauseBrowserHidden;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -318,8 +329,8 @@ class _TaskRow extends ConsumerWidget {
             : (Icons.downloading, palette.primary),
       QueueTaskState.queued => (Icons.schedule, palette.inkMuted),
       QueueTaskState.failed => (
-        type == QueueTaskType.seriesCheck ||
-                type == QueueTaskType.checkAllSeries
+        type == QueueTaskType.collectionCheck ||
+                type == QueueTaskType.checkAllCollections
             ? Icons.sync_problem
             : Icons.error,
         palette.danger,
@@ -327,8 +338,8 @@ class _TaskRow extends ConsumerWidget {
       QueueTaskState.cancelled => (Icons.do_not_disturb_on, palette.inkFaint),
       QueueTaskState.completed => (
         switch (type) {
-          QueueTaskType.seriesCheck ||
-          QueueTaskType.checkAllSeries => Icons.update,
+          QueueTaskType.collectionCheck ||
+          QueueTaskType.checkAllCollections => Icons.update,
           QueueTaskType.removeOfflineFiles => Icons.cleaning_services,
           _ => Icons.download_for_offline,
         },
@@ -372,7 +383,7 @@ class _TaskRow extends ConsumerWidget {
               ],
             ),
           ),
-          for (final control in _controls(state))
+          for (final control in _controls(context, state, type))
             IconButton(
               tooltip: control.$2,
               icon: Icon(control.$1, size: 20),
@@ -385,15 +396,16 @@ class _TaskRow extends ConsumerWidget {
   }
 
   String _title(QueueTaskType type, QueueTask task) => switch (type) {
-    QueueTaskType.chapterCapture => 'Capture · ${task.startUrl ?? 'chapter'}',
-    // An until-end run's chapterLimit is the internal safety bound, not a
+    QueueTaskType.entrySave => 'Save · ${task.startUrl ?? 'entry'}',
+    // An until-end run's entryLimit is the internal safety bound, not a
     // count the user chose — say what they asked for.
-    QueueTaskType.multiChapterCapture when task.rangeMode == 'untilEnd' =>
-      'Capture · until the end',
-    QueueTaskType.multiChapterCapture =>
-      'Capture · ${task.chapterLimit ?? '?'} chapters',
-    QueueTaskType.seriesCheck => 'Check for updates',
-    QueueTaskType.checkAllSeries => 'Check all series',
+    QueueTaskType.sequenceSave
+        when SaveScope.fromName(task.scope) == SaveScope.untilNoNextPage =>
+      'Save · until the end',
+    QueueTaskType.sequenceSave =>
+      'Save · ${kPlainEntryLabels.count(task.entryLimit ?? 1)}',
+    QueueTaskType.collectionCheck => 'Check for updates',
+    QueueTaskType.checkAllCollections => 'Check all collection',
     QueueTaskType.removeOfflineFiles => 'Removing offline files',
   };
 
@@ -428,10 +440,10 @@ class _TaskRow extends ConsumerWidget {
                   'paused — Browser required',
                   style: TextStyle(fontSize: 12, color: palette.inkMuted),
                 ),
-                if (job != null && job!.progressSummary.isNotEmpty) ...[
+                if (run != null && run!.progressSummary.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
-                    job!.progressSummary,
+                    run!.progressSummary,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: monoStyle(size: 11, color: palette.inkFaint),
@@ -453,7 +465,8 @@ class _TaskRow extends ConsumerWidget {
             tooltip: 'Stop',
             icon: const Icon(Icons.close, size: 20),
             color: palette.inkMuted,
-            onPressed: () => queue.cancelTask(task.id),
+            onPressed: () =>
+                _confirmStop(context, queueTaskTypeFromName(task.taskType)),
           ),
         ],
       ),
@@ -468,32 +481,71 @@ class _TaskRow extends ConsumerWidget {
     };
     final detail = task.lastError ?? task.outcome;
     // Where the run came from is part of reading its history: a direct
-    // capture never waited in the queue, so "queued 2h ago" would be a lie.
+    // save never waited in the queue, so "queued 2h ago" would be a lie.
     final source = isDirectOriginTask(task)
         ? 'started from the Browser · '
         : '';
     return detail == null ? '$source$when' : '$source$detail · $when';
   }
 
-  List<(IconData, String, VoidCallback)> _controls(QueueTaskState state) =>
-      switch (state) {
-        QueueTaskState.running => [
-          (Icons.close, 'Cancel', () => queue.cancelTask(task.id)),
-        ],
-        QueueTaskState.queued => [
-          (Icons.close, 'Remove', () => queue.cancelTask(task.id)),
-        ],
-        QueueTaskState.failed || QueueTaskState.cancelled => [
-          (Icons.refresh, 'Retry', () => queue.retryTask(task.id)),
-        ],
-        QueueTaskState.completed => const [],
-      };
+  /// What can be done to this row, by state (D64).
+  ///
+  /// Three different verbs, deliberately: a **running** row is *stopped* and
+  /// asks first, because partial progress goes; a **queued** row is *removed*
+  /// on a tap, because nothing has happened yet and an Undo restores its
+  /// place; a **terminal** row is *dismissed*, which deletes a history entry
+  /// and nothing else. Retry stays wherever it made sense before.
+  List<(IconData, String, VoidCallback)> _controls(
+    BuildContext context,
+    QueueTaskState state,
+    QueueTaskType type,
+  ) => switch (state) {
+    QueueTaskState.running => [
+      (Icons.close, 'Stop', () => _confirmStop(context, type)),
+    ],
+    QueueTaskState.queued => [
+      (
+        Icons.close,
+        'Remove from queue',
+        () => removeQueuedTaskWithUndo(context, queue, task.id),
+      ),
+    ],
+    QueueTaskState.failed || QueueTaskState.cancelled => [
+      (Icons.refresh, 'Retry', () => queue.retryTask(task.id)),
+      (Icons.delete_outline, 'Remove from Activity', () => _dismiss(context)),
+    ],
+    QueueTaskState.completed => [
+      (Icons.delete_outline, 'Remove from Activity', () => _dismiss(context)),
+    ],
+  };
+
+  Future<void> _confirmStop(BuildContext context, QueueTaskType type) async {
+    if (!await confirmStopRunningTask(context, type)) return;
+    await queue.cancelTask(task.id);
+  }
+
+  /// Drop a finished entry. The sentence matters more than the action: people
+  /// read "remove" next to a download and reasonably fear for their files.
+  Future<void> _dismiss(BuildContext context) async {
+    final removed = await queue.removeTask(task.id);
+    if (!context.mounted || !removed) return;
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          key: ValueKey('activityEntryRemoved'),
+          content: Text(
+            'Removed from Activity · saved entries and files are untouched',
+          ),
+        ),
+      );
+  }
 }
 
 /// The counts a batch is actually made of.
 ///
 /// Counts, never a percentage: an until-end run does not know how many
-/// chapters it will find, and a progress bar that invents a denominator is a
+/// entries it will find, and a progress bar that invents a denominator is a
 /// lie the user cannot check.
 class _BatchSummary extends StatelessWidget {
   const _BatchSummary({required this.tasks});
@@ -506,7 +558,7 @@ class _BatchSummary extends StatelessWidget {
     final s = QueueSummary.of(tasks);
     if (s.remaining == 0 && s.failed == 0) return const SizedBox.shrink();
     final facts = <(String, int)>[
-      ('waiting', s.queuedCaptures),
+      ('waiting', s.queuedSaves),
       ('queued', s.queuedOther),
       ('running', s.running),
       ('done', s.completed),
@@ -537,7 +589,7 @@ class _BatchSummary extends StatelessWidget {
   }
 }
 
-/// Start-all / clear-all for the waiting captures.
+/// Start-all / clear-all for the waiting saves.
 class _QueueControls extends ConsumerWidget {
   const _QueueControls({required this.count});
 
@@ -551,9 +603,9 @@ class _QueueControls extends ConsumerWidget {
         Expanded(
           child: FilledButton.icon(
             key: const ValueKey('startAllQueued'),
-            onPressed: () => confirmAndStartCaptures(context, ref),
+            onPressed: () => confirmAndStartSaves(context, ref),
             icon: const Icon(Icons.play_arrow, size: 19),
-            label: Text('Start $count capture${count == 1 ? '' : 's'}'),
+            label: Text('Start $count save${count == 1 ? '' : 's'}'),
           ),
         ),
         const SizedBox(width: 8),
@@ -570,10 +622,10 @@ class _QueueControls extends ConsumerWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Clear the capture queue?'),
+        title: const Text('Clear the save queue?'),
         content: const Text(
-          'The waiting capture requests are dropped. Nothing already saved '
-          'is affected — no chapter, no file and no reading history is '
+          'The waiting save requests are dropped. Nothing already saved '
+          'is affected — no entry, no file and no reading history is '
           'touched.',
           style: TextStyle(fontSize: 13.5, height: 1.5),
         ),
@@ -590,12 +642,12 @@ class _QueueControls extends ConsumerWidget {
       ),
     );
     if (ok != true) return;
-    final removed = await ref.read(taskQueueProvider).clearQueuedCaptures();
+    final removed = await ref.read(taskQueueProvider).clearQueuedSaves();
     if (!context.mounted) return;
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(
         content: Text(
-          '$removed capture request${removed == 1 ? '' : 's'} removed · '
+          '$removed save request${removed == 1 ? '' : 's'} removed · '
           'nothing downloaded was deleted',
         ),
       ),
@@ -603,10 +655,10 @@ class _QueueControls extends ConsumerWidget {
   }
 }
 
-/// A capture that has not started: its place in line, what it will do, and
+/// A save that has not started: its place in line, what it will do, and
 /// the three things that can be done to it — move, start, remove.
-class _QueuedCaptureRow extends ConsumerWidget {
-  const _QueuedCaptureRow({
+class _QueuedSaveRow extends ConsumerWidget {
+  const _QueuedSaveRow({
     required this.task,
     required this.queue,
     required this.position,
@@ -624,12 +676,11 @@ class _QueuedCaptureRow extends ConsumerWidget {
     final url = task.startUrl?.trim() ?? '';
     final uri = Uri.tryParse(url);
     final knowsSource = url.isNotEmpty && (uri?.host.isNotEmpty ?? false);
-    final mode = switch (task.rangeMode) {
-      'untilEnd' => 'until the end',
-      'currentChapter' => 'this chapter',
-      _ =>
-        '${task.chapterLimit ?? 1} chapter'
-            '${(task.chapterLimit ?? 1) == 1 ? '' : 's'}',
+    final mode = switch (SaveScope.fromName(task.scope)) {
+      SaveScope.untilNoNextPage => 'until there is no next page',
+      SaveScope.currentPageOnly => 'this page only',
+      SaveScope.selectedEntries ||
+      SaveScope.fixedCount => kPlainEntryLabels.count(task.entryLimit ?? 1),
     };
     // `replaceAll` is what a re-fetch/re-download enqueues; anything else is
     // new material.
@@ -666,7 +717,7 @@ class _QueuedCaptureRow extends ConsumerWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '${isRedownload ? 'Re-download' : 'Capture'} · $mode'
+                  '${isRedownload ? 'Re-download' : 'Save'} · $mode'
                   '${knowsSource ? ' · ${uri!.host}' : ''}'
                   ' · added ${formatRelative(task.queuedAt)}',
                   maxLines: 2,
@@ -680,7 +731,7 @@ class _QueuedCaptureRow extends ConsumerWidget {
                 if (!knowsSource) ...[
                   const SizedBox(height: 3),
                   Text(
-                    'No source page — this cannot be captured automatically',
+                    'No source page — this cannot be saved automatically',
                     style: TextStyle(fontSize: 11.5, color: palette.warn),
                   ),
                 ],
@@ -709,7 +760,7 @@ class _QueuedCaptureRow extends ConsumerWidget {
           _MiniAction(
             icon: Icons.close,
             tooltip: 'Remove from queue',
-            onPressed: () => queue.cancelTask(task.id),
+            onPressed: () => removeQueuedTaskWithUndo(context, queue, task.id),
           ),
         ],
       ),
@@ -721,7 +772,7 @@ class _QueuedCaptureRow extends ConsumerWidget {
     // confirmation as Start All — just aimed at this row.
     await queue.moveQueuedToFront(task.id);
     if (!context.mounted) return;
-    await confirmAndStartCaptures(context, ref);
+    await confirmAndStartSaves(context, ref);
   }
 }
 
@@ -777,7 +828,7 @@ class _NothingHappening extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Captures and update checks you start show up here, with what '
+              'Saves and update checks you start show up here, with what '
               'happened and how to retry it.',
               textAlign: TextAlign.center,
               style: TextStyle(

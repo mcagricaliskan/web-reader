@@ -1,5 +1,5 @@
 // M5 + M6 acceptance, end to end on the Simulator against the in-process
-// fixture: capture, read, leave, restart, complete, continue, mark unread.
+// fixture: save, read, leave, restart, complete, continue, mark unread.
 //
 //   flutter test integration_test/reading_flow_test.dart -d <simulator-id>
 import 'dart:async';
@@ -10,9 +10,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:web_reader/app.dart';
+import 'package:web_reader/core/config.dart';
 import 'package:web_reader/browser/browser_controller.dart';
-import 'package:web_reader/capture/capture_job.dart';
-import 'package:web_reader/capture/capture_preflight.dart';
+import 'package:web_reader/save/save_run.dart';
+import 'package:web_reader/save/save_preflight.dart';
 import 'package:web_reader/providers.dart';
 import 'package:web_reader/reading/reading_position.dart';
 import 'package:web_reader/reading/reading_repository.dart';
@@ -33,7 +34,7 @@ void main() {
   late AppDatabase db;
   late FileStore fileStore;
   late BrowserController browser;
-  late CaptureJobController job;
+  late SaveRunController run;
   late ReadingRepository reading;
   HttpServer? server;
   late String baseUrl;
@@ -70,7 +71,7 @@ void main() {
     );
     browser = BrowserController();
     reading = ReadingRepository(db);
-    job = CaptureJobController(browser: browser, db: db, fileStore: fileStore);
+    run = SaveRunController(browser: browser, db: db, fileStore: fileStore);
 
     await tester.pumpWidget(
       ProviderScope(
@@ -80,7 +81,7 @@ void main() {
               db: db,
               fileStore: fileStore,
               browser: browser,
-              captureJob: job,
+              saveRun: run,
             ),
           ),
         ],
@@ -102,42 +103,40 @@ void main() {
   }
 
   tearDown(() async {
-    job.stop();
+    run.stop();
     final deadline = DateTime.now().add(const Duration(seconds: 20));
-    while (job.isRunning && DateTime.now().isBefore(deadline)) {
+    while (run.isRunning && DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     await server?.close(force: true);
     await db.close();
   });
 
-  testWidgets('M5+M6: capture, read, restart, complete, continue', (
-    tester,
-  ) async {
+  testWidgets('M5+M6: save, read, restart, complete, continue', (tester) async {
     await startFixture();
     await boot(tester);
 
-    // --- capture two chapters -------------------------------------------
-    await browser.loadAndWait('$baseUrl/chapter/1');
+    // --- save two entries -------------------------------------------
+    await browser.loadAndWait('$baseUrl/entry/1');
     await settle(tester, const Duration(seconds: 1));
-    unawaited(job.start(chapterLimit: 2));
+    unawaited(run.start(range: SaveScope.fixedCount, entryLimit: 2));
     await waitFor(
       tester,
-      () => job.progress.state.isTerminal && !job.isRunning,
+      () => run.progress.state.isTerminal && !run.isRunning,
     );
 
-    for (final line in job.log.reversed) {
-      debugPrint('[job] $line');
+    for (final line in run.log.reversed) {
+      debugPrint('[run] $line');
     }
-    var chapters = await db.allChapters();
-    expect(chapters.length, 2, reason: 'two chapters captured');
-    final sorted = [...chapters]
-      ..sort((a, b) => a.sequence.compareTo(b.sequence));
+    var entries = await db.allEntries();
+    expect(entries.length, 2, reason: 'two entries saved');
+    final sorted = [...entries]
+      ..sort((a, b) => a.entryOrder.compareTo(b.entryOrder));
     final first = sorted.first;
     final second = sorted.last;
     debugPrint(
-      '[M5] captured ${chapters.length}: '
-      '${sorted.map((c) => c.chapterLabel).toList()}',
+      '[M5] saved ${entries.length}: '
+      '${sorted.map((c) => c.sourceMarker).toList()}',
     );
 
     // --- 1-3. read partway, then leave -----------------------------------
@@ -147,7 +146,7 @@ void main() {
       const ReadingPosition(fraction: 0.5, imageIndex: 2, offsetInImage: 0.4),
     );
 
-    var reloaded = (await db.chapterById(first.id))!;
+    var reloaded = (await db.entryById(first.id))!;
     expect(reloaded.progressFraction, closeTo(0.5, 0.01));
     expect(reloaded.readStatus, 'inProgress');
     debugPrint('[M5] saved position: ${reading.positionOf(reloaded)}');
@@ -156,7 +155,7 @@ void main() {
     await db.close();
     await boot(tester);
 
-    reloaded = (await db.chapterById(first.id))!;
+    reloaded = (await db.entryById(first.id))!;
     final restored = reading.positionOf(reloaded);
     expect(
       restored.imageIndex,
@@ -167,88 +166,94 @@ void main() {
     expect(restored.fraction, closeTo(0.5, 0.01));
     debugPrint('[M5] restored after restart: $restored');
 
-    // --- M6. the series is in Continue, on chapter 1 ----------------------
-    var state = computeSeriesReadingState(
-      await db.chaptersForItem(first.libraryItemId),
+    // --- M6. the collection is in Continue, on entry 1 ----------------------
+    var state = computeCollectionReadingState(
+      await db.entriesForCollection(first.collectionId!),
     );
-    expect(state.continueChapter!.id, first.id);
-    debugPrint('[M6] continue -> ${state.continueChapter!.chapterLabel}');
+    expect(state.continueEntry!.id, first.id);
+    debugPrint('[M6] continue -> ${state.continueEntry!.sourceMarker}');
 
     // --- 7. finish it ----------------------------------------------------
     await reading.markRead(first.id);
-    reloaded = (await db.chapterById(first.id))!;
+    reloaded = (await db.entryById(first.id))!;
     expect(reloaded.readStatus, 'completed');
     expect(reloaded.completedAt, isNotNull);
 
-    // --- M6. Continue advances to chapter 2 ------------------------------
-    state = computeSeriesReadingState(
-      await db.chaptersForItem(first.libraryItemId),
+    // --- M6. Continue advances to entry 2 ------------------------------
+    state = computeCollectionReadingState(
+      await db.entriesForCollection(first.collectionId!),
     );
-    expect(state.continueChapter!.id, second.id);
+    expect(state.continueEntry!.id, second.id);
     debugPrint(
       '[M6] after completing 1, continue -> '
-      '${state.continueChapter!.chapterLabel}',
+      '${state.continueEntry!.sourceMarker}',
     );
 
     // --- everything read: leaves Continue, keeps its last-read time ------
     await reading.markRead(second.id);
-    state = computeSeriesReadingState(
-      await db.chaptersForItem(first.libraryItemId),
+    state = computeCollectionReadingState(
+      await db.entriesForCollection(first.collectionId!),
     );
     expect(state.allCompleted, isTrue);
-    expect(state.continueChapter, isNull);
+    expect(state.continueEntry, isNull);
     expect(state.lastReadAt, isNotNull, reason: 'last-read time kept');
     debugPrint('[M6] all read: continue=null, lastReadAt kept');
 
     // --- 8-9. mark unread restores eligibility ---------------------------
     await reading.markUnread(first.id);
-    state = computeSeriesReadingState(
-      await db.chaptersForItem(first.libraryItemId),
+    state = computeCollectionReadingState(
+      await db.entriesForCollection(first.collectionId!),
     );
-    expect(state.continueChapter!.id, first.id);
+    expect(state.continueEntry!.id, first.id);
     expect(
-      (await db.chapterById(first.id))!.progressImageIndex,
+      (await db.entryById(first.id))!.progressPageIndex,
       2,
       reason: 'marking unread keeps the position so it can be resumed',
     );
     debugPrint(
       '[M6] after mark-unread, continue -> '
-      '${state.continueChapter!.chapterLabel}',
+      '${state.continueEntry!.sourceMarker}',
     );
 
     // --- 10. re-download preserves reading progress ----------------------
     await reading.markRead(first.id);
-    final beforeRedownload = (await db.chapterById(first.id))!;
+    final beforeRedownload = (await db.entryById(first.id))!;
 
     await browser.loadAndWait(first.sourceUrl);
     await settle(tester, const Duration(seconds: 1));
-    unawaited(job.start(chapterLimit: 1, policy: DuplicatePolicy.replaceAll));
+    unawaited(
+      run.start(
+        range: SaveScope.fixedCount,
+        entryLimit: 1,
+        policy: DuplicatePolicy.replaceAll,
+      ),
+    );
     await waitFor(
       tester,
-      () => job.progress.state.isTerminal && !job.isRunning,
+      () => run.progress.state.isTerminal && !run.isRunning,
     );
 
-    final afterRedownload = (await db.chapterById(first.id))!;
+    final afterRedownload = (await db.entryById(first.id))!;
     expect(
-      (await db.allChapters()).where((c) => c.urlKey == first.urlKey).length,
+      (await db.allEntries()).where((c) => c.urlKey == first.urlKey).length,
       1,
       reason: 're-download must not create a duplicate row',
     );
     expect(afterRedownload.readStatus, 'completed');
     expect(
-      afterRedownload.progressImageIndex,
-      beforeRedownload.progressImageIndex,
+      afterRedownload.progressPageIndex,
+      beforeRedownload.progressPageIndex,
     );
     expect(afterRedownload.completedAt, beforeRedownload.completedAt);
-    expect(afterRedownload.storedImageCount, greaterThan(0));
+    expect(afterRedownload.storedAssetCount, greaterThan(0));
     debugPrint(
       '[M5] after re-download: status=${afterRedownload.readStatus} '
-      'anchor=${afterRedownload.progressImageIndex} '
-      'images=${afterRedownload.storedImageCount}',
+      'anchor=${afterRedownload.progressPageIndex} '
+      'images=${afterRedownload.storedAssetCount}',
     );
 
-    for (final line in job.log.reversed.take(12)) {
-      debugPrint('[job] $line');
+    for (final line in run.log.reversed.take(12)) {
+      debugPrint('[run] $line');
     }
   });
 }

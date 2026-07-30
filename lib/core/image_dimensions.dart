@@ -6,7 +6,7 @@
 /// ran. The downloaded file itself cannot lie about its own header.
 ///
 /// Pure Dart, headers only — no frame is decoded, so this is cheap enough to
-/// run per asset at capture time and per file when the reader verifies a
+/// run per asset at save time and per file when the reader verifies a
 /// manifest. Covers exactly the formats `detectImageMime` accepts: PNG, JPEG,
 /// GIF, WebP, BMP, and the ISO-BMFF family (AVIF/HEIC/HEIF).
 library;

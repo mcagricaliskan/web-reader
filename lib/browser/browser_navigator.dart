@@ -26,7 +26,7 @@ class PendingBrowserOpen {
 /// screen with a live WebView".
 ///
 /// This exists because the two are genuinely not simultaneous. Asking comes
-/// from a pushed route (Series Detail, a details sheet, History); the Browser
+/// from a pushed route (Collection Detail, a details sheet, History); the Browser
 /// lives in the shell underneath, and between the ask and the load there is a
 /// route pop, a tab switch and possibly a WebView attach. Loading into that
 /// gap is how a URL gets silently dropped.

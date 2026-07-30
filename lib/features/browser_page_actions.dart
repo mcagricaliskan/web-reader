@@ -13,14 +13,14 @@ import '../ui/status_style.dart';
 import '../ui/theme.dart';
 
 /// What the page-actions sheet decided to do. The Browser owns the
-/// consequences — the sheet only reports the choice, so capture and saving
+/// consequences — the sheet only reports the choice, so save and saving
 /// keep their existing flows rather than growing a second copy here.
-enum PageAction { capture, addToSavedSites, findInPage, none }
+enum PageAction { save, addToSavedSites, findInPage, none }
 
 /// The design's page-actions sheet.
 ///
 /// Actions that cannot apply are absent, not disabled-and-mysterious: on a
-/// blank Browser there is nothing to copy, share or capture, so the sheet is
+/// blank Browser there is nothing to copy, share or save, so the sheet is
 /// only offered once a page is loaded.
 Future<PageAction> showPageActionsSheet({
   required BuildContext context,
@@ -92,8 +92,8 @@ class _PageActionsSheet extends ConsumerWidget {
               color: palette.primary,
               borderRadius: BorderRadius.circular(14),
               child: InkWell(
-                key: const ValueKey('pageActionCapture'),
-                onTap: () => Navigator.of(context).pop(PageAction.capture),
+                key: const ValueKey('pageActionSave'),
+                onTap: () => Navigator.of(context).pop(PageAction.save),
                 borderRadius: BorderRadius.circular(14),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
@@ -107,7 +107,7 @@ class _PageActionsSheet extends ConsumerWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              'Capture',
+                              'Save',
                               style: TextStyle(
                                 fontSize: 14,
                                 fontVariations: wght(600),
@@ -117,7 +117,7 @@ class _PageActionsSheet extends ConsumerWidget {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Current chapter, a number, or until the end',
+                              'Current entry, a number, or until the end',
                               style: TextStyle(
                                 fontSize: 11.5,
                                 color: palette.onPrimary.withValues(
@@ -185,7 +185,7 @@ class _PageActionsSheet extends ConsumerWidget {
                     final uri = Uri.tryParse(url);
                     navigator.pop(PageAction.none);
                     if (uri == null) return;
-                    // Explicitly leaves the app. Capture is unaffected: it
+                    // Explicitly leaves the app. Save is unaffected: it
                     // runs against the in-app WebView, which stays where it
                     // is.
                     final launched = await launchUrl(

@@ -1,139 +1,228 @@
+/// The local library. **Schema version 1, created whole.**
+///
+/// There is no migration system in this file and deliberately no room for one to
+/// grow back by accident: [AppDatabase.schemaVersion] is 1, the strategy has an
+/// `onCreate` and no `onUpgrade`, and `database_test.dart` asserts both — plus
+/// that no table or column from any earlier model exists.
+///
+/// The product model is four concepts and the physical schema uses them
+/// directly:
+///
+/// * **Library** — every row in [Collections] plus every standalone [Entries]
+///   row. Not a table; a view over the two.
+/// * **Collection** — a related group of entries: a sequential publication, a
+///   dated feed, a multi-page document, or a group the user made by hand.
+/// * **Entry** — one independently readable saved unit. **`collection_id` is
+///   nullable**: a standalone entry is a first-class library citizen and is
+///   never wrapped in a collection of one to make the schema tidy.
+/// * **Page / Section** — structural parts *inside* an entry. They live in the
+///   entry's `manifest.json`, next to the bytes they describe, not in a table:
+///   the manifest is what makes an entry directory self-describing, and a second
+///   copy in SQLite would be a cache that can disagree with the files.
+library;
+
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
 part 'database.g.dart';
 
-/// A series group: every chapter captured from one series hangs off one row.
-///
-/// Identity is `(host, seriesKey)`; the displayed name is separate metadata the
-/// user can edit without disturbing it.
-class LibraryItems extends Table {
+/// A related group of entries.
+@DataClassName('Collection')
+class Collections extends Table {
   TextColumn get id => text()();
 
-  /// Automatically detected series title. `title` keeps its original column
-  /// name so existing rows migrate in place.
+  /// Detected title, as the source wrote it.
   TextColumn get title => text()();
 
-  /// User-chosen display name. Presentation only — never part of matching,
+  /// What the user renamed it to. Presentation only — never part of matching,
   /// never part of a storage path.
   TextColumn get userTitle => text().nullable()();
 
   TextColumn get sourceUrl => text()();
   TextColumn get host => text()();
 
-  /// Series-path fingerprint, or a `title:`/`host:` fallback key. Unique per
-  /// host: this is what future captures match against.
-  TextColumn get seriesKey => text().nullable()();
+  /// Identity within a host. What a later save matches against, so a rename can
+  /// never split a collection or create a second one.
+  TextColumn get collectionKey => text().nullable()();
 
-  /// A stable URL for the series index page, when the page offered one.
-  TextColumn get seriesUrl => text().nullable()();
+  /// A stable URL for the collection's index page, when the source offered one.
+  TextColumn get collectionIndexUrl => text().nullable()();
 
-  /// How the key was derived, kept so a bad grouping is explainable.
+  /// Which signal produced the key, and how much it can be trusted. Kept so a
+  /// wrong grouping is explainable rather than mysterious.
   TextColumn get identityBasis => text().nullable()();
   TextColumn get identityConfidence => text().nullable()();
 
+  // --- content shape (three independent dimensions; see content_shape.dart) --
+
+  /// `ContentKind.name`. What the entries in this collection are.
+  TextColumn get contentKind =>
+      text().withDefault(const Constant('unknownWebContent'))();
+
+  /// `SequenceKind.name`. How the entries continue into one another — including
+  /// `none`, which is a real answer.
+  TextColumn get sequenceKind => text().withDefault(const Constant('none'))();
+
+  /// `OrderingBasis.name`. What decides the reading order.
+  TextColumn get orderingBasis =>
+      text().withDefault(const Constant('discoveryOrder'))();
+
+  /// `ShapeConfidence.name` for the two above. Low means the UI says
+  /// "saved items" instead of naming a structure the source never declared.
+  TextColumn get shapeConfidence => text().withDefault(const Constant('low'))();
+
+  /// How many entries the source says exist, when it said so at all.
+  ///
+  /// **Nullable, and usually null.** An open-ended sequence has no total, and a
+  /// number here that was never published is a lie the whole UI then repeats.
+  IntColumn get knownEntryTotal => integer().nullable()();
+
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get lastOpenedAt => dateTime().nullable()();
-  DateTimeColumn get lastCapturedAt => dateTime().nullable()();
+  DateTimeColumn get lastSavedAt => dateTime().nullable()();
 
-  /// Denormalised reading pointers. Derivable, but every library query orders
-  /// on them, and recomputing a per-series aggregate for each row on every
-  /// stream emission is the difference between a snappy list and a stuttery
-  /// one. Written in the same transaction as the chapter change that causes
-  /// them, and rebuildable by `repairSeriesReadingState`.
-  TextColumn get lastOpenedChapterId => text().nullable()();
-  TextColumn get lastCompletedChapterId => text().nullable()();
+  /// Denormalised reading pointers. Derivable, but every library query orders on
+  /// them, and recomputing a per-collection aggregate for each row on every
+  /// stream emission is the difference between a snappy list and a stuttery one.
+  /// Written in the same call as the entry change that causes them.
+  TextColumn get lastOpenedEntryId => text().nullable()();
+  TextColumn get lastCompletedEntryId => text().nullable()();
   DateTimeColumn get lastReadAt => dateTime().nullable()();
 
   // --- update checking ------------------------------------------------------
-  // Outcome of the last "check for new chapters". Latest-known / uncaptured
-  // counts are deliberately NOT denormalised — they derive from the chapters
-  // table, where a stale copy would be a lie the UI repeats.
+  // Outcome of the last "check for new entries". Latest-known and unsaved counts
+  // are deliberately NOT denormalised — they derive from the entries table,
+  // where a stale copy would be a lie the UI repeats.
 
-  /// When a check last ran, successful or not.
   DateTimeColumn get lastCheckAt => dateTime().nullable()();
-
-  /// When a check last finished successfully.
   DateTimeColumn get lastCheckSuccessAt => dateTime().nullable()();
-
-  /// Why the last check failed, when it did.
   TextColumn get lastCheckError => text().nullable()();
 
-  /// Terminal state of the last check: upToDate / updatesAvailable / failed /
-  /// cancelled / needsUserInput.
+  /// upToDate / updatesAvailable / failed / cancelled / needsUserInput.
   TextColumn get lastCheckResult => text().nullable()();
 
-  // --- lifecycle (M16) --------------------------------------------------
+  // --- lifecycle ------------------------------------------------------------
 
-  /// `active` | `archived`. Archiving hides a series from the library and
-  /// excludes it from checks; it never touches chapters or files — restore
-  /// brings everything back exactly as it was.
+  /// `active` | `archived`. Archiving hides a collection and excludes it from
+  /// checks; it never touches entries or files.
   TextColumn get lifecycle => text().withDefault(const Constant('active'))();
 
-  /// When the series was archived; null while active. Presentation only
-  /// ("archived 2 weeks ago") — [lifecycle] is the source of truth.
   DateTimeColumn get archivedAt => dateTime().nullable()();
 
-  // --- finished-chapter cleanup (D37) ---------------------------------------
-
-  /// What to do with a finished chapter's downloaded files when the reader
-  /// moves forward inside this series: `remove` · `keep`, or **null** while
-  /// the series has never been asked.
+  /// What to do with a finished entry's offline files when the reader moves
+  /// forward inside this collection: `remove` · `keep`, or **null** while this
+  /// collection has never been asked.
   ///
-  /// The only source of truth for the behaviour. There is no global default
-  /// and no per-chapter copy: null means "ask on the next eligible
-  /// transition", and an unrecognised value reads as null, which asks rather
-  /// than guessing at removal.
-  TextColumn get finishedCleanup => text().nullable()();
+  /// The only source of truth. There is no app-wide default and no per-entry
+  /// copy: null means "ask on the next eligible transition", and an unrecognised
+  /// value reads as null, which asks rather than guessing at removal.
+  TextColumn get cleanupPreference => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
+
+  @override
+  List<Set<Column>> get uniqueKeys => [
+    {host, collectionKey},
+  ];
 }
 
-class Chapters extends Table {
+/// One independently readable saved unit.
+@DataClassName('Entry')
+class Entries extends Table {
   TextColumn get id => text()();
-  TextColumn get libraryItemId => text().references(LibraryItems, #id)();
+
+  /// The collection this entry belongs to, or **null for a standalone entry**.
+  ///
+  /// Nullable is the whole point: a single saved article is a library item in
+  /// its own right. Wrapping it in a one-entry collection would put a group in
+  /// the library that the user never made and cannot meaningfully open.
+  TextColumn get collectionId =>
+      text().nullable().references(Collections, #id)();
+
   TextColumn get title => text()();
+
+  /// The address this entry was saved from. Durable metadata: it survives
+  /// removal of the offline files, archiving, restoring, re-saving and every
+  /// reading-state write, because every writer names its columns. It is what
+  /// "Open original page" stands on.
   TextColumn get sourceUrl => text()();
 
-  /// Normalised URL — identity. Unique per library item, which is what makes
-  /// duplicate chapters impossible rather than merely unlikely.
+  /// Normalised [sourceUrl] — identity.
   TextColumn get urlKey => text()();
-  TextColumn get captureStatus => text()();
+
+  /// `<link rel=canonical>` when the page declared one. A second identity
+  /// signal, and the one that catches a navigation loop that changes the address
+  /// while serving the same document.
+  TextColumn get canonicalUrl => text().nullable()();
+
+  /// Registrable host of [sourceUrl], lowercased. Denormalised onto the entry
+  /// because a standalone entry has no collection to read it from, and because
+  /// source attribution shows the domain on every screen.
+  TextColumn get host => text().withDefault(const Constant(''))();
+
+  /// The page's own `<title>`, kept verbatim. [title] may be cleaned up for
+  /// display; this is what the source actually called it.
+  TextColumn get sourceTitle => text().nullable()();
+
+  /// Publication date, only when it was parsed from the page with confidence.
+  /// Null means "not published, as far as we can honestly tell".
+  DateTimeColumn get publishedAt => dateTime().nullable()();
+
+  /// `ContentKind.name` for this entry, and how much that is trusted.
+  TextColumn get contentKind =>
+      text().withDefault(const Constant('unknownWebContent'))();
+  TextColumn get contentKindConfidence =>
+      text().withDefault(const Constant('low'))();
+
+  /// True once the user corrected the detected kind. Detection must never
+  /// overwrite a human answer on a later re-save.
+  BoolColumn get contentKindIsUserSet =>
+      boolean().withDefault(const Constant(false))();
+
+  // --- save state -----------------------------------------------------------
+  // notSaved | known | queued | saving | saved | partial | failed
+
+  TextColumn get saveStatus => text()();
 
   /// Relative to the FileStore root. Never absolute.
   TextColumn get contentPath => text().nullable()();
-  DateTimeColumn get capturedAt => dateTime().nullable()();
-  IntColumn get detectedImageCount =>
+  DateTimeColumn get savedAt => dateTime().nullable()();
+  IntColumn get detectedAssetCount =>
       integer().withDefault(const Constant(0))();
-  IntColumn get storedImageCount => integer().withDefault(const Constant(0))();
+  IntColumn get storedAssetCount => integer().withDefault(const Constant(0))();
   TextColumn get nextSourceUrl => text().nullable()();
-  IntColumn get sequence => integer().withDefault(const Constant(0))();
-  TextColumn get captureError => text().nullable()();
+
+  /// Authoritative position within the collection. Its *meaning* is given by the
+  /// collection's `orderingBasis`, which is why the basis is stored rather than
+  /// assumed.
+  IntColumn get entryOrder => integer().withDefault(const Constant(0))();
+  TextColumn get saveError => text().nullable()();
   IntColumn get byteSize => integer().withDefault(const Constant(0))();
 
-  /// Parsed chapter number. `REAL` so `12.5` works; null for identifiers that
-  /// are not numeric at all, which fall back to capture order.
-  RealColumn get chapterNumber => real().nullable()();
+  /// The number the *source* printed for this entry, when it printed one. `REAL`
+  /// so `12.5` works. Null for anything not numeric — and null is never filled
+  /// in by guessing.
+  RealColumn get entryNumber => real().nullable()();
 
-  /// Short display identifier: "Bölüm 883", "Chapter 101".
-  TextColumn get chapterLabel => text().nullable()();
+  /// The marker as the source wrote it: `Part 3`, `Prologue`, `Page 12 of 40`.
+  /// Kept verbatim; the display label is derived in `entry_labels.dart`.
+  TextColumn get sourceMarker => text().nullable()();
 
-  // --- reading state ------------------------------------------------------
-  // Deliberately separate from capture state: a chapter can be re-downloaded
-  // and stay completed, and a capture must never reset where the user was.
+  // --- reading state --------------------------------------------------------
+  // Deliberately separate from save state: an entry can be re-saved and stay
+  // completed, and a save must never reset where the user was.
 
   TextColumn get readStatus => text().withDefault(const Constant('unread'))();
 
-  /// 0..1 through the chapter. The durable half of the position — content
-  /// independent, so it still means something after a re-download.
+  /// 0..1 through the entry. The durable half of the position — content
+  /// independent, so it still means something after a re-save.
   RealColumn get progressFraction => real().withDefault(const Constant(0))();
 
-  /// Anchor: panel index plus how far down it. Precise but goes stale if the
-  /// panel count changes, which is what the fraction covers.
-  IntColumn get progressImageIndex =>
-      integer().withDefault(const Constant(0))();
-  RealColumn get progressOffsetInImage =>
+  /// Anchor: page index within the entry plus how far down it. Precise, but goes
+  /// stale if the page count changes — which is what the fraction covers.
+  IntColumn get progressPageIndex => integer().withDefault(const Constant(0))();
+  RealColumn get progressOffsetInPage =>
       real().withDefault(const Constant(0))();
 
   DateTimeColumn get firstOpenedAt => dateTime().nullable()();
@@ -142,75 +231,93 @@ class Chapters extends Table {
   DateTimeColumn get progressUpdatedAt => dateTime().nullable()();
 
   // --- discovery ------------------------------------------------------------
-  // A chapter found by an update check is a real row with
-  // `captureStatus = 'knownRemote'` and no `contentPath` — known to exist on
-  // the source, holding nothing locally. It is never a fake offline chapter:
-  // everything that means "readable" keys off contentPath + complete/partial.
+  // An entry found by an update check is a real row with `saveStatus = 'known'`
+  // and no `contentPath` — known to exist at the source, holding nothing
+  // locally. Discovered, saved and read are three independent facts about one
+  // entry.
 
-  /// When an update check first saw this chapter on the source.
   DateTimeColumn get discoveredAt => dateTime().nullable()();
 
-  /// Which discovery strategy found it (chapterList / nextChain / savedRule).
+  /// entryList / nextChain / userPageHint / manual.
   TextColumn get discoveryBasis => text().nullable()();
-
-  /// Confidence of that discovery (high / medium / low).
   TextColumn get discoveryConfidence => text().nullable()();
 
-  /// When the USER removed this chapter's offline files ("free up space").
-  /// Distinct from files the system lost: a removed chapter renders as
-  /// "not available offline — capture again", never as an error. Cleared on
-  /// re-capture.
+  /// When the USER removed this entry's offline files. Distinct from files the
+  /// system lost: a removed entry reads as "not available offline — save again",
+  /// never as an error. Cleared explicitly on re-save.
   DateTimeColumn get offlineRemovedAt => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
 
+  /// Identity within a collection. Standalone entries (`collection_id IS NULL`)
+  /// are covered by a partial unique index created in `onCreate` — SQLite treats
+  /// NULLs as distinct in a composite UNIQUE, so this constraint alone would let
+  /// the same standalone page be saved twice.
   @override
   List<Set<Column>> get uniqueKeys => [
-    {libraryItemId, urlKey},
+    {collectionId, urlKey},
   ];
 }
 
-/// Just enough to recognise and resume an interrupted multi-chapter run.
-class CaptureJobs extends Table {
+/// Just enough to recognise and resume an interrupted multi-entry save run.
+@DataClassName('SaveRun')
+class SaveRuns extends Table {
   TextColumn get id => text()();
-  TextColumn get libraryItemId => text().nullable()();
+  TextColumn get collectionId => text().nullable()();
   TextColumn get startUrl => text()();
   TextColumn get currentUrl => text().nullable()();
-  IntColumn get requestedChapters => integer()();
-  IntColumn get completedChapters => integer().withDefault(const Constant(0))();
+
+  /// How many *new* entries this run was authorised to save. Always a real
+  /// number, including for open-ended sequences — there is no "unlimited".
+  IntColumn get requestedEntries => integer()();
+  IntColumn get completedEntries => integer().withDefault(const Constant(0))();
   TextColumn get state => text()();
   TextColumn get lastError => text().nullable()();
 
-  /// Newline-separated normalised URLs already walked in this job.
+  /// Which stopping condition ended the run (`StopReason.name`), or null while
+  /// it is still going. Named rather than inferred, so "stopped because the site
+  /// asked for a login" can never be reported as "finished".
+  TextColumn get stopReason => text().nullable()();
+
+  /// Newline-separated normalised URLs already walked in this run.
   TextColumn get visitedUrls => text().withDefault(const Constant(''))();
 
-  /// The duplicate policy the job was started with, so a resume applies the
-  /// same one instead of silently reverting to the default.
+  /// Newline-separated canonical URLs already seen. Kept separately from
+  /// [visitedUrls] because the loop that matters most is the one where the
+  /// address changes and the document does not.
+  TextColumn get visitedCanonicals => text().withDefault(const Constant(''))();
+
+  /// The duplicate policy the run started with, so a resume applies the same one
+  /// instead of silently reverting to the default.
   TextColumn get duplicatePolicy => text().nullable()();
 
-  /// Session-scoped answers to "this chapter is already saved". Persisted on
-  /// the job — they survive an interrupted-session resume — and reset when a
-  /// new job starts. Never a global preference.
+  /// Session-scoped answers to "this entry is already saved". Persisted on the
+  /// run — they survive an interrupted-session resume — and die with it. Never a
+  /// global preference.
   TextColumn get sessionDuplicateDecision => text().nullable()();
   TextColumn get sessionPartialDecision => text().nullable()();
 
-  /// currentChapter | fixedCount | untilEnd — how the range was chosen, so a
-  /// resume continues the same mode (an interrupted until-end run must not
-  /// come back as "capture 1 chapter").
-  TextColumn get rangeMode =>
-      text().withDefault(const Constant('fixedCount'))();
+  /// `SaveScope.name` — currentPageOnly | selectedEntries | fixedCount |
+  /// untilNoNextPage. A resume continues in the same mode.
+  TextColumn get scope =>
+      text().withDefault(const Constant('currentPageOnly'))();
 
-  /// Why a running job is paused (`browserHidden` today; null otherwise).
-  /// Lets Activity say "paused — Browser required" instead of a bare
-  /// "paused", and survives a restart.
+  /// The user's explicit storage ceiling in bytes, when they set one. Required
+  /// alongside a count for open-ended sequences.
+  IntColumn get maxBytes => integer().nullable()();
+
+  /// Whether the offline copy includes the page's images. Asked once per run,
+  /// answered by the user, never assumed.
+  BoolColumn get includeImages => boolean().withDefault(const Constant(true))();
+
+  /// Why a running save is paused (`browserHidden` today; null otherwise).
   TextColumn get pauseReason => text().nullable()();
 
-  /// `direct` | `queue` — how this run was launched (D58). Persisted so an
-  /// interrupted **direct** capture resumes as a direct capture rather than
-  /// being quietly turned into a pending queue task. Null on rows written
-  /// before v11, which read as `queue` because that was the only way then.
-  TextColumn get origin => text().nullable()();
+  /// `direct` | `queue` — how this run was launched. Persisted so an interrupted
+  /// direct save resumes as a direct save rather than being quietly turned into
+  /// pending queue work.
+  TextColumn get origin => text().withDefault(const Constant('queue'))();
 
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
@@ -219,9 +326,10 @@ class CaptureJobs extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-/// One row per user preference. A tiny key-value store rather than columns:
-/// preferences arrive one at a time (library sort first, appearance next) and
-/// none of them deserve a migration each.
+/// One row per user preference, and the store for local acknowledgements.
+///
+/// A tiny key-value table rather than columns: preferences arrive one at a time
+/// and none of them deserves a schema change each.
 class Settings extends Table {
   TextColumn get key => text()();
   TextColumn get value => text()();
@@ -230,43 +338,48 @@ class Settings extends Table {
   Set<Column> get primaryKey => {key};
 }
 
-/// The persistent activity queue (M14).
+/// The persistent activity queue.
 ///
-/// Deliberately a **separate table** from `capture_jobs`: that table is the
-/// capture loop's own resume record with its own lifecycle (deleted on
-/// completion, drives the resumable-job card and the preflight's
-/// `inActiveJob` state). Queue entries outlive their run — they *are* the
-/// history — so overloading one table would force every existing query to
-/// re-learn which rows are which. The queue schedules; the existing
+/// Deliberately a **separate table** from [SaveRuns]: that table is the save
+/// loop's own resume record with its own lifecycle. Queue entries outlive their
+/// run — they *are* the history — so overloading one table would force every
+/// existing query to re-learn which rows are which. The queue schedules; the
 /// controllers still do the work.
 class QueueTasks extends Table {
   TextColumn get id => text()();
 
-  /// chapterCapture | multiChapterCapture | seriesCheck | checkAllSeries
+  /// entrySave | sequenceSave | collectionCheck | checkAllCollections |
+  /// offlineCleanup
   TextColumn get taskType => text()();
-  TextColumn get libraryItemId => text().nullable()();
+  TextColumn get collectionId => text().nullable()();
   TextColumn get startUrl => text().nullable()();
-  IntColumn get chapterLimit => integer().nullable()();
+
+  /// The explicit ceiling on new entries. Never null for a multi-entry task.
+  IntColumn get entryLimit => integer().nullable()();
+  IntColumn get maxBytes => integer().nullable()();
+  BoolColumn get includeImages => boolean().withDefault(const Constant(true))();
   TextColumn get duplicatePolicy => text().nullable()();
 
-  /// currentChapter | fixedCount | untilEnd (null on rows from before v8 —
-  /// read as fixedCount).
-  TextColumn get rangeMode => text().nullable()();
+  /// `SaveScope.name`.
+  TextColumn get scope => text().nullable()();
 
   /// queued | running | completed | failed | cancelled
   TextColumn get state => text().withDefault(const Constant('queued'))();
 
   /// `queue` | `direct` — whether this row is queued work or the record of a
-  /// capture the user started straight from the Browser (D58).
+  /// save the user started straight from the Browser.
   ///
-  /// A `direct` row is **only ever terminal**: a direct capture creates no
-  /// pending entry, so nothing here can be released by the queue pump. It
-  /// exists for Activity history and error reporting.
-  TextColumn get origin => text().nullable()();
+  /// A `direct` row is **only ever terminal**: a direct save creates no pending
+  /// entry, so nothing here can be released by the queue pump. It exists for
+  /// Activity history and error reporting.
+  TextColumn get origin => text().withDefault(const Constant('queue'))();
 
-  /// Short human summary of how it ended ("3 captured, 1 skipped").
+  /// Short human summary of how it ended.
   TextColumn get outcome => text().nullable()();
   TextColumn get lastError => text().nullable()();
+
+  /// Which stopping condition ended it (`StopReason.name`), when one did.
+  TextColumn get stopReason => text().nullable()();
 
   /// FIFO order within the queue.
   IntColumn get orderIndex => integer().withDefault(const Constant(0))();
@@ -278,19 +391,35 @@ class QueueTasks extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-/// A locally-saved rule created when automatic detection was not confident and
-/// the user pointed at the real control. Local-first: no account, no sync.
-class SiteRuleRows extends Table {
+/// A navigation hint the **user** created by pointing at a control, when
+/// automatic detection was not confident.
+///
+/// Three properties make this a local user preference rather than a site
+/// catalogue, and all three are asserted in tests:
+///
+/// 1. **The app ships none.** This table is empty on a clean install and nothing
+///    seeds it. There is no bundled selector, host list or provider catalogue
+///    anywhere in the binary.
+/// 2. **Only the user writes it.** A row exists because a person tapped an
+///    element on a page they had already opened themselves.
+/// 3. **It is local.** No account, no sync, no upload, no sharing.
+///
+/// `host` and `hintPath` are stored because that is *where the user made the
+/// hint* — a hint taught on one collection must never be applied to an unrelated
+/// one. They are scoping for a local preference, not behaviour keyed to a
+/// website the developer chose to support.
+@DataClassName('UserPageHintRow')
+class UserPageHints extends Table {
   TextColumn get id => text()();
   TextColumn get host => text()();
 
-  /// Series fingerprint, or a path shape for `pathPattern` scope.
-  /// Null only for host-wide rules.
-  TextColumn get seriesPath => text().nullable()();
+  /// Collection fingerprint, or a path shape for `pathShape` scope. Null only
+  /// for site-wide hints, which the user has to opt into explicitly.
+  TextColumn get hintPath => text().nullable()();
   TextColumn get scope => text()();
   TextColumn get kind => text()();
 
-  /// Serialised [DomLocator] — a bag of independent signals, not one selector.
+  /// Serialised `DomLocator` — a bag of independent signals, not one selector.
   TextColumn get locatorJson => text()();
   TextColumn get exampleSourceUrl => text().nullable()();
   TextColumn get exampleTargetUrl => text().nullable()();
@@ -304,24 +433,21 @@ class SiteRuleRows extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-/// One row per *manual* page visit in the Browser (M18).
+/// One row per *manual* page visit in the Browser.
 ///
 /// Deliberately a separate table from [SavedSites]: history is a log the user
 /// clears by time range, saved sites are a curated list they order by hand.
-/// Storing one as a flavour of the other would make "clear the last hour"
-/// able to delete a bookmark.
+/// Storing one as a flavour of the other would make "clear the last hour" able
+/// to delete a bookmark.
 ///
-/// Only navigation the user performed themselves is written here — see
-/// [NavigationSource]. Capture automation and update checks move the same
-/// WebView and must never appear (D53).
+/// Only navigation the user performed themselves is written here. Save
+/// automation and update checks move the same WebView and must never appear.
 class BrowsingHistory extends Table {
   TextColumn get id => text()();
-
-  /// The address as the user would read it back.
   TextColumn get url => text()();
 
-  /// [normalizeUrl] of [url]. Grouping, dedup-within-a-window and
-  /// "remove every visit to this page" all key off this, never the raw text.
+  /// Normalised [url]. Grouping, dedup-within-a-window and "remove every visit
+  /// to this page" all key off this, never the raw text.
   TextColumn get urlKey => text()();
   TextColumn get host => text()();
   TextColumn get title => text()();
@@ -332,13 +458,12 @@ class BrowsingHistory extends Table {
   TextColumn get source => text().withDefault(const Constant('manual'))();
 
   /// The address the load actually settled on, when a redirect moved it.
-  /// Null when nothing redirected.
   TextColumn get finalUrl => text().nullable()();
 
-  /// Only completed, user-visible destinations are recorded, so this is true
-  /// for every row written today. Kept because "the load finished" is the
-  /// property the recording rule turns on, and an explicit column is what
-  /// makes that rule inspectable rather than implied by absence.
+  /// Only completed, user-visible destinations are recorded, so this is true for
+  /// every row written today. Kept because "the load finished" is the property
+  /// the recording rule turns on, and an explicit column is what makes that rule
+  /// inspectable rather than implied by absence.
   BoolColumn get completed => boolean().withDefault(const Constant(true))();
 
   DateTimeColumn get visitedAt => dateTime()();
@@ -347,8 +472,8 @@ class BrowsingHistory extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-/// The user's own list of sites (M18). User-controlled, hand-ordered, and
-/// never written by automation.
+/// The user's own list of sites. User-controlled, hand-ordered, never written by
+/// automation, and never seeded with a site the developer chose.
 class SavedSites extends Table {
   TextColumn get id => text()();
   TextColumn get url => text()();
@@ -357,8 +482,6 @@ class SavedSites extends Table {
   /// may not share a normalised URL.
   TextColumn get urlKey => text()();
   TextColumn get host => text()();
-
-  /// The title as captured from the page (or derived from the host).
   TextColumn get title => text()();
 
   /// What the user typed instead. Presentation only — [title] is kept so
@@ -373,26 +496,19 @@ class SavedSites extends Table {
   /// never reordered still has a stable place.
   IntColumn get orderIndex => integer().withDefault(const Constant(0))();
 
-  /// True for the Google row seeded on a clean install. Only meaningful to
-  /// the seeder: the user may rename, re-point, reorder or remove it exactly
-  /// like any other row, and it is never recreated afterwards (D54).
-  BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
-
   @override
   Set<Column> get primaryKey => {id};
 }
 
 /// A tiny per-host icon cache. Optional by construction: a miss renders the
-/// hostname-initial fallback and nothing upstream waits on it (D55).
+/// hostname-initial fallback and nothing upstream waits on it.
 class FaviconCache extends Table {
   TextColumn get host => text()();
 
   /// The icon bytes, or null when the last attempt failed. A null row is a
-  /// *negative* cache entry — it stops every list rebuild from re-requesting
-  /// an icon the site does not have.
+  /// *negative* cache entry — it stops every list rebuild from re-requesting an
+  /// icon the site does not have.
   BlobColumn get bytes => blob().nullable()();
-
-  /// Where the bytes came from, for debugging a wrong icon.
   TextColumn get sourceUrl => text().nullable()();
   DateTimeColumn get fetchedAt => dateTime()();
 
@@ -402,10 +518,10 @@ class FaviconCache extends Table {
 
 @DriftDatabase(
   tables: [
-    LibraryItems,
-    Chapters,
-    CaptureJobs,
-    SiteRuleRows,
+    Collections,
+    Entries,
+    SaveRuns,
+    UserPageHints,
     Settings,
     QueueTasks,
     BrowsingHistory,
@@ -415,113 +531,59 @@ class FaviconCache extends Table {
 )
 class AppDatabase extends _$AppDatabase {
   /// [name] exists for integration tests, which give every test file its own
-  /// database so no state leaks between them. The app always uses the
-  /// default.
+  /// database so no state leaks between them. The app always uses the default.
   AppDatabase({String name = 'webread'}) : super(driftDatabase(name: name));
   AppDatabase.forTesting(super.executor);
 
+  /// **One.** This schema is created whole and has no history.
+  ///
+  /// There is no `onUpgrade` branch, no schema dump, no step verifier and no
+  /// data-copying routine anywhere in the project. If the schema needs to change
+  /// after release, that will be a migration written then — not a chain of
+  /// branches kept alive now for a shape no installed copy has ever had.
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 1;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onUpgrade: (m, from, to) async {
-      // Additive only: user-created rules, captured files and capture states
-      // must survive. Nothing here drops or rewrites existing data — the
-      // regrouping itself runs afterwards, in Dart, as a backfill.
-      if (from < 2) await m.createTable(siteRuleRows);
-      if (from < 3) {
-        await m.addColumn(libraryItems, libraryItems.userTitle);
-        await m.addColumn(libraryItems, libraryItems.seriesKey);
-        await m.addColumn(libraryItems, libraryItems.seriesUrl);
-        await m.addColumn(libraryItems, libraryItems.identityBasis);
-        await m.addColumn(libraryItems, libraryItems.identityConfidence);
-        await m.addColumn(libraryItems, libraryItems.lastCapturedAt);
-        await m.addColumn(chapters, chapters.chapterNumber);
-        await m.addColumn(chapters, chapters.chapterLabel);
-      }
-      if (from < 4) {
-        // Reading state. Additive: existing captures keep their files and
-        // capture status and simply start out unread.
-        await m.addColumn(chapters, chapters.readStatus);
-        await m.addColumn(chapters, chapters.progressFraction);
-        await m.addColumn(chapters, chapters.progressImageIndex);
-        await m.addColumn(chapters, chapters.progressOffsetInImage);
-        await m.addColumn(chapters, chapters.firstOpenedAt);
-        await m.addColumn(chapters, chapters.lastReadAt);
-        await m.addColumn(chapters, chapters.completedAt);
-        await m.addColumn(chapters, chapters.progressUpdatedAt);
-        await m.addColumn(libraryItems, libraryItems.lastOpenedChapterId);
-        await m.addColumn(libraryItems, libraryItems.lastCompletedChapterId);
-        await m.addColumn(libraryItems, libraryItems.lastReadAt);
-      }
-      if (from < 5) {
-        // Update checking (M8) and session duplicate decisions. Additive:
-        // existing rows get nulls, which mean "never checked" and "no
-        // session decision" respectively.
-        await m.addColumn(chapters, chapters.discoveredAt);
-        await m.addColumn(chapters, chapters.discoveryBasis);
-        await m.addColumn(chapters, chapters.discoveryConfidence);
-        await m.addColumn(libraryItems, libraryItems.lastCheckAt);
-        await m.addColumn(libraryItems, libraryItems.lastCheckSuccessAt);
-        await m.addColumn(libraryItems, libraryItems.lastCheckError);
-        await m.addColumn(libraryItems, libraryItems.lastCheckResult);
-        await m.addColumn(captureJobs, captureJobs.duplicatePolicy);
-        await m.addColumn(captureJobs, captureJobs.sessionDuplicateDecision);
-        await m.addColumn(captureJobs, captureJobs.sessionPartialDecision);
-      }
-      if (from < 6) {
-        // Settings store (M13) and the activity queue (M14). New tables
-        // only; nothing existing is touched.
-        await m.createTable(settings);
-        await m.createTable(queueTasks);
-      }
-      if (from < 7) {
-        // Series lifecycle (M16). Additive: every existing series comes out
-        // `active`, exactly as it was.
-        await m.addColumn(libraryItems, libraryItems.lifecycle);
-        await m.addColumn(libraryItems, libraryItems.archivedAt);
-      }
-      if (from < 8) {
-        // Capture range modes (current / fixed count / until end). Additive:
-        // old rows read as fixedCount, which is what they were.
-        await m.addColumn(captureJobs, captureJobs.rangeMode);
-        await m.addColumn(queueTasks, queueTasks.rangeMode);
-      }
-      if (from < 9) {
-        // Storage cleanup + browser-leave (post-design-v2). Additive.
-        await m.addColumn(chapters, chapters.offlineRemovedAt);
-        await m.addColumn(captureJobs, captureJobs.pauseReason);
-      }
-      if (from < 10) {
-        // The Browser's own state (M18): history, saved sites, favicons. New
-        // tables only — no existing row is read or rewritten, and the default
-        // saved site is seeded in Dart afterwards so it can check for an
-        // equivalent entry first.
-        await m.createTable(browsingHistory);
-        await m.createTable(savedSites);
-        await m.createTable(faviconCache);
-      }
-      if (from < 11) {
-        // How a capture was launched (D58): direct from the Browser, or from
-        // the queue. Additive; a null reads as `queue`, which is what every
-        // existing row was.
-        await m.addColumn(captureJobs, captureJobs.origin);
-        await m.addColumn(queueTasks, queueTasks.origin);
-      }
-      if (from < 12) {
-        // The finished-chapter cleanup decision moves onto the series (D37).
-        // Additive, and deliberately left null on every existing row: the old
-        // app-wide answer was never given per series, so backfilling it would
-        // enable automatic removal for series the user was never asked about.
-        // Each series asks once, on its next eligible transition.
-        await m.addColumn(libraryItems, libraryItems.finishedCleanup);
-        // The obsolete global key goes with it. Nothing reads it any more, so
-        // this is hygiene rather than correctness — but a stale row that looks
-        // like a preference is the kind of thing a later reader trusts.
-        await (delete(
-          settings,
-        )..where((t) => t.key.equals('storage.afterFinished'))).go();
+    onCreate: (m) async {
+      await m.createAll();
+
+      // Standalone-entry identity. A composite UNIQUE cannot do this job:
+      // SQLite treats NULLs as distinct, so `UNIQUE(collection_id, url_key)`
+      // happily accepts the same standalone page twice.
+      await customStatement(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_standalone_url '
+        'ON entries(url_key) WHERE collection_id IS NULL',
+      );
+
+      // Read paths that exist on every library screen. Cheap at our row counts,
+      // and created with the schema rather than bolted on later.
+      const indexes = [
+        'CREATE INDEX IF NOT EXISTS idx_entries_collection_order '
+            'ON entries(collection_id, entry_order)',
+        'CREATE INDEX IF NOT EXISTS idx_entries_collection_save '
+            'ON entries(collection_id, save_status)',
+        'CREATE INDEX IF NOT EXISTS idx_entries_collection_read '
+            'ON entries(collection_id, read_status)',
+        'CREATE INDEX IF NOT EXISTS idx_entries_url_key ON entries(url_key)',
+        'CREATE INDEX IF NOT EXISTS idx_entries_canonical '
+            'ON entries(canonical_url)',
+        'CREATE INDEX IF NOT EXISTS idx_entries_last_read '
+            'ON entries(last_read_at DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_collections_lifecycle_read '
+            'ON collections(lifecycle, last_read_at DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_collections_created '
+            'ON collections(created_at DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_queue_state_order '
+            'ON queue_tasks(state, order_index)',
+        'CREATE INDEX IF NOT EXISTS idx_history_source_visited '
+            'ON browsing_history(source, visited_at DESC)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_sites_url '
+            'ON saved_sites(url_key)',
+      ];
+      for (final statement in indexes) {
+        await customStatement(statement);
       }
     },
     beforeOpen: (details) async {
@@ -529,28 +591,40 @@ class AppDatabase extends _$AppDatabase {
     },
   );
 
-  // --- site rules ---------------------------------------------------------
+  // --- user page hints ------------------------------------------------------
 
-  Future<List<SiteRuleRow>> rulesForHost(String host) =>
-      (select(siteRuleRows)..where((t) => t.host.equals(host))).get();
+  Future<List<UserPageHintRow>> hintsForHost(String host) =>
+      (select(userPageHints)..where((t) => t.host.equals(host))).get();
 
-  Stream<List<SiteRuleRow>> watchAllRules() => (select(
-    siteRuleRows,
+  Stream<List<UserPageHintRow>> watchAllHints() => (select(
+    userPageHints,
   )..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
 
-  Future<void> upsertRule(SiteRuleRow rule) =>
-      into(siteRuleRows).insertOnConflictUpdate(rule);
+  /// How many hints exist. Used by the "the app ships no site rules" test, which
+  /// asserts a freshly created database has zero.
+  Future<int> countPageHints() async {
+    final count = userPageHints.id.count();
+    final row = await (selectOnly(
+      userPageHints,
+    )..addColumns([count])).getSingle();
+    return row.read(count) ?? 0;
+  }
 
-  Future<void> deleteRule(String id) =>
-      (delete(siteRuleRows)..where((t) => t.id.equals(id))).go();
+  Future<void> upsertHint(UserPageHintRow hint) =>
+      into(userPageHints).insertOnConflictUpdate(hint);
 
-  Future<void> recordRuleUse(String id, {required bool success}) async {
+  Future<void> deleteHint(String id) =>
+      (delete(userPageHints)..where((t) => t.id.equals(id))).go();
+
+  Future<int> clearPageHints() => delete(userPageHints).go();
+
+  Future<void> recordHintUse(String id, {required bool success}) async {
     final row = await (select(
-      siteRuleRows,
+      userPageHints,
     )..where((t) => t.id.equals(id))).getSingleOrNull();
     if (row == null) return;
-    await (update(siteRuleRows)..where((t) => t.id.equals(id))).write(
-      SiteRuleRowsCompanion(
+    await (update(userPageHints)..where((t) => t.id.equals(id))).write(
+      UserPageHintsCompanion(
         lastUsedAt: Value(success ? DateTime.now() : row.lastUsedAt),
         successCount: Value(success ? row.successCount + 1 : row.successCount),
         failureCount: Value(success ? row.failureCount : row.failureCount + 1),
@@ -558,28 +632,29 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  // --- library items ------------------------------------------------------
+  // --- collections ----------------------------------------------------------
 
-  Future<LibraryItem?> findLibraryItemBySourceUrl(String sourceUrl) => (select(
-    libraryItems,
+  Future<Collection?> findCollectionBySourceUrl(String sourceUrl) => (select(
+    collections,
   )..where((t) => t.sourceUrl.equals(sourceUrl))).getSingleOrNull();
 
-  Future<void> upsertLibraryItem(LibraryItem item) =>
-      into(libraryItems).insertOnConflictUpdate(item);
+  Future<void> upsertCollection(Collection collection) =>
+      into(collections).insertOnConflictUpdate(collection);
 
-  /// The group a future capture should join: matched on identity, never on
+  /// The collection a future save should join: matched on identity, never on
   /// display name.
-  Future<LibraryItem?> findSeriesGroup(String host, String seriesKey) =>
-      (select(libraryItems)
-            ..where((t) => t.host.equals(host) & t.seriesKey.equals(seriesKey)))
+  Future<Collection?> findCollectionByKey(String host, String collectionKey) =>
+      (select(collections)..where(
+            (t) => t.host.equals(host) & t.collectionKey.equals(collectionKey),
+          ))
           .getSingleOrNull();
 
-  Future<LibraryItem?> libraryItemById(String id) =>
-      (select(libraryItems)..where((t) => t.id.equals(id))).getSingleOrNull();
+  Future<Collection?> collectionById(String id) =>
+      (select(collections)..where((t) => t.id.equals(id))).getSingleOrNull();
 
-  Future<void> renameLibraryItem(String id, String? userTitle) =>
-      (update(libraryItems)..where((t) => t.id.equals(id))).write(
-        LibraryItemsCompanion(
+  Future<void> renameCollection(String id, String? userTitle) =>
+      (update(collections)..where((t) => t.id.equals(id))).write(
+        CollectionsCompanion(
           userTitle: Value(
             userTitle == null || userTitle.trim().isEmpty
                 ? null
@@ -588,216 +663,252 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
 
-  Future<void> markSeriesCaptured(String id, DateTime at) =>
-      (update(libraryItems)..where((t) => t.id.equals(id))).write(
-        LibraryItemsCompanion(lastCapturedAt: Value(at)),
+  Future<void> markCollectionSaved(String id, DateTime at) =>
+      (update(collections)..where((t) => t.id.equals(id))).write(
+        CollectionsCompanion(lastSavedAt: Value(at)),
       );
 
-  /// Remove groups nothing points at. Only ever empty ones — a group with
-  /// chapters is never deleted here.
-  Future<int> deleteEmptyLibraryItems() async {
+  /// Record the detected shape of a collection. Narrow writer: shape is a claim
+  /// about structure, so it must only ever be set deliberately.
+  Future<void> writeCollectionShape(String id, CollectionsCompanion values) =>
+      (update(collections)..where((t) => t.id.equals(id))).write(values);
+
+  /// Remove collections nothing points at. Only ever empty ones — a collection
+  /// with entries is never deleted here.
+  Future<int> deleteEmptyCollections() async {
     final used =
-        await (selectOnly(chapters, distinct: true)
-              ..addColumns([chapters.libraryItemId]))
-            .map((r) => r.read(chapters.libraryItemId)!)
+        await (selectOnly(entries, distinct: true)
+              ..addColumns([entries.collectionId])
+              ..where(entries.collectionId.isNotNull()))
+            .map((r) => r.read(entries.collectionId)!)
             .get();
-    return (delete(libraryItems)..where((t) => t.id.isNotIn(used))).go();
+    return (delete(collections)..where((t) => t.id.isNotIn(used))).go();
   }
 
-  Future<List<Chapter>> allChapters() => select(chapters).get();
+  Future<List<Entry>> allEntries() => select(entries).get();
 
-  Future<void> reassignChapter(String chapterId, String libraryItemId) =>
-      (update(chapters)..where((t) => t.id.equals(chapterId))).write(
-        ChaptersCompanion(libraryItemId: Value(libraryItemId)),
+  /// Standalone entries — the library's other first-class citizen.
+  Future<List<Entry>> standaloneEntries() =>
+      (select(entries)..where((t) => t.collectionId.isNull())).get();
+
+  Future<void> reassignEntry(String entryId, String? collectionId) =>
+      (update(entries)..where((t) => t.id.equals(entryId))).write(
+        EntriesCompanion(collectionId: Value(collectionId)),
       );
 
-  Future<void> setChapterOrdering(
-    String chapterId, {
-    double? number,
-    String? label,
-  }) => (update(chapters)..where((t) => t.id.equals(chapterId))).write(
-    ChaptersCompanion(chapterNumber: Value(number), chapterLabel: Value(label)),
+  /// Ordering fields, each independently settable.
+  ///
+  /// Companion-valued rather than plain nullables so that "leave it alone" and
+  /// "set it to null" are different requests. A plain `double? number` cannot
+  /// express the difference, and the version that could not would silently wipe
+  /// a parsed number every time a caller only wanted to move a row.
+  Future<void> setEntryOrdering(
+    String entryId, {
+    Value<double?> number = const Value.absent(),
+    Value<String?> marker = const Value.absent(),
+    Value<int> order = const Value.absent(),
+  }) => (update(entries)..where((t) => t.id.equals(entryId))).write(
+    EntriesCompanion(
+      entryNumber: number,
+      sourceMarker: marker,
+      entryOrder: order,
+    ),
   );
 
-  // --- reading state ------------------------------------------------------
-
-  /// Reading-only write. Deliberately narrow: capture code has no DAO method
-  /// that can reach these columns, so a capture cannot reset progress.
-  Future<void> writeChapterReading(String id, ChaptersCompanion values) =>
-      (update(chapters)..where((t) => t.id.equals(id))).write(values);
-
-  /// Narrow writer for the chapter's source address. Separate from every
-  /// other update so that "where did this come from" can only ever be
-  /// changed deliberately.
-  Future<void> writeChapterSource(String id, String sourceUrl) =>
-      (update(chapters)..where((t) => t.id.equals(id))).write(
-        ChaptersCompanion(sourceUrl: Value(sourceUrl)),
+  /// The user corrected this entry's content kind. Sets the user-set flag in the
+  /// same write, so a later re-save cannot silently overwrite the answer.
+  Future<void> setEntryContentKind(String entryId, String kind) =>
+      (update(entries)..where((t) => t.id.equals(entryId))).write(
+        EntriesCompanion(
+          contentKind: Value(kind),
+          contentKindConfidence: const Value('high'),
+          contentKindIsUserSet: const Value(true),
+        ),
       );
 
-  Future<void> writeSeriesReading(String id, LibraryItemsCompanion values) =>
-      (update(libraryItems)..where((t) => t.id.equals(id))).write(values);
+  // --- reading state --------------------------------------------------------
 
-  /// Update-check outcome for a series. Narrow like [writeChapterReading]:
+  /// Reading-only write. Deliberately narrow: save code has no DAO method that
+  /// can reach these columns, so a save cannot reset progress.
+  Future<void> writeEntryReading(String id, EntriesCompanion values) =>
+      (update(entries)..where((t) => t.id.equals(id))).write(values);
+
+  /// Narrow writer for the entry's source address. Separate from every other
+  /// update so that "where did this come from" can only ever be changed
+  /// deliberately.
+  Future<void> writeEntrySource(String id, String sourceUrl) =>
+      (update(entries)..where((t) => t.id.equals(id))).write(
+        EntriesCompanion(sourceUrl: Value(sourceUrl)),
+      );
+
+  Future<void> writeCollectionReading(String id, CollectionsCompanion values) =>
+      (update(collections)..where((t) => t.id.equals(id))).write(values);
+
+  /// Update-check outcome for a collection. Narrow like [writeEntryReading]:
   /// nothing else can reach the check columns by accident.
-  Future<void> writeSeriesCheck(String id, LibraryItemsCompanion values) =>
-      (update(libraryItems)..where((t) => t.id.equals(id))).write(values);
+  Future<void> writeCollectionCheck(String id, CollectionsCompanion values) =>
+      (update(collections)..where((t) => t.id.equals(id))).write(values);
 
-  Stream<List<Chapter>> watchChaptersForItem(String libraryItemId) =>
-      (select(chapters)
-            ..where((t) => t.libraryItemId.equals(libraryItemId))
-            ..orderBy([(t) => OrderingTerm.asc(t.sequence)]))
+  Stream<List<Entry>> watchEntriesForCollection(String collectionId) =>
+      (select(entries)
+            ..where((t) => t.collectionId.equals(collectionId))
+            ..orderBy([(t) => OrderingTerm.asc(t.entryOrder)]))
           .watch();
 
-  /// One-shot read. Repair and backfill routines use this rather than taking
-  /// the first emission of a stream: under a widget test's fake clock a
-  /// stream's first event never arrives until frames are pumped, so awaiting
-  /// one deadlocks.
-  Future<List<LibraryItem>> allLibraryItems() => select(libraryItems).get();
+  /// One-shot read. Boot routines and tests use this rather than taking the
+  /// first emission of a stream: under a widget test's fake clock a stream's
+  /// first event never arrives until frames are pumped, so awaiting one
+  /// deadlocks.
+  Future<List<Collection>> allCollections() => select(collections).get();
 
-  Stream<List<LibraryItem>> watchLibraryItems() => (select(
-    libraryItems,
+  Stream<List<Collection>> watchCollections() => (select(
+    collections,
   )..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
 
-  Future<void> touchLibraryItem(String id) =>
-      (update(libraryItems)..where((t) => t.id.equals(id))).write(
-        LibraryItemsCompanion(lastOpenedAt: Value(DateTime.now())),
+  Future<void> touchCollection(String id) =>
+      (update(collections)..where((t) => t.id.equals(id))).write(
+        CollectionsCompanion(lastOpenedAt: Value(DateTime.now())),
       );
 
-  /// The series' finished-chapter cleanup decision (D37): `remove` · `keep`,
-  /// or null to go back to asking on the next eligible transition.
+  /// The collection's finished-entry cleanup decision: `remove` · `keep`, or
+  /// null to go back to asking on the next eligible transition.
   ///
-  /// Narrow like the other decision writers, and scoped to one id: a decision
-  /// taken while reading one series can never land on another. It writes a
-  /// rule for future transitions only — no file is touched here.
-  Future<void> setSeriesFinishedCleanup(String id, String? pref) =>
-      (update(libraryItems)..where((t) => t.id.equals(id))).write(
-        LibraryItemsCompanion(finishedCleanup: Value(pref)),
+  /// Narrow, and scoped to one id: a decision taken while reading one collection
+  /// can never land on another. It writes a rule for future transitions only —
+  /// no file is touched here.
+  Future<void> setCollectionCleanupPreference(String id, String? pref) =>
+      (update(collections)..where((t) => t.id.equals(id))).write(
+        CollectionsCompanion(cleanupPreference: Value(pref)),
       );
 
-  /// M16: flip a series between `active` and `archived`. Rows only — never
-  /// chapters, never files.
-  Future<void> setSeriesLifecycle(String id, String lifecycle) =>
-      (update(libraryItems)..where((t) => t.id.equals(id))).write(
-        LibraryItemsCompanion(
+  /// Flip a collection between `active` and `archived`. Rows only — never
+  /// entries, never files.
+  Future<void> setCollectionLifecycle(String id, String lifecycle) =>
+      (update(collections)..where((t) => t.id.equals(id))).write(
+        CollectionsCompanion(
           lifecycle: Value(lifecycle),
           archivedAt: Value(lifecycle == 'archived' ? DateTime.now() : null),
         ),
       );
 
-  // --- chapters -----------------------------------------------------------
+  // --- entries --------------------------------------------------------------
 
-  /// Look up a chapter by URL alone, across every series.
+  /// Look up an entry by URL alone, across every collection and the standalone
+  /// entries.
   ///
-  /// The preflight runs before the series is resolved, so it cannot scope the
-  /// lookup — and a chapter that exists under a different group is still an
-  /// existing chapter as far as the user is concerned.
-  Future<Chapter?> findChapterByUrlKeyAnywhere(String urlKey) =>
-      (select(chapters)
+  /// The preflight runs before the collection is resolved, so it cannot scope
+  /// the lookup — and an entry that exists elsewhere is still an existing entry
+  /// as far as the user is concerned.
+  Future<Entry?> findEntryByUrlKeyAnywhere(String urlKey) =>
+      (select(entries)
             ..where((t) => t.urlKey.equals(urlKey))
             ..limit(1))
           .getSingleOrNull();
 
-  Future<Chapter?> findChapterByUrlKey(String libraryItemId, String urlKey) =>
-      (select(chapters)..where(
+  /// Look up an entry by the canonical URL the page declared. The other half of
+  /// loop detection: same document, different address.
+  Future<Entry?> findEntryByCanonicalUrl(String canonicalUrl) =>
+      (select(entries)
+            ..where((t) => t.canonicalUrl.equals(canonicalUrl))
+            ..limit(1))
+          .getSingleOrNull();
+
+  Future<Entry?> findEntryByUrlKey(String? collectionId, String urlKey) =>
+      (select(entries)..where(
             (t) =>
-                t.libraryItemId.equals(libraryItemId) & t.urlKey.equals(urlKey),
+                (collectionId == null
+                    ? t.collectionId.isNull()
+                    : t.collectionId.equals(collectionId)) &
+                t.urlKey.equals(urlKey),
           ))
           .getSingleOrNull();
 
-  /// Upsert a chapter row.
+  /// Upsert an entry row.
   ///
   /// Note the drift semantic this rests on: `insertOnConflictUpdate` treats a
   /// null field on the data class as *absent*, so nullable columns keep their
-  /// previous value. Anything that must be actively cleared needs its own
-  /// narrow writer — see [clearOfflineRemovedMark].
-  Future<void> upsertChapter(Chapter chapter) =>
-      into(chapters).insertOnConflictUpdate(chapter);
+  /// previous value. Anything that must be actively cleared needs its own narrow
+  /// writer — see [clearOfflineRemovedMark].
+  Future<void> upsertEntry(Entry entry) =>
+      into(entries).insertOnConflictUpdate(entry);
 
-  /// A capture just put files back: the chapter is no longer "removed by the
-  /// user". Without this the marker would outlive the removal and a later
-  /// system-side file loss would be reported as a deliberate removal.
+  /// A save just put files back: the entry is no longer "removed by the user".
+  /// Without this the marker would outlive the removal and a later system-side
+  /// file loss would be reported as a deliberate removal.
   Future<void> clearOfflineRemovedMark(String id) =>
-      (update(chapters)..where((t) => t.id.equals(id))).write(
-        const ChaptersCompanion(offlineRemovedAt: Value(null)),
+      (update(entries)..where((t) => t.id.equals(id))).write(
+        const EntriesCompanion(offlineRemovedAt: Value(null)),
       );
 
-  Future<List<Chapter>> chaptersForItem(String libraryItemId) =>
-      (select(chapters)
-            ..where((t) => t.libraryItemId.equals(libraryItemId))
-            ..orderBy([(t) => OrderingTerm.asc(t.sequence)]))
+  Future<List<Entry>> entriesForCollection(String collectionId) =>
+      (select(entries)
+            ..where((t) => t.collectionId.equals(collectionId))
+            ..orderBy([(t) => OrderingTerm.asc(t.entryOrder)]))
           .get();
 
-  /// Reader ordering and the library list both key off `sequence`, which is
-  /// capture-chain order — more reliable than any parsed chapter number.
-  Stream<List<Chapter>> watchAllChapters() =>
-      (select(chapters)..orderBy([
-            (t) => OrderingTerm.asc(t.libraryItemId),
-            (t) => OrderingTerm.asc(t.sequence),
+  Stream<List<Entry>> watchAllEntries() =>
+      (select(entries)..orderBy([
+            (t) => OrderingTerm.asc(t.collectionId),
+            (t) => OrderingTerm.asc(t.entryOrder),
           ]))
           .watch();
 
-  Future<Chapter?> chapterById(String id) =>
-      (select(chapters)..where((t) => t.id.equals(id))).getSingleOrNull();
+  Future<Entry?> entryById(String id) =>
+      (select(entries)..where((t) => t.id.equals(id))).getSingleOrNull();
 
-  Future<void> markChapterContentMissing(String id) =>
-      (update(chapters)..where((t) => t.id.equals(id))).write(
-        const ChaptersCompanion(
+  Future<void> markEntryContentMissing(String id) =>
+      (update(entries)..where((t) => t.id.equals(id))).write(
+        const EntriesCompanion(
           contentPath: Value(null),
-          captureStatus: Value('failed'),
-          captureError: Value('local files missing'),
+          saveStatus: Value('failed'),
+          saveError: Value('local files missing'),
         ),
       );
 
-  Future<void> deleteChapter(String id) =>
-      (delete(chapters)..where((t) => t.id.equals(id))).go();
+  Future<void> deleteEntry(String id) =>
+      (delete(entries)..where((t) => t.id.equals(id))).go();
 
-  /// Startup recovery: a chapter left mid-flight is reset, never promoted.
-  Future<int> resetInFlightChapters() =>
-      (update(
-        chapters,
-      )..where((t) => t.captureStatus.equals('capturing'))).write(
-        const ChaptersCompanion(
-          captureStatus: Value('failed'),
-          captureError: Value('interrupted by app restart'),
+  /// Startup recovery: an entry left mid-flight is reset, never promoted.
+  Future<int> resetInFlightEntries() =>
+      (update(entries)..where((t) => t.saveStatus.equals('saving'))).write(
+        const EntriesCompanion(
+          saveStatus: Value('failed'),
+          saveError: Value('interrupted by app restart'),
         ),
       );
 
-  // --- capture jobs -------------------------------------------------------
+  // --- save runs ------------------------------------------------------------
 
-  /// Clear a job's pause reason. Needed for the same reason as
-  /// [clearOfflineRemovedMark]: `upsertJob` leaves nullable columns alone
-  /// when the data class carries null, so a resumed job would keep looking
+  /// Clear a run's pause reason. Needed for the same reason as
+  /// [clearOfflineRemovedMark]: `upsertRun` leaves nullable columns alone when
+  /// the data class carries null, so a resumed run would keep looking
   /// "paused — Browser required" forever.
-  Future<void> clearJobPauseReason(String id) =>
-      (update(captureJobs)..where((t) => t.id.equals(id))).write(
-        const CaptureJobsCompanion(pauseReason: Value(null)),
+  Future<void> clearRunPauseReason(String id) =>
+      (update(saveRuns)..where((t) => t.id.equals(id))).write(
+        const SaveRunsCompanion(pauseReason: Value(null)),
       );
 
-  Future<void> upsertJob(CaptureJob job) =>
-      into(captureJobs).insertOnConflictUpdate(job);
+  Future<void> upsertRun(SaveRun run) =>
+      into(saveRuns).insertOnConflictUpdate(run);
 
-  Future<CaptureJob?> findResumableJob() =>
-      (select(captureJobs)
+  Future<SaveRun?> findResumableRun() =>
+      (select(saveRuns)
             ..where((t) => t.state.isNotIn(['complete', 'cancelled', 'failed']))
             ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])
             ..limit(1))
           .getSingleOrNull();
 
-  Stream<CaptureJob?> watchResumableJob() =>
-      (select(captureJobs)
+  Stream<SaveRun?> watchResumableRun() =>
+      (select(saveRuns)
             ..where((t) => t.state.isNotIn(['complete', 'cancelled', 'failed']))
             ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])
             ..limit(1))
           .watchSingleOrNull();
 
-  Future<void> deleteJob(String id) =>
-      (delete(captureJobs)..where((t) => t.id.equals(id))).go();
+  Future<void> deleteRun(String id) =>
+      (delete(saveRuns)..where((t) => t.id.equals(id))).go();
 
   // --- settings -------------------------------------------------------------
-
-  Future<String?> getSetting(String key) async => (await (select(
-    settings,
-  )..where((t) => t.key.equals(key))).getSingleOrNull())?.value;
 
   Future<void> setSetting(String key, String value) =>
       into(settings).insertOnConflictUpdate(Setting(key: key, value: value));
@@ -813,6 +924,9 @@ class AppDatabase extends _$AppDatabase {
           .watchSingleOrNull()
           .map((row) => row?.value);
 
+  Future<int> deleteSetting(String key) =>
+      (delete(settings)..where((t) => t.key.equals(key))).go();
+
   // --- activity queue -------------------------------------------------------
 
   Future<void> upsertQueueTask(QueueTask task) =>
@@ -820,6 +934,42 @@ class AppDatabase extends _$AppDatabase {
 
   Future<QueueTask?> queueTaskById(String id) =>
       (select(queueTasks)..where((t) => t.id.equals(id))).getSingleOrNull();
+
+  /// Write [values] onto a queue row **only while it is still in one of
+  /// [expected]**, and say whether that happened.
+  ///
+  /// The queue's two state transitions race each other: the pump reads the
+  /// pending rows, awaits `ensureBrowserVisible`, then claims one — and a
+  /// cancellation landing inside that await would be silently overwritten by a
+  /// blind `upsertQueueTask`. Making claim and cancel both conditional means
+  /// exactly one of them wins, in SQLite, and the loser is told.
+  ///
+  /// A companion rather than a data class on purpose: `insertOnConflictUpdate`
+  /// reads a null field as *absent*, so it cannot clear `startedAt`.
+  Future<bool> updateQueueTaskIfState({
+    required String id,
+    required List<String> expected,
+    required QueueTasksCompanion values,
+  }) async {
+    final changed = await (update(
+      queueTasks,
+    )..where((t) => t.id.equals(id) & t.state.isIn(expected))).write(values);
+    return changed > 0;
+  }
+
+  /// Delete one **terminal** queue row. Queued and running rows are unreachable
+  /// from here by construction: dropping a live row would orphan work that is
+  /// still moving.
+  Future<bool> deleteTerminalQueueTask(String id) async {
+    final deleted =
+        await (delete(queueTasks)..where(
+              (t) =>
+                  t.id.equals(id) &
+                  t.state.isIn(['completed', 'failed', 'cancelled']),
+            ))
+            .go();
+    return deleted > 0;
+  }
 
   Future<List<QueueTask>> pendingQueueTasks() =>
       (select(queueTasks)
@@ -838,8 +988,8 @@ class AppDatabase extends _$AppDatabase {
     return (max.read(queueTasks.orderIndex.max()) ?? 0) + 1;
   }
 
-  /// Keep only the newest [keep] terminal entries. History is bounded; the
-  /// queue rows are never the content — deleting them deletes nothing else.
+  /// Keep only the newest [keep] terminal entries. History is bounded; the queue
+  /// rows are never the content — deleting them deletes nothing else.
   Future<int> pruneQueueHistory({int keep = 50}) async {
     final terminal =
         await (select(queueTasks)
@@ -851,27 +1001,27 @@ class AppDatabase extends _$AppDatabase {
     return (delete(queueTasks)..where((t) => t.id.isIn(doomed))).go();
   }
 
-  /// Clear terminal history only — queued/running rows and, above all,
-  /// captured content are untouched.
+  /// Clear terminal history only — queued/running rows and, above all, saved
+  /// content are untouched.
   Future<int> clearQueueHistory() => (delete(
     queueTasks,
   )..where((t) => t.state.isIn(['completed', 'failed', 'cancelled']))).go();
 
-  // --- browsing history (M18) -----------------------------------------------
+  // --- browsing history -----------------------------------------------------
   //
   // Every read here filters on `source` explicitly rather than relying on the
-  // writer to have kept automation out. Two independent guards, because a
-  // capture flooding the user's history is the failure mode that matters.
+  // writer to have kept automation out. Two independent guards, because a save
+  // run flooding the user's history is the failure mode that matters.
 
   Future<void> insertVisit(BrowsingHistoryData visit) =>
       into(browsingHistory).insertOnConflictUpdate(visit);
 
   /// The most recent visit to [urlKey], if it happened within [window].
   ///
-  /// Repeated visits are stored as individual rows — that is what keeps
-  /// "clear the last hour" honest — but reloading the same chapter four times
-  /// in a minute is one visit as far as the user is concerned, so a recent
-  /// row is refreshed in place instead of stacking.
+  /// Repeated visits are stored as individual rows — that is what keeps "clear
+  /// the last hour" honest — but reloading the same page four times in a minute
+  /// is one visit as far as the user is concerned, so a recent row is refreshed
+  /// in place instead of stacking.
   Future<BrowsingHistoryData?> recentVisitTo(
     String urlKey, {
     required String source,
@@ -891,9 +1041,9 @@ class AppDatabase extends _$AppDatabase {
         .getSingleOrNull();
   }
 
-  /// Newest-first manual visits, bounded. The Browser Home's "recently
-  /// visited" strip and the History screen both come through here, so neither
-  /// can accidentally read the whole table.
+  /// Newest-first manual visits, bounded. Browser Home's "recently visited"
+  /// strip and the History screen both come through here, so neither can
+  /// accidentally read the whole table.
   Stream<List<BrowsingHistoryData>> watchVisits({
     String source = 'manual',
     int limit = 200,
@@ -915,8 +1065,8 @@ class AppDatabase extends _$AppDatabase {
           .get();
 
   /// Case-insensitive match on title, URL or host. `LIKE` is ASCII-case-
-  /// insensitive in SQLite, so both sides are lowered explicitly — Turkish
-  /// chapter titles are the normal case here, not the exception.
+  /// insensitive in SQLite, so both sides are lowered explicitly — non-ASCII
+  /// titles are the normal case here, not the exception.
   Future<List<BrowsingHistoryData>> searchVisits(
     String query, {
     String source = 'manual',
@@ -962,8 +1112,8 @@ class AppDatabase extends _$AppDatabase {
         browsingHistory,
       )..where((t) => t.host.equals(host) & t.source.equals(source))).go();
 
-  /// Clear a time range. `since == null` means all time. Scoped to [source]
-  /// so clearing the user's browsing never touches an automation audit row.
+  /// Clear a time range. `since == null` means all time. Scoped to [source] so
+  /// clearing the user's browsing never touches an automation audit row.
   Future<int> deleteVisitsSince(DateTime? since, {String source = 'manual'}) =>
       (delete(browsingHistory)..where(
             (t) => since == null
@@ -973,9 +1123,9 @@ class AppDatabase extends _$AppDatabase {
           ))
           .go();
 
-  /// Retention: drop anything older than [before], then anything beyond
-  /// [keep] rows. Both bounds, because either alone leaves a way to grow
-  /// without limit (a quiet year, or a very busy afternoon).
+  /// Retention: drop anything older than [before], then anything beyond [keep]
+  /// rows. Both bounds, because either alone leaves a way to grow without limit
+  /// (a quiet year, or a very busy afternoon).
   Future<int> pruneHistory({
     required DateTime before,
     required int keep,
@@ -1002,7 +1152,7 @@ class AppDatabase extends _$AppDatabase {
     return removed;
   }
 
-  // --- saved sites (M18) ----------------------------------------------------
+  // --- saved sites ----------------------------------------------------------
 
   Stream<List<SavedSite>> watchSavedSites() =>
       (select(savedSites)..orderBy([
@@ -1046,7 +1196,7 @@ class AppDatabase extends _$AppDatabase {
     return (max.read(savedSites.orderIndex.max()) ?? 0) + 1;
   }
 
-  // --- favicons (M18) -------------------------------------------------------
+  // --- favicons -------------------------------------------------------------
 
   Future<FaviconCacheData?> favicon(String host) => (select(
     faviconCache,

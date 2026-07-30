@@ -7,9 +7,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 import 'package:web_reader/browser/browser_controller.dart';
-import 'package:web_reader/capture/capture_job.dart';
+import 'package:web_reader/save/save_run.dart';
 import 'package:web_reader/features/reader_screen.dart';
-import 'package:web_reader/features/series_detail_screen.dart';
+import 'package:web_reader/features/collection_detail_screen.dart';
 import 'package:web_reader/providers.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
@@ -18,7 +18,7 @@ import 'package:web_reader/storage/manifest.dart';
 
 import '../tool/fixture/fixture_site.dart';
 
-/// Swiping right in the reader goes back to the series' episode list.
+/// Swiping right in the reader goes back to the collection's entry list.
 ///
 /// The two things that make this correct rather than merely present: the
 /// gesture must not fire on ordinary reading (which is vertical), and the
@@ -46,28 +46,32 @@ void main() {
   });
 
   Future<void> seed() async {
-    await db.upsertLibraryItem(
-      LibraryItem(
+    await db.upsertCollection(
+      Collection(
+        contentKind: 'unknownWebContent',
+        sequenceKind: 'none',
+        orderingBasis: 'discoveryOrder',
+        shapeConfidence: 'low',
         lifecycle: 'active',
-        id: 'series-1',
-        title: 'Fixture Series',
-        sourceUrl: 'https://x.example/manga/foo',
+        id: 'collection-1',
+        title: 'Fixture Collection',
+        sourceUrl: 'https://x.example/guide/foo',
         host: 'x.example',
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         createdAt: DateTime(2026, 7, 1),
       ),
     );
-    final staging = await store.beginChapter(
-      libraryItemId: 'series-1',
-      chapterId: 'c1',
+    final staging = await store.beginEntry(
+      collectionId: 'collection-1',
+      entryId: 'c1',
     );
-    final entries = <AssetEntry>[];
+    final entries = <EntryAsset>[];
     for (var i = 1; i <= 3; i++) {
       await staging
           .assetFile('00$i.png')
-          .writeAsBytes(panelPng(chapter: 1, index: i));
+          .writeAsBytes(panelPng(entry: 1, index: i));
       entries.add(
-        AssetEntry(
+        EntryAsset(
           index: i,
           sourceUrl: 'https://cdn.example/$i.png',
           status: AssetStatus.stored,
@@ -80,39 +84,43 @@ void main() {
     }
     final relative = await store.commit(
       staging,
-      ChapterManifest(
+      EntryManifest(
         schemaVersion: 1,
-        chapterId: 'c1',
-        libraryItemId: 'series-1',
-        sourceUrl: 'https://x.example/manga/foo/1',
-        title: 'Foo Chapter 1',
-        capturedAt: DateTime(2026, 7, 20),
-        status: CaptureStatus.complete,
-        detectedImageCount: 3,
-        storedImageCount: 3,
+        entryId: 'c1',
+        collectionId: 'collection-1',
+        sourceUrl: 'https://x.example/guide/foo/1',
+        title: 'Foo Entry 1',
+        savedAt: DateTime(2026, 7, 20),
+        status: SaveStatus.complete,
+        detectedAssetCount: 3,
+        storedAssetCount: 3,
         assets: entries,
       ),
     );
-    await db.upsertChapter(
-      Chapter(
+    await db.upsertEntry(
+      Entry(
+        host: '',
+        contentKind: 'unknownWebContent',
+        contentKindConfidence: 'low',
+        contentKindIsUserSet: false,
         id: 'c1',
-        libraryItemId: 'series-1',
-        title: 'Foo Chapter 1',
-        sourceUrl: 'https://x.example/manga/foo/1',
-        urlKey: 'https://x.example/manga/foo/1',
-        captureStatus: 'complete',
+        collectionId: 'collection-1',
+        title: 'Foo Entry 1',
+        sourceUrl: 'https://x.example/guide/foo/1',
+        urlKey: 'https://x.example/guide/foo/1',
+        saveStatus: 'complete',
         contentPath: relative,
-        capturedAt: DateTime(2026, 7, 20),
-        detectedImageCount: 3,
-        storedImageCount: 3,
-        sequence: 1,
+        savedAt: DateTime(2026, 7, 20),
+        detectedAssetCount: 3,
+        storedAssetCount: 3,
+        entryOrder: 1,
         byteSize: 1024,
-        chapterNumber: 1,
-        chapterLabel: 'Chapter 1',
+        entryNumber: 1,
+        sourceMarker: 'Entry 1',
         readStatus: 'unread',
         progressFraction: 0,
-        progressImageIndex: 0,
-        progressOffsetInImage: 0,
+        progressPageIndex: 0,
+        progressOffsetInPage: 0,
       ),
     );
   }
@@ -124,19 +132,20 @@ void main() {
       initialLocation: start,
       routes: [
         GoRoute(
-          path: '/series/:seriesId',
-          builder: (context, state) =>
-              SeriesDetailScreen(seriesId: state.pathParameters['seriesId']!),
+          path: '/collection/:collectionId',
+          builder: (context, state) => CollectionDetailScreen(
+            collectionId: state.pathParameters['collectionId']!,
+          ),
           routes: const [],
         ),
         GoRoute(
-          path: '/reader/:chapterId',
+          path: '/reader/:entryId',
           builder: (context, state) =>
-              ReaderScreen(chapterId: state.pathParameters['chapterId']!),
+              ReaderScreen(entryId: state.pathParameters['entryId']!),
         ),
       ],
     );
-    // The episode list reaches the update checker and the capture job for its
+    // The entry list reaches the update checker and the save run for its
     // own actions; both get inert instances over an unattached browser, so no
     // WebView is stood up.
     final browser = BrowserController();
@@ -147,8 +156,8 @@ void main() {
         updateCheckerProvider.overrideWithValue(
           UpdateChecker(browser: browser, db: db),
         ),
-        captureJobProvider.overrideWithValue(
-          CaptureJobController(browser: browser, db: db, fileStore: store),
+        saveRunProvider.overrideWithValue(
+          SaveRunController(browser: browser, db: db, fileStore: store),
         ),
       ],
       child: MaterialApp.router(routerConfig: router),
@@ -189,7 +198,7 @@ void main() {
     fail('reader never finished loading');
   }
 
-  navTest('a right swipe leaves for the episode list', (tester) async {
+  navTest('a right swipe leaves for the entry list', (tester) async {
     await tester.runAsync(seed);
     await openReader(tester, harness(start: '/reader/c1'));
 
@@ -197,7 +206,7 @@ void main() {
     await settleAsync(tester);
 
     expect(find.byType(ReaderScreen), findsNothing);
-    expect(find.byType(SeriesDetailScreen), findsOneWidget);
+    expect(find.byType(CollectionDetailScreen), findsOneWidget);
   });
 
   navTest('the position is written before the reader goes away', (
@@ -210,14 +219,14 @@ void main() {
     // persisted yet when the swipe happens.
     await tester.drag(find.byType(ListView), const Offset(0, -900));
     await tester.pump(const Duration(milliseconds: 50));
-    expect((await db.chapterById('c1'))!.progressUpdatedAt, isNull);
+    expect((await db.entryById('c1'))!.progressUpdatedAt, isNull);
 
     await tester.drag(find.byType(ListView), const Offset(220, 0));
     await settleAsync(tester);
 
-    final chapter = (await db.chapterById('c1'))!;
-    expect(chapter.progressUpdatedAt, isNotNull);
-    expect(chapter.progressFraction, greaterThan(0));
+    final entry = (await db.entryById('c1'))!;
+    expect(entry.progressUpdatedAt, isNotNull);
+    expect(entry.progressFraction, greaterThan(0));
   });
 
   navTest('scrolling to read never triggers it', (tester) async {
@@ -240,15 +249,17 @@ void main() {
     expect(find.byType(ReaderScreen), findsOneWidget);
   });
 
-  navTest('opened from the episode list, it pops back onto the same one', (
+  navTest('opened from the entry list, it pops back onto the same one', (
     tester,
   ) async {
     await tester.runAsync(seed);
-    final app = harness(start: '/series/series-1');
+    final app = harness(start: '/collection/collection-1');
     await tester.pumpWidget(app);
     await settleAsync(tester, rounds: 40);
 
-    final router = GoRouter.of(tester.element(find.byType(SeriesDetailScreen)));
+    final router = GoRouter.of(
+      tester.element(find.byType(CollectionDetailScreen)),
+    );
     router.push('/reader/c1');
     final readerList = find.descendant(
       of: find.byType(ReaderScreen),
@@ -266,9 +277,9 @@ void main() {
     await tester.drag(readerList.first, const Offset(220, 0));
     await settleAsync(tester);
 
-    expect(find.byType(SeriesDetailScreen), findsOneWidget);
+    expect(find.byType(CollectionDetailScreen), findsOneWidget);
     expect(find.byType(ReaderScreen), findsNothing);
-    // Popped rather than stacked: there is no second episode list underneath.
+    // Popped rather than stacked: there is no second entry list underneath.
     expect(
       router.routerDelegate.currentConfiguration.matches,
       hasLength(1),

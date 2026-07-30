@@ -7,11 +7,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:web_reader/browser/browser_navigator.dart';
 import 'package:web_reader/browser/browser_presentation.dart';
-import 'package:web_reader/capture/capture_job.dart';
-import 'package:web_reader/capture/capture_state.dart';
+import 'package:web_reader/save/save_run.dart';
+import 'package:web_reader/save/save_state.dart';
 import 'package:web_reader/core/config.dart';
 import 'package:web_reader/core/connectivity.dart';
-import 'package:web_reader/features/chapter_actions.dart';
+import 'package:web_reader/features/entry_actions.dart';
 import 'package:web_reader/features/open_in_browser.dart';
 import 'package:web_reader/library/update_checker.dart';
 import 'package:web_reader/providers.dart';
@@ -41,7 +41,7 @@ void main() {
   late AppDatabase db;
   late Directory root;
   late FakeBrowser browser;
-  late CaptureJobController job;
+  late SaveRunController run;
   late UpdateChecker checker;
   late BrowserNavigator navigator;
   late ValueNotifier<int?> tabRequest;
@@ -50,11 +50,11 @@ void main() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
     root = Directory.systemTemp.createTempSync('webread_open_in_browser');
     browser = FakeBrowser();
-    job = CaptureJobController(
+    run = SaveRunController(
       browser: browser,
       db: db,
       fileStore: FileStore(root),
-      config: const CaptureConfig(),
+      config: const SaveConfig(),
     );
     checker = UpdateChecker(browser: browser, db: db);
     navigator = BrowserNavigator();
@@ -68,40 +68,46 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  void runningInState(CaptureState state) {
-    job.debugSetRunning(true);
-    job.debugSetProgress(
-      CaptureProgress(
+  void runningInState(SaveState state) {
+    run.debugSetRunning(true);
+    run.debugSetProgress(
+      SaveProgress(
         state: state,
-        currentUrl: 'https://x.example/manga/foo/1',
-        chapterTitle: 'Chapter 1',
-        storedChapters: 4,
-        skippedChapters: 2,
-        requestedChapters: 8,
+        currentUrl: 'https://x.example/guide/foo/1',
+        entryTitle: 'Entry 1',
+        storedEntries: 4,
+        skippedEntries: 2,
+        requestedEntries: 8,
       ),
     );
   }
 
-  Chapter chapterWith(String sourceUrl) => Chapter(
+  Entry entryWith(String sourceUrl) => Entry(
+    host: '',
+    contentKind: 'unknownWebContent',
+    contentKindConfidence: 'low',
+    contentKindIsUserSet: false,
     id: 'c1',
-    libraryItemId: 'item-1',
-    title: 'Chapter 885',
+    collectionId: 'item-1',
+    title: 'Entry 885',
     sourceUrl: sourceUrl,
     urlKey: sourceUrl,
-    captureStatus: 'complete',
-    detectedImageCount: 0,
-    storedImageCount: 0,
-    sequence: 0,
+    saveStatus: 'complete',
+    detectedAssetCount: 0,
+    storedAssetCount: 0,
+    entryOrder: 0,
     byteSize: 0,
     readStatus: 'unread',
     progressFraction: 0,
-    progressImageIndex: 0,
-    progressOffsetInImage: 0,
+    progressPageIndex: 0,
+    progressOffsetInPage: 0,
   );
 
-  /// A shell at `/` with a pushed `/series` above it — the exact stack the
+  /// A shell at `/` with a pushed `/collection` above it — the exact stack the
   /// bug lived in.
-  Widget app({required Widget Function(BuildContext, WidgetRef) seriesBody}) {
+  Widget app({
+    required Widget Function(BuildContext, WidgetRef) collectionBody,
+  }) {
     final router = GoRouter(
       initialLocation: '/',
       routes: [
@@ -113,8 +119,8 @@ void main() {
                 children: [
                   const Text('SHELL'),
                   TextButton(
-                    onPressed: () => context.push('/series'),
-                    child: const Text('to series'),
+                    onPressed: () => context.push('/collection'),
+                    child: const Text('to collection'),
                   ),
                 ],
               ),
@@ -122,13 +128,13 @@ void main() {
           ),
         ),
         GoRoute(
-          path: '/series',
+          path: '/collection',
           builder: (context, state) => Scaffold(
             body: Consumer(
               builder: (context, ref, _) => Column(
                 children: [
                   const Text('SERIES DETAIL'),
-                  seriesBody(context, ref),
+                  collectionBody(context, ref),
                 ],
               ),
             ),
@@ -143,7 +149,7 @@ void main() {
         databaseProvider.overrideWithValue(db),
         fileStoreProvider.overrideWithValue(FileStore(root)),
         browserProvider.overrideWithValue(browser),
-        captureJobProvider.overrideWithValue(job),
+        saveRunProvider.overrideWithValue(run),
         updateCheckerProvider.overrideWithValue(checker),
         browserNavigatorProvider.overrideWithValue(navigator),
         shellTabRequestProvider.overrideWithValue(tabRequest),
@@ -153,8 +159,8 @@ void main() {
     );
   }
 
-  Future<void> pushSeries(WidgetTester tester) async {
-    await tester.tap(find.text('to series'));
+  Future<void> pushCollection(WidgetTester tester) async {
+    await tester.tap(find.text('to collection'));
     await tester.pumpAndSettle();
     expect(find.text('SERIES DETAIL'), findsOneWidget);
   }
@@ -165,55 +171,57 @@ void main() {
     ) async {
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) => TextButton(
-            onPressed: () => openChapterOnWebsite(
+          collectionBody: (context, ref) => TextButton(
+            onPressed: () => openEntryOnWebsite(
               context,
               ref,
-              chapterWith('https://a.example/x'),
+              entryWith('https://a.example/x'),
             ),
             child: const Text('Open on website'),
           ),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
 
       await tester.tap(find.text('Open on website'));
       await tester.pumpAndSettle();
 
       // The regression, stated directly: the user must not still be looking
-      // at Series Detail.
+      // at Collection Detail.
       expect(find.text('SERIES DETAIL'), findsNothing);
       expect(find.text('SHELL'), findsOneWidget);
       expect(tabRequest.value, 1, reason: 'the Browser section is selected');
       expect(navigator.pending?.url, 'https://a.example/x');
     });
 
-    testWidgets('nothing is pushed — no duplicate Browser or Series route', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        app(
-          seriesBody: (context, ref) => TextButton(
-            onPressed: () => openInBrowser(context, ref, 'https://a.example/x'),
-            child: const Text('go'),
+    testWidgets(
+      'nothing is pushed — no duplicate Browser or Collection route',
+      (tester) async {
+        await tester.pumpWidget(
+          app(
+            collectionBody: (context, ref) => TextButton(
+              onPressed: () =>
+                  openInBrowser(context, ref, 'https://a.example/x'),
+              child: const Text('go'),
+            ),
           ),
-        ),
-      );
-      await pushSeries(tester);
-      await tester.tap(find.text('go'));
-      await tester.pumpAndSettle();
+        );
+        await pushCollection(tester);
+        await tester.tap(find.text('go'));
+        await tester.pumpAndSettle();
 
-      // Popped back to the root route, not navigated forward onto a second
-      // copy of anything.
-      expect(find.text('SHELL'), findsOneWidget);
-      expect(find.text('SERIES DETAIL'), findsNothing);
-    });
+        // Popped back to the root route, not navigated forward onto a second
+        // copy of anything.
+        expect(find.text('SHELL'), findsOneWidget);
+        expect(find.text('SERIES DETAIL'), findsNothing);
+      },
+    );
 
     testWidgets('back returns to the previous app screen', (tester) async {
       late GoRouter router;
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) {
+          collectionBody: (context, ref) {
             router = GoRouter.of(context);
             return TextButton(
               onPressed: () =>
@@ -223,12 +231,12 @@ void main() {
           },
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
       await tester.tap(find.text('go'));
       await tester.pumpAndSettle();
 
       // The shell is the bottom of the stack: app-level back leaves the app
-      // rather than re-entering Series Detail, and the Browser's own Back
+      // rather than re-entering Collection Detail, and the Browser's own Back
       // falls through to the Library tab (asserted in browser_ui_test).
       expect(router.canPop(), isFalse);
       expect(find.text('SHELL'), findsOneWidget);
@@ -239,21 +247,20 @@ void main() {
     testWidgets('does not switch sections, and says why', (tester) async {
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) => TextButton(
-            onPressed: () =>
-                openChapterOnWebsite(context, ref, chapterWith('')),
+          collectionBody: (context, ref) => TextButton(
+            onPressed: () => openEntryOnWebsite(context, ref, entryWith('')),
             child: const Text('Open on website'),
           ),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
 
       await tester.tap(find.text('Open on website'));
       await tester.pumpAndSettle();
 
       expect(find.text(kNoSourcePageMessage), findsOneWidget);
       expect(
-        find.text('This episode does not have a source page.'),
+        find.text('This entry does not have a source page.'),
         findsOneWidget,
       );
       // Still exactly where they were.
@@ -265,14 +272,14 @@ void main() {
     testWidgets('a malformed URL is treated the same way', (tester) async {
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) => TextButton(
+          collectionBody: (context, ref) => TextButton(
             onPressed: () =>
-                openChapterOnWebsite(context, ref, chapterWith('not a url')),
+                openEntryOnWebsite(context, ref, entryWith('not a url')),
             child: const Text('Open on website'),
           ),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
       await tester.tap(find.text('Open on website'));
       await tester.pumpAndSettle();
 
@@ -282,30 +289,30 @@ void main() {
     });
   });
 
-  group('an active Browser-dependent capture', () {
+  group('an active Browser-dependent save', () {
     for (final state in const [
-      CaptureState.inspecting,
-      CaptureState.scrolling,
-      CaptureState.extracting,
+      SaveState.inspecting,
+      SaveState.scrolling,
+      SaveState.extracting,
     ]) {
       testWidgets('${state.name}: asks before taking the page', (tester) async {
         runningInState(state);
         await tester.pumpWidget(
           app(
-            seriesBody: (context, ref) => TextButton(
+            collectionBody: (context, ref) => TextButton(
               onPressed: () =>
                   openInBrowser(context, ref, 'https://a.example/x'),
               child: const Text('go'),
             ),
           ),
         );
-        await pushSeries(tester);
+        await pushCollection(tester);
         await tester.tap(find.text('go'));
         await tester.pumpAndSettle();
 
-        expect(find.text('A capture is using the Browser'), findsOneWidget);
-        expect(find.text('Stay with capture'), findsOneWidget);
-        expect(find.text('Pause and open episode'), findsOneWidget);
+        expect(find.text('A save is using the Browser'), findsOneWidget);
+        expect(find.text('Stay with save'), findsOneWidget);
+        expect(find.text('Pause and open entry'), findsOneWidget);
         // Nothing has moved yet.
         expect(tabRequest.value, isNull);
         expect(navigator.hasPending, isFalse);
@@ -314,7 +321,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          job.pauseReason,
+          run.pauseReason,
           kPauseBrowserHidden,
           reason: 'held, not stopped',
         );
@@ -323,29 +330,29 @@ void main() {
       });
     }
 
-    testWidgets('"Stay with capture" leaves everything alone', (tester) async {
-      runningInState(CaptureState.scrolling);
+    testWidgets('"Stay with save" leaves everything alone', (tester) async {
+      runningInState(SaveState.scrolling);
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) => TextButton(
+          collectionBody: (context, ref) => TextButton(
             onPressed: () => openInBrowser(context, ref, 'https://a.example/x'),
             child: const Text('go'),
           ),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
       await tester.tap(find.text('go'));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('takeOverBrowserStay')));
       await tester.pumpAndSettle();
 
-      expect(job.pauseReason, isNull, reason: 'the run keeps the page');
+      expect(run.pauseReason, isNull, reason: 'the run keeps the page');
       expect(tabRequest.value, isNull);
       expect(navigator.hasPending, isFalse);
       expect(find.text('SERIES DETAIL'), findsOneWidget);
     });
 
-    for (final state in const [CaptureState.downloading, CaptureState.saving]) {
+    for (final state in const [SaveState.fetchingAssets, SaveState.saving]) {
       testWidgets('${state.name}: download-only does not block navigation', (
         tester,
       ) async {
@@ -354,39 +361,39 @@ void main() {
         runningInState(state);
         await tester.pumpWidget(
           app(
-            seriesBody: (context, ref) => TextButton(
+            collectionBody: (context, ref) => TextButton(
               onPressed: () =>
                   openInBrowser(context, ref, 'https://a.example/x'),
               child: const Text('go'),
             ),
           ),
         );
-        await pushSeries(tester);
+        await pushCollection(tester);
         await tester.tap(find.text('go'));
         await tester.pumpAndSettle();
 
-        expect(find.text('A capture is using the Browser'), findsNothing);
+        expect(find.text('A save is using the Browser'), findsNothing);
         expect(tabRequest.value, 1);
         expect(navigator.pending?.url, 'https://a.example/x');
-        expect(job.pauseReason, isNull);
+        expect(run.pauseReason, isNull);
       });
     }
 
-    testWidgets('a queued-but-unstarted capture never asks', (tester) async {
-      expect(job.isRunning, isFalse);
+    testWidgets('a queued-but-unstarted save never asks', (tester) async {
+      expect(run.isRunning, isFalse);
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) => TextButton(
+          collectionBody: (context, ref) => TextButton(
             onPressed: () => openInBrowser(context, ref, 'https://a.example/x'),
             child: const Text('go'),
           ),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
       await tester.tap(find.text('go'));
       await tester.pumpAndSettle();
 
-      expect(find.text('A capture is using the Browser'), findsNothing);
+      expect(find.text('A save is using the Browser'), findsNothing);
       expect(tabRequest.value, 1);
     });
   });
@@ -519,13 +526,13 @@ void main() {
     ) async {
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) => TextButton(
+          collectionBody: (context, ref) => TextButton(
             onPressed: () => openInBrowser(context, ref, 'https://a.example/x'),
             child: const Text('go'),
           ),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
       await tester.tap(find.text('go'));
       await tester.pumpAndSettle();
 
@@ -546,41 +553,40 @@ void main() {
     });
   });
 
-  group('every episode source-page action shares the flow', () {
-    testWidgets('openChapterOnWebsite delegates to the coordinator', (
+  group('every entry source-page action shares the flow', () {
+    testWidgets('openEntryOnWebsite delegates to the coordinator', (
       tester,
     ) async {
       // Proven by behaviour rather than by inspection: the shared coordinator
       // is the only thing that produces this message and this stack change.
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) => TextButton(
-            onPressed: () =>
-                openChapterOnWebsite(context, ref, chapterWith('')),
+          collectionBody: (context, ref) => TextButton(
+            onPressed: () => openEntryOnWebsite(context, ref, entryWith('')),
             child: const Text('go'),
           ),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
       await tester.tap(find.text('go'));
       await tester.pumpAndSettle();
       expect(find.text(kNoSourcePageMessage), findsOneWidget);
     });
 
-    testWidgets('the unavailable-episode sheet uses it', (tester) async {
+    testWidgets('the unavailable-entry sheet uses it', (tester) async {
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) => TextButton(
-            onPressed: () => showUnavailableChapterSheet(
+          collectionBody: (context, ref) => TextButton(
+            onPressed: () => showUnavailableEntrySheet(
               context,
               ref,
-              chapterWith('https://a.example/x'),
+              entryWith('https://a.example/x'),
             ),
             child: const Text('go'),
           ),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
       await tester.tap(find.text('go'));
       await tester.pumpAndSettle();
 
@@ -595,14 +601,14 @@ void main() {
     testWidgets('the details-sheet tile uses it', (tester) async {
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) => Builder(
+          collectionBody: (context, ref) => Builder(
             builder: (inner) => TextButton(
               onPressed: () => showModalBottomSheet<void>(
                 context: inner,
                 builder: (sheetContext) => openOnWebsiteTile(
                   inner,
                   ref,
-                  chapterWith('https://a.example/x'),
+                  entryWith('https://a.example/x'),
                   beforeOpen: () => Navigator.of(sheetContext).pop(),
                 ),
               ),
@@ -611,7 +617,7 @@ void main() {
           ),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
       await tester.tap(find.text('go'));
       await tester.pumpAndSettle();
 
@@ -628,11 +634,11 @@ void main() {
     ) async {
       await tester.pumpWidget(
         app(
-          seriesBody: (context, ref) =>
-              openOnWebsiteTile(context, ref, chapterWith('')),
+          collectionBody: (context, ref) =>
+              openOnWebsiteTile(context, ref, entryWith('')),
         ),
       );
-      await pushSeries(tester);
+      await pushCollection(tester);
       final tile = tester.widget<ListTile>(find.byType(ListTile));
       expect(tile.enabled, isFalse);
       expect(tile.onTap, isNull);

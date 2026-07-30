@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:web_reader/capture/asset_downloader.dart';
+import 'package:web_reader/save/asset_fetcher.dart';
 import 'package:web_reader/core/config.dart';
 import 'package:web_reader/core/image_dimensions.dart';
 import 'package:web_reader/storage/file_store.dart';
@@ -10,35 +10,51 @@ import 'package:web_reader/storage/manifest.dart';
 import 'helpers/fake_browser.dart';
 
 /// Stored extensions come from the verified bytes, not the URL — a real CDN
-/// serves image/jpeg under `.webp` names (audit, Asura ch137).
+/// serves image/jpeg under `.webp` names (observed during the capture audit).
 void main() {
   group('fileNameFor', () {
     test('extension follows the sniffed MIME, not the URL', () {
       expect(
-        AssetDownloader.fileNameFor(1, 'image/jpeg', 'https://c.x/p/a.webp'),
+        AssetFetcher.fileNameFor(
+          1,
+          'image/jpeg',
+          'https://cdn.example/p/a.webp',
+        ),
         '001.jpg',
       );
       expect(
-        AssetDownloader.fileNameFor(2, 'image/webp', 'https://c.x/p/a.webp'),
+        AssetFetcher.fileNameFor(
+          2,
+          'image/webp',
+          'https://cdn.example/p/a.webp',
+        ),
         '002.webp',
       );
       expect(
-        AssetDownloader.fileNameFor(3, 'image/avif', 'https://c.x/p/a.jpg'),
+        AssetFetcher.fileNameFor(
+          3,
+          'image/avif',
+          'https://cdn.example/p/a.jpg',
+        ),
         '003.avif',
       );
       expect(
-        AssetDownloader.fileNameFor(10, 'image/png', 'https://c.x/p/a'),
+        AssetFetcher.fileNameFor(10, 'image/png', 'https://cdn.example/p/a'),
         '010.png',
       );
     });
 
     test('unknown MIME falls back to the URL extension, then .img', () {
       expect(
-        AssetDownloader.fileNameFor(1, 'image/x-exotic', 'https://c.x/a.tiff'),
+        AssetFetcher.fileNameFor(
+          1,
+          'image/x-exotic',
+          'https://cdn.example/a.tiff',
+        ),
         '001.tiff',
       );
       expect(
-        AssetDownloader.fileNameFor(1, 'image/x-exotic', 'https://c.x/a'),
+        AssetFetcher.fileNameFor(1, 'image/x-exotic', 'https://cdn.example/a'),
         '001.img',
       );
     });
@@ -68,24 +84,24 @@ void main() {
       'JPEG under a .webp URL is stored as .jpg with the true MIME',
       () async {
         final store = FileStore(root);
-        final staging = await store.beginChapter(
-          libraryItemId: 's1',
-          chapterId: 'c1',
+        final staging = await store.beginEntry(
+          collectionId: 's1',
+          entryId: 'c1',
         );
-        final downloader = AssetDownloader(
+        final downloader = AssetFetcher(
           browser: FakeBrowser(),
           // The fixture JPEG is tiny; the size floor is not what is under test.
-          config: const CaptureConfig(minAssetBytes: 16, downloadRetries: 0),
+          config: const SaveConfig(minAssetBytes: 16, downloadRetries: 0),
         );
 
         final entry = await downloader.download(
-          entry: AssetEntry(
+          entry: EntryAsset(
             index: 1,
             sourceUrl: 'http://127.0.0.1:${server.port}/img/panel.webp?v=123',
             status: AssetStatus.pending,
           ),
           staging: staging,
-          refererUrl: 'http://127.0.0.1:${server.port}/chapter/1',
+          refererUrl: 'http://127.0.0.1:${server.port}/entry/1',
         );
 
         expect(entry.status, AssetStatus.stored);
@@ -99,31 +115,31 @@ void main() {
     );
 
     test('a legacy mismatched-extension file stays readable', () async {
-      // A capture from before this change: JPEG bytes stored as 001.webp,
+      // A save from before this change: JPEG bytes stored as 001.webp,
       // referenced by the manifest. Nothing renames it; everything that
       // reads through the manifest keeps working.
       final store = FileStore(root);
-      final staging = await store.beginChapter(
-        libraryItemId: 's1',
-        chapterId: 'legacy',
+      final staging = await store.beginEntry(
+        collectionId: 's1',
+        entryId: 'legacy',
       );
       final legacy = staging.assetFile('001.webp');
       legacy.parent.createSync(recursive: true);
       await legacy.writeAsBytes(panelJpeg());
       final relative = await store.commit(
         staging,
-        ChapterManifest(
-          schemaVersion: ChapterManifest.currentSchemaVersion,
-          chapterId: 'legacy',
-          libraryItemId: 's1',
+        EntryManifest(
+          schemaVersion: EntryManifest.currentSchemaVersion,
+          entryId: 'legacy',
+          collectionId: 's1',
           sourceUrl: 'https://x.example/1',
           title: 'Legacy',
-          capturedAt: DateTime(2026, 7, 1),
-          status: CaptureStatus.complete,
-          detectedImageCount: 1,
-          storedImageCount: 1,
+          savedAt: DateTime(2026, 7, 1),
+          status: SaveStatus.complete,
+          detectedAssetCount: 1,
+          storedAssetCount: 1,
           assets: [
-            AssetEntry(
+            EntryAsset(
               index: 1,
               sourceUrl: 'https://cdn.example/1.webp',
               status: AssetStatus.stored,

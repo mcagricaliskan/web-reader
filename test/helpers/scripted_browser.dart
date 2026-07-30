@@ -4,7 +4,7 @@ import 'fake_browser.dart';
 
 /// A [FakeBrowser] whose probes are computed per call — enough control to
 /// script an unrendered surface (zero viewport), a page that loads panel by
-/// panel, or one whose layout is torn down mid-capture.
+/// panel, or one whose layout is torn down mid-save.
 class ScriptedBrowser extends FakeBrowser {
   ScriptedBrowser({required this.probeBuilder});
 
@@ -53,8 +53,8 @@ PageProbe lazyStripProbe({
   int panelWidth = 800,
   int panelHeight = 2000,
   int? loadedUpTo,
-  String url = 'https://x.example/manga/foo/1',
-  String title = 'Foo Chapter 1',
+  String url = 'https://x.example/guide/foo/1',
+  String title = 'Foo Entry 1',
   String? nextHref,
   List<PageImage> extraImages = const [],
 }) {
@@ -85,7 +85,7 @@ PageProbe lazyStripProbe({
     ],
     links: [
       if (nextHref != null)
-        PageLink(href: nextHref, rel: 'next', text: 'Next Chapter'),
+        PageLink(href: nextHref, rel: 'next', text: 'Next Entry'),
     ],
   );
 }

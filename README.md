@@ -1,17 +1,39 @@
-# web_reader
+# Web Reader
 
-Archive and read web content offline
+A general-purpose personal reading tool for iOS and Android. Save web pages you
+are legally permitted to keep, organise them in a personal library, and read them
+offline.
 
-## Getting Started
+Built with Flutter: an embedded `WKWebView`/`WebView`, a local drift database, and
+an offline reader over app-private storage. No account, no server, no analytics.
 
-This project is a starting point for a Flutter application.
+## Documentation
 
-A few resources to get you started if this is your first Flutter project:
+Start with [docs/TERMINOLOGY.md](docs/TERMINOLOGY.md), then
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Store readiness is covered by
+[docs/STORE_POLICY_MAP.md](docs/STORE_POLICY_MAP.md) and
+[docs/STORE_PACKAGE.md](docs/STORE_PACKAGE.md). Contributor rules are in
+[CLAUDE.md](CLAUDE.md).
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Running
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter pub get
+dart run build_runner build     # after changing lib/storage/database.dart
+flutter run
+```
+
+## Verifying
+
+```bash
+dart format lib test integration_test tool
+flutter analyze
+flutter test
+```
+
+## What it is not
+
+Not a bulk fetcher, an automated harvester, a site archiver, a client for
+particular websites, or a tool for getting past paywalls, logins, access
+controls, DRM, verification checks or rate limits. It ships no site list and no
+site-specific behaviour, and a build-time test enforces that.

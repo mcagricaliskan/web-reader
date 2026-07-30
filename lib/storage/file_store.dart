@@ -13,15 +13,18 @@ import 'manifest.dart';
 /// resolved against [rootDir] at runtime.
 ///
 ///     <app support>/webread/
-///       library/<library-item-id>/chapters/<chapter-id>/
+///       library/<library-item-id>/entries/<entry-id>/
 ///         manifest.json
 ///         assets/001.png ...
-///       tmp/<chapter-id>/          staging, swept at startup
+///       tmp/<entry-id>/          staging, swept at startup
 class FileStore {
   FileStore(this.rootDir);
 
   static const String rootFolderName = 'webread';
   static const String libraryFolderName = 'library';
+
+  /// Where entries that belong to no collection are stored.
+  static const String standaloneFolderName = 'standalone';
   static const String tmpFolderName = 'tmp';
   static const String manifestFileName = 'manifest.json';
   static const String assetsFolderName = 'assets';
@@ -43,36 +46,45 @@ class FileStore {
   String get _libraryPath => p.join(rootDir.path, libraryFolderName);
   String get _tmpPath => p.join(rootDir.path, tmpFolderName);
 
-  /// Relative path of a chapter directory, as stored in the database.
-  static String chapterRelativePath(String libraryItemId, String chapterId) =>
-      p.join(libraryFolderName, libraryItemId, 'chapters', chapterId);
+  /// Relative path of an entry directory, as stored in the database.
+  /// Where an entry's bytes live, relative to the store root.
+  ///
+  /// A standalone entry (`collectionId == null`) goes under a fixed
+  /// `standalone/` folder rather than a synthesised collection directory: the
+  /// path must never imply a grouping the library does not have, and a folder
+  /// named after an entry id that is also its "collection" is exactly the kind
+  /// of thing a later reader mistakes for one.
+  static String entryRelativePath(String? collectionId, String entryId) =>
+      collectionId == null
+      ? p.join(libraryFolderName, standaloneFolderName, entryId)
+      : p.join(libraryFolderName, collectionId, 'entries', entryId);
 
   /// Turn a stored relative path into a usable absolute one.
   String resolve(String relativePath) => p.join(rootDir.path, relativePath);
 
-  Directory chapterDir(String libraryItemId, String chapterId) =>
-      Directory(resolve(chapterRelativePath(libraryItemId, chapterId)));
+  Directory entryDir(String? collectionId, String entryId) =>
+      Directory(resolve(entryRelativePath(collectionId, entryId)));
 
-  bool chapterExists(String relativePath) =>
+  bool entryExists(String relativePath) =>
       Directory(resolve(relativePath)).existsSync();
 
-  File assetFile(String chapterRelativePath, String assetRelativePath) =>
-      File(p.join(resolve(chapterRelativePath), assetRelativePath));
+  File assetFile(String entryRelativePath, String assetRelativePath) =>
+      File(p.join(resolve(entryRelativePath), assetRelativePath));
 
   // --- staging + atomic commit -------------------------------------------
 
-  /// Start a chapter in staging. Nothing outside `tmp/` exists until commit.
-  Future<StagingHandle> beginChapter({
-    required String libraryItemId,
-    required String chapterId,
+  /// Start an entry in staging. Nothing outside `tmp/` exists until commit.
+  Future<StagingHandle> beginEntry({
+    required String? collectionId,
+    required String entryId,
   }) async {
-    final dir = Directory(p.join(_tmpPath, chapterId));
+    final dir = Directory(p.join(_tmpPath, entryId));
     if (dir.existsSync()) dir.deleteSync(recursive: true);
     dir.createSync(recursive: true);
     Directory(p.join(dir.path, assetsFolderName)).createSync(recursive: true);
     return StagingHandle._(
-      libraryItemId: libraryItemId,
-      chapterId: chapterId,
+      collectionId: collectionId,
+      entryId: entryId,
       dir: dir,
     );
   }
@@ -80,16 +92,13 @@ class FileStore {
   /// Write the manifest, then move staging into place, then (caller) update
   /// the database. A crash before the move leaves an orphan in `tmp/`; a crash
   /// after it leaves a directory whose manifest describes itself, which
-  /// [reconcileOrphans] can finish. Neither produces a chapter that claims to
+  /// [reconcileOrphans] can finish. Neither produces an entry that claims to
   /// be complete and is not.
-  Future<String> commit(StagingHandle handle, ChapterManifest manifest) async {
+  Future<String> commit(StagingHandle handle, EntryManifest manifest) async {
     final manifestFile = File(p.join(handle.dir.path, manifestFileName));
     await manifestFile.writeAsString(manifest.encode(), flush: true);
 
-    final relative = chapterRelativePath(
-      handle.libraryItemId,
-      handle.chapterId,
-    );
+    final relative = entryRelativePath(handle.collectionId, handle.entryId);
     final target = Directory(resolve(relative));
     if (target.existsSync()) target.deleteSync(recursive: true);
     target.parent.createSync(recursive: true);
@@ -104,21 +113,18 @@ class FileStore {
     return relative;
   }
 
-  /// Replace an existing chapter's files, keeping the old copy until the new
+  /// Replace an existing entry's files, keeping the old copy until the new
   /// one is safely in place.
   ///
   /// The naive version — delete then move — leaves the user with nothing if the
-  /// move fails, having destroyed a chapter that was perfectly readable. Here
+  /// move fails, having destroyed an entry that was perfectly readable. Here
   /// the old directory is stepped aside first and only removed once the
   /// replacement has landed; any failure puts it back.
   Future<String> commitReplacing(
     StagingHandle handle,
-    ChapterManifest manifest,
+    EntryManifest manifest,
   ) async {
-    final relative = chapterRelativePath(
-      handle.libraryItemId,
-      handle.chapterId,
-    );
+    final relative = entryRelativePath(handle.collectionId, handle.entryId);
     final target = Directory(resolve(relative));
     if (!target.existsSync()) return commit(handle, manifest);
 
@@ -140,7 +146,7 @@ class FileStore {
       if (backup.existsSync()) backup.deleteSync(recursive: true);
       return relative;
     } catch (_) {
-      // Put the previous chapter back exactly as it was.
+      // Put the previous entry back exactly as it was.
       if (target.existsSync()) target.deleteSync(recursive: true);
       if (backup.existsSync()) backup.renameSync(target.path);
       rethrow;
@@ -148,15 +154,15 @@ class FileStore {
   }
 
   /// Restore a `.previous` copy left behind by an interrupted replacement.
-  /// Runs at startup so a kill mid-replace cannot cost a readable chapter.
+  /// Runs at startup so a kill mid-replace cannot cost a readable entry.
   Future<int> restoreInterruptedReplacements() async {
     final library = Directory(_libraryPath);
     if (!library.existsSync()) return 0;
     var restored = 0;
     for (final item in library.listSync().whereType<Directory>()) {
-      final chaptersDir = Directory(p.join(item.path, 'chapters'));
-      if (!chaptersDir.existsSync()) continue;
-      for (final entity in chaptersDir.listSync().whereType<Directory>()) {
+      final entriesDir = Directory(p.join(item.path, 'entries'));
+      if (!entriesDir.existsSync()) continue;
+      for (final entity in entriesDir.listSync().whereType<Directory>()) {
         if (!entity.path.endsWith('.previous')) continue;
         final original = Directory(
           entity.path.substring(0, entity.path.length - '.previous'.length),
@@ -179,37 +185,37 @@ class FileStore {
     }
   }
 
-  /// Delete a chapter's files while leaving its database row intact
-  /// ("free up space" — the chapter stays known, just not offline).
-  Future<void> deleteChapterContent(String relativePath) async {
+  /// Delete an entry's files while leaving its database row intact
+  /// ("free up space" — the entry stays known, just not offline).
+  Future<void> deleteEntryContent(String relativePath) async {
     final dir = Directory(resolve(relativePath));
     if (dir.existsSync()) await dir.delete(recursive: true);
   }
 
-  Future<ChapterManifest?> readManifest(String chapterRelativePath) async {
-    final file = File(p.join(resolve(chapterRelativePath), manifestFileName));
+  Future<EntryManifest?> readManifest(String entryRelativePath) async {
+    final file = File(p.join(resolve(entryRelativePath), manifestFileName));
     if (!file.existsSync()) return null;
     try {
-      return ChapterManifest.decode(await file.readAsString());
+      return EntryManifest.decode(await file.readAsString());
     } catch (_) {
       return null;
     }
   }
 
-  /// Rewrite a committed chapter's manifest in place, atomically (temp file +
+  /// Rewrite a committed entry's manifest in place, atomically (temp file +
   /// rename). Used by dimension repair; the assets themselves are never
   /// touched.
   Future<void> writeManifest(
-    String chapterRelativePath,
-    ChapterManifest manifest,
+    String entryRelativePath,
+    EntryManifest manifest,
   ) async {
-    final dir = resolve(chapterRelativePath);
+    final dir = resolve(entryRelativePath);
     final tmp = File(p.join(dir, '$manifestFileName.tmp'));
     await tmp.writeAsString(manifest.encode(), flush: true);
     await tmp.rename(p.join(dir, manifestFileName));
   }
 
-  /// Bytes sitting in `tmp/` — interrupted captures and pending cleanup
+  /// Bytes sitting in `tmp/` — interrupted saves and pending cleanup
   /// undos. Reported on the Storage screen as recoverable space.
   Future<int> stagingByteSize() async {
     final tmp = Directory(_tmpPath);
@@ -239,22 +245,22 @@ class FileStore {
     return removed;
   }
 
-  /// Committed chapter directories on disk, for reconciling against the DB.
-  List<String> listCommittedChapterPaths() {
+  /// Committed entry directories on disk, for reconciling against the DB.
+  List<String> listCommittedEntryPaths() {
     final library = Directory(_libraryPath);
     if (!library.existsSync()) return const [];
     final out = <String>[];
     for (final item in library.listSync().whereType<Directory>()) {
-      final chapters = Directory(p.join(item.path, 'chapters'));
-      if (!chapters.existsSync()) continue;
-      for (final ch in chapters.listSync().whereType<Directory>()) {
+      final entries = Directory(p.join(item.path, 'entries'));
+      if (!entries.existsSync()) continue;
+      for (final ch in entries.listSync().whereType<Directory>()) {
         out.add(p.relative(ch.path, from: rootDir.path));
       }
     }
     return out;
   }
 
-  Future<int> chapterByteSize(String relativePath) async {
+  Future<int> entryByteSize(String relativePath) async {
     final dir = Directory(resolve(relativePath));
     if (!dir.existsSync()) return 0;
     var total = 0;
@@ -281,19 +287,20 @@ class FileStore {
 
 class StagingHandle {
   StagingHandle._({
-    required this.libraryItemId,
-    required this.chapterId,
+    required this.collectionId,
+    required this.entryId,
     required this.dir,
   });
 
-  final String libraryItemId;
-  final String chapterId;
+  /// Null for a standalone entry.
+  final String? collectionId;
+  final String entryId;
   final Directory dir;
 
   File assetFile(String fileName) =>
       File(p.join(dir.path, FileStore.assetsFolderName, fileName));
 
-  /// Path recorded in the manifest — relative to the chapter directory.
+  /// Path recorded in the manifest — relative to the entry directory.
   static String assetRelativePath(String fileName) =>
       '${FileStore.assetsFolderName}/$fileName';
 }

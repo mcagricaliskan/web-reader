@@ -11,7 +11,7 @@ List<({int? width, int? height})> panels(
 void main() {
   group('layout geometry', () {
     test('panel heights scale to the viewport width', () {
-      final layout = ChapterLayout(viewportWidth: 400, panels: panels(3));
+      final layout = EntryLayout(viewportWidth: 400, panels: panels(3));
       // 800x1200 at 400 wide is 600 tall.
       expect(layout.heightOf(0), 600);
       expect(layout.total, 1800);
@@ -19,7 +19,7 @@ void main() {
     });
 
     test('a panel with no recorded size still gets a place to stand', () {
-      final layout = ChapterLayout(
+      final layout = EntryLayout(
         viewportWidth: 400,
         panels: [(width: null, height: null), (width: 800, height: 1200)],
       );
@@ -27,8 +27,8 @@ void main() {
       expect(layout.total, greaterThan(600));
     });
 
-    test('an empty chapter has no geometry and cannot be scrolled into', () {
-      final layout = ChapterLayout(viewportWidth: 400, panels: const []);
+    test('an empty entry has no geometry and cannot be scrolled into', () {
+      final layout = EntryLayout(viewportWidth: 400, panels: const []);
       expect(layout.isEmpty, isTrue);
       expect(layout.offsetForPosition(const ReadingPosition(fraction: 0.5)), 0);
     });
@@ -36,7 +36,7 @@ void main() {
 
   group('anchor restoration', () {
     test('restores to the exact panel and offset within it', () {
-      final layout = ChapterLayout(viewportWidth: 400, panels: panels(5));
+      final layout = EntryLayout(viewportWidth: 400, panels: panels(5));
       const position = ReadingPosition(
         fraction: 0.4,
         imageIndex: 2,
@@ -47,7 +47,7 @@ void main() {
     });
 
     test('round-trips a scroll offset back to the same position', () {
-      final layout = ChapterLayout(viewportWidth: 400, panels: panels(5));
+      final layout = EntryLayout(viewportWidth: 400, panels: panels(5));
       final position = layout.positionForOffset(1500, viewportHeight: 600);
 
       expect(position.imageIndex, 2);
@@ -57,7 +57,7 @@ void main() {
 
     test('falls back to the fraction when the anchor no longer exists', () {
       // Re-downloaded with fewer panels: the saved anchor points past the end.
-      final smaller = ChapterLayout(viewportWidth: 400, panels: panels(3));
+      final smaller = EntryLayout(viewportWidth: 400, panels: panels(3));
       const stale = ReadingPosition(
         fraction: 0.5,
         imageIndex: 9,
@@ -70,8 +70,8 @@ void main() {
     });
 
     test('a fraction restore still lands somewhere valid after a resize', () {
-      final narrow = ChapterLayout(viewportWidth: 300, panels: panels(4));
-      final wide = ChapterLayout(viewportWidth: 600, panels: panels(4));
+      final narrow = EntryLayout(viewportWidth: 300, panels: panels(4));
+      final wide = EntryLayout(viewportWidth: 600, panels: panels(4));
       const position = ReadingPosition(
         fraction: 0.5,
         imageIndex: 2,
@@ -87,14 +87,14 @@ void main() {
     test('a missing asset does not shift the panels after it', () {
       // A panel whose file is gone still occupies its recorded height, so the
       // anchors of later panels stay correct.
-      final layout = ChapterLayout(viewportWidth: 400, panels: panels(4));
+      final layout = EntryLayout(viewportWidth: 400, panels: panels(4));
       expect(layout.offsetOf(3), 1800);
     });
   });
 
   group('progress fraction', () {
     test('is 0 at the top and 1 once the end is on screen', () {
-      final layout = ChapterLayout(viewportWidth: 400, panels: panels(4));
+      final layout = EntryLayout(viewportWidth: 400, panels: panels(4));
       expect(layout.positionForOffset(0, viewportHeight: 600).fraction, 0);
 
       // Scrolled as far as it goes: content 2400, viewport 600 -> max 1800.
@@ -102,14 +102,14 @@ void main() {
       expect(end.fraction, 1.0);
     });
 
-    test('a chapter shorter than the viewport counts as fully read', () {
-      final layout = ChapterLayout(viewportWidth: 400, panels: panels(1));
+    test('an entry shorter than the viewport counts as fully read', () {
+      final layout = EntryLayout(viewportWidth: 400, panels: panels(1));
       final position = layout.positionForOffset(0, viewportHeight: 2000);
       expect(position.fraction, 1.0);
     });
 
     test('is clamped even when handed a nonsense offset', () {
-      final layout = ChapterLayout(viewportWidth: 400, panels: panels(3));
+      final layout = EntryLayout(viewportWidth: 400, panels: panels(3));
       expect(
         layout.positionForOffset(999999, viewportHeight: 600).fraction,
         1.0,

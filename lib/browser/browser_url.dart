@@ -2,7 +2,7 @@
 /// back.
 ///
 /// Pure Dart, no I/O: this is the module that decides whether
-/// `uzaymanga.com/manga/x` is a place to go or a thing to search for, so it is
+/// `example.com/guide/x` is a place to go or a thing to search for, so it is
 /// unit tested directly rather than through a WebView.
 library;
 
@@ -184,8 +184,8 @@ String pathAndQuery(String url) {
 
 /// The compact toolbar label: host, plus as much path as fits.
 ///
-/// A long chapter URL squeezed into a 200pt field is unreadable either way;
-/// the middle is what gets elided so the leading segment and the chapter
+/// A long entry URL squeezed into a 200pt field is unreadable either way;
+/// the middle is what gets elided so the leading segment and the entry
 /// identifier at the end both survive.
 String compactPath(String url, {int maxLength = 22}) {
   final tail = pathAndQuery(url);

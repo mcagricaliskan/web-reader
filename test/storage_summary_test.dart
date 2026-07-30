@@ -32,45 +32,55 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  Future<void> seedSeries(String id, String title) => db.upsertLibraryItem(
-    LibraryItem(
+  Future<void> seedCollection(String id, String title) => db.upsertCollection(
+    Collection(
+      contentKind: 'unknownWebContent',
+      sequenceKind: 'none',
+      orderingBasis: 'discoveryOrder',
+      shapeConfidence: 'low',
       lifecycle: 'active',
       id: id,
       title: title,
-      sourceUrl: 'https://x.example/manga/$id',
+      sourceUrl: 'https://x.example/guide/$id',
       host: 'x.example',
-      seriesKey: '/manga/$id',
+      collectionKey: '/guide/$id',
       createdAt: DateTime(2026, 7, 1),
     ),
   );
 
-  Future<void> seedChapter(
-    String series,
+  Future<void> seedEntry(
+    String collection,
     int n, {
     required int bytes,
     String readStatus = 'unread',
     bool offline = true,
-    String captureStatus = 'complete',
-  }) => db.upsertChapter(
-    Chapter(
-      id: '$series-c$n',
-      libraryItemId: series,
-      title: 'Chapter $n',
-      sourceUrl: 'https://x.example/manga/$series/$n',
-      urlKey: 'https://x.example/manga/$series/$n',
-      captureStatus: captureStatus,
-      contentPath: offline ? 'library/$series/chapters/$series-c$n' : null,
-      capturedAt: DateTime(2026, 7, 20),
-      detectedImageCount: 3,
-      storedImageCount: 3,
-      sequence: n,
+    String saveStatus = 'complete',
+  }) => db.upsertEntry(
+    Entry(
+      host: '',
+      contentKind: 'unknownWebContent',
+      contentKindConfidence: 'low',
+      contentKindIsUserSet: false,
+      id: '$collection-c$n',
+      collectionId: collection,
+      title: 'Entry $n',
+      sourceUrl: 'https://x.example/guide/$collection/$n',
+      urlKey: 'https://x.example/guide/$collection/$n',
+      saveStatus: saveStatus,
+      contentPath: offline
+          ? 'library/$collection/entries/$collection-c$n'
+          : null,
+      savedAt: DateTime(2026, 7, 20),
+      detectedAssetCount: 3,
+      storedAssetCount: 3,
+      entryOrder: n,
       byteSize: offline ? bytes : 0,
-      chapterNumber: n.toDouble(),
-      chapterLabel: 'Chapter $n',
+      entryNumber: n.toDouble(),
+      sourceMarker: 'Entry $n',
       readStatus: readStatus,
       progressFraction: readStatus == 'completed' ? 1 : 0,
-      progressImageIndex: 0,
-      progressOffsetInImage: 0,
+      progressPageIndex: 0,
+      progressOffsetInPage: 0,
     ),
   );
 
@@ -84,68 +94,72 @@ void main() {
     fail('storage summary never resolved');
   }
 
-  test('totals come from real stored sizes, largest series first', () async {
-    container.listen(storageSummaryProvider, (_, _) {});
-    await seedSeries('s1', 'Small');
-    await seedSeries('s2', 'Big');
-    await seedChapter('s1', 1, bytes: 1000);
-    await seedChapter('s2', 1, bytes: 5000);
-    await seedChapter('s2', 2, bytes: 4000);
+  test(
+    'totals come from real stored sizes, largest collection first',
+    () async {
+      container.listen(storageSummaryProvider, (_, _) {});
+      await seedCollection('s1', 'Small');
+      await seedCollection('s2', 'Big');
+      await seedEntry('s1', 1, bytes: 1000);
+      await seedEntry('s2', 1, bytes: 5000);
+      await seedEntry('s2', 2, bytes: 4000);
 
-    final s = await summary();
-    expect(s.totalBytes, 10000);
-    expect(s.offlineChapters, 3);
-    expect(s.offlineSeries, 2);
-    expect(s.series.map((r) => r.group.displayName), [
-      'Big',
-      'Small',
-    ], reason: 'largest first by default');
-    expect(s.series.first.bytes, 9000);
-    expect(s.series.first.offlineChapters, 2);
-  });
+      final s = await summary();
+      expect(s.totalBytes, 10000);
+      expect(s.offlineEntries, 3);
+      expect(s.offlineCollection, 2);
+      expect(
+        s.collection.map((r) => r.group.displayName),
+        ['Big', 'Small'],
+        reason: 'largest first by default',
+      );
+      expect(s.collection.first.bytes, 9000);
+      expect(s.collection.first.offlineEntries, 2);
+    },
+  );
 
-  test('chapters with no local files are not counted', () async {
+  test('entries with no local files are not counted', () async {
     container.listen(storageSummaryProvider, (_, _) {});
-    await seedSeries('s1', 'Foo');
-    await seedChapter('s1', 1, bytes: 1000);
-    await seedChapter('s1', 2, bytes: 0, offline: false);
-    await seedChapter(
+    await seedCollection('s1', 'Foo');
+    await seedEntry('s1', 1, bytes: 1000);
+    await seedEntry('s1', 2, bytes: 0, offline: false);
+    await seedEntry(
       's1',
       3,
       bytes: 0,
       offline: false,
-      captureStatus: 'knownRemote',
+      saveStatus: 'knownRemote',
     );
 
     final s = await summary();
-    expect(s.offlineChapters, 1);
+    expect(s.offlineEntries, 1);
     expect(s.totalBytes, 1000);
   });
 
   test(
-    'the finished-chapter estimate counts only completed offline ones',
+    'the finished-entry estimate counts only completed offline ones',
     () async {
       container.listen(storageSummaryProvider, (_, _) {});
-      await seedSeries('s1', 'Foo');
-      await seedChapter('s1', 1, bytes: 1000, readStatus: 'completed');
-      await seedChapter('s1', 2, bytes: 2000, readStatus: 'completed');
-      await seedChapter('s1', 3, bytes: 4000, readStatus: 'inProgress');
-      await seedChapter('s1', 4, bytes: 8000);
+      await seedCollection('s1', 'Foo');
+      await seedEntry('s1', 1, bytes: 1000, readStatus: 'completed');
+      await seedEntry('s1', 2, bytes: 2000, readStatus: 'completed');
+      await seedEntry('s1', 3, bytes: 4000, readStatus: 'inProgress');
+      await seedEntry('s1', 4, bytes: 8000);
 
       final s = await summary();
-      expect(s.finishedOfflineChapters, 2);
+      expect(s.finishedOfflineEntries, 2);
       expect(s.finishedOfflineBytes, 3000);
       expect(s.totalBytes, 15000, reason: 'unaffected by read state');
     },
   );
 
   test(
-    'totals fall when files are removed, without losing the chapters',
+    'totals fall when files are removed, without losing the entries',
     () async {
       container.listen(storageSummaryProvider, (_, _) {});
-      await seedSeries('s1', 'Foo');
-      await seedChapter('s1', 1, bytes: 1000, readStatus: 'completed');
-      await seedChapter('s1', 2, bytes: 2000);
+      await seedCollection('s1', 'Foo');
+      await seedEntry('s1', 1, bytes: 1000, readStatus: 'completed');
+      await seedEntry('s1', 2, bytes: 2000);
       expect((await summary()).totalBytes, 3000);
 
       final cleanup = CleanupService(db: db, fileStore: FileStore(root));
@@ -159,21 +173,21 @@ void main() {
       }
       final after = await summary();
       expect(after.totalBytes, 2000);
-      expect(after.offlineChapters, 1);
+      expect(after.offlineEntries, 1);
       expect(
-        (await db.chaptersForItem('s1')),
+        (await db.entriesForCollection('s1')),
         hasLength(2),
         reason: 'metadata is never deleted by a cleanup',
       );
-      expect((await db.chapterById('s1-c1'))!.readStatus, 'completed');
+      expect((await db.entryById('s1-c1'))!.readStatus, 'completed');
     },
   );
 
-  test('a series with nothing offline drops out of the list', () async {
+  test('a collection with nothing offline drops out of the list', () async {
     container.listen(storageSummaryProvider, (_, _) {});
-    await seedSeries('s1', 'Foo');
-    await seedChapter('s1', 1, bytes: 1000);
-    expect((await summary()).offlineSeries, 1);
+    await seedCollection('s1', 'Foo');
+    await seedEntry('s1', 1, bytes: 1000);
+    expect((await summary()).offlineCollection, 1);
 
     await CleanupService(
       db: db,
@@ -181,31 +195,31 @@ void main() {
     ).removeOffline(['s1-c1']);
     for (var i = 0; i < 60; i++) {
       final s = container.read(storageSummaryProvider).value;
-      if (s != null && s.offlineSeries == 0) break;
+      if (s != null && s.offlineCollection == 0) break;
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
 
     final after = await summary();
-    expect(after.offlineSeries, 0);
+    expect(after.offlineCollection, 0);
     expect(after.totalBytes, 0);
     expect(
-      await db.libraryItemById('s1'),
+      await db.collectionById('s1'),
       isNotNull,
-      reason: 'the series itself is untouched',
+      reason: 'the collection itself is untouched',
     );
   });
 
-  test('archived series still count towards storage', () async {
+  test('archived collection still count towards storage', () async {
     // They hold real bytes on the device; hiding them from the shelf does
     // not hide them from the disk.
     container.listen(storageSummaryProvider, (_, _) {});
-    await seedSeries('s1', 'Foo');
-    await seedChapter('s1', 1, bytes: 1000);
-    await db.setSeriesLifecycle('s1', 'archived');
+    await seedCollection('s1', 'Foo');
+    await seedEntry('s1', 1, bytes: 1000);
+    await db.setCollectionLifecycle('s1', 'archived');
 
     for (var i = 0; i < 60; i++) {
       final s = container.read(storageSummaryProvider).value;
-      if (s != null && s.offlineSeries == 1) break;
+      if (s != null && s.offlineCollection == 1) break;
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
     expect((await summary()).totalBytes, 1000);

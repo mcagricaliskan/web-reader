@@ -1,19 +1,19 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/browser/browser_controller.dart';
-import 'package:web_reader/capture/site_rule.dart';
+import 'package:web_reader/save/page_hint.dart';
 import 'package:web_reader/core/url_utils.dart';
 
 /// A user-selected control is a strong signal about one link. It is not
 /// permission to follow whatever the page does next — these tests pin that.
 void main() {
-  group('navigation lock during a capture job', () {
+  group('navigation lock during a save run', () {
     late BrowserController browser;
     setUp(() => browser = BrowserController());
     tearDown(() => browser.dispose());
 
-    test('nothing is blocked while no job is running', () {
+    test('nothing is blocked while no run is running', () {
       expect(
-        browser.shouldBlockNavigation('https://x.com/a', isMainFrame: true),
+        browser.shouldBlockNavigation('https://x.example/a', isMainFrame: true),
         isFalse,
       );
     });
@@ -21,17 +21,20 @@ void main() {
     test('an unannounced navigation is blocked while locked', () {
       browser.navigationLocked = true;
       expect(
-        browser.shouldBlockNavigation('https://x.com/popup', isMainFrame: true),
+        browser.shouldBlockNavigation(
+          'https://x.example/popup',
+          isMainFrame: true,
+        ),
         isTrue,
       );
     });
 
-    test('the chapter the job chose is allowed through', () {
+    test('the entry the run chose is allowed through', () {
       browser.navigationLocked = true;
-      browser.allowNextNavigation('https://x.com/manga/foo/11');
+      browser.allowNextNavigation('https://x.example/guide/foo/11');
       expect(
         browser.shouldBlockNavigation(
-          'https://x.com/manga/foo/11',
+          'https://x.example/guide/foo/11',
           isMainFrame: true,
         ),
         isFalse,
@@ -40,10 +43,10 @@ void main() {
 
     test('a same-host redirect of the allowed target is permitted', () {
       browser.navigationLocked = true;
-      browser.allowNextNavigation('https://x.com/manga/foo/11');
+      browser.allowNextNavigation('https://x.example/guide/foo/11');
       expect(
         browser.shouldBlockNavigation(
-          'https://x.com/manga/foo/11?utm_source=rss',
+          'https://x.example/guide/foo/11?utm_source=rss',
           isMainFrame: true,
         ),
         isFalse,
@@ -52,7 +55,7 @@ void main() {
 
     test('a redirect to another host is blocked even when one was allowed', () {
       browser.navigationLocked = true;
-      browser.allowNextNavigation('https://x.com/manga/foo/11');
+      browser.allowNextNavigation('https://x.example/guide/foo/11');
       expect(
         browser.shouldBlockNavigation(
           'https://ads.example/landing',
@@ -75,21 +78,21 @@ void main() {
   });
 
   group('post-redirect validation', () {
-    const from = 'https://uzay.example/manga/foo/883-bolum-oku';
+    const from = 'https://a.example/guide/foo/883-part-oku';
 
-    test('a redirect inside the same series is accepted', () {
-      const landed = 'https://uzay.example/manga/foo/884-bolum-oku';
+    test('a redirect inside the same collection is accepted', () {
+      const landed = 'https://a.example/guide/foo/884-part-oku';
       final check = validateNextUrl(
         candidate: landed,
         currentUrl: from,
         visited: {normalizeUrl(from)},
       );
       expect(check.isAccepted, isTrue);
-      expect(seriesFingerprint(landed), seriesFingerprint(from));
+      expect(collectionFingerprint(landed), collectionFingerprint(from));
     });
 
-    test('a redirect that leaves the series is detectable', () {
-      const landed = 'https://uzay.example/manga/OTHER-SERIES/1-bolum-oku';
+    test('a redirect that leaves the collection is detectable', () {
+      const landed = 'https://a.example/guide/OTHER-SERIES/1-part-oku';
       // URL validation alone would allow it — same host, not visited.
       final check = validateNextUrl(
         candidate: landed,
@@ -98,27 +101,27 @@ void main() {
       );
       expect(check.isAccepted, isTrue);
 
-      // The series check is what stops it.
+      // The collection check is what stops it.
       expect(
-        seriesFingerprint(landed),
-        isNot(seriesFingerprint(from)),
-        reason: 'the job must stop rather than capture a different series',
+        collectionFingerprint(landed),
+        isNot(collectionFingerprint(from)),
+        reason: 'the run must stop rather than save a different collection',
       );
     });
 
     test('a redirect to a login page is refused', () {
       final check = validateNextUrl(
-        candidate: 'https://uzay.example/login?next=/manga/foo/884',
+        candidate: 'https://a.example/login?next=/guide/foo/884',
         currentUrl: from,
         visited: {},
       );
       expect(check.rejection, NextUrlRejection.denyListed);
     });
 
-    test('a redirect back to an already-captured chapter is refused', () {
+    test('a redirect back to an already-saved entry is refused', () {
       final check = validateNextUrl(
         candidate: from,
-        currentUrl: 'https://uzay.example/manga/foo/884-bolum-oku',
+        currentUrl: 'https://a.example/guide/foo/884-part-oku',
         visited: {normalizeUrl(from)},
       );
       expect(check.rejection, NextUrlRejection.alreadyVisited);
@@ -126,7 +129,7 @@ void main() {
 
     test('a redirect off-host is refused', () {
       final check = validateNextUrl(
-        candidate: 'https://mirror.example/manga/foo/884',
+        candidate: 'https://mirror.example/guide/foo/884',
         currentUrl: from,
         visited: {},
       );
@@ -136,13 +139,13 @@ void main() {
 
   _hostChangeTests();
 
-  group('bounded chapter count', () {
+  group('bounded entry count', () {
     test('the requested limit is clamped to the configured maximum', () {
-      // The controller clamps with `chapterLimit.clamp(1, maxChaptersPerJob)`.
-      const maxChapters = 5;
-      expect(999.clamp(1, maxChapters), maxChapters);
-      expect(0.clamp(1, maxChapters), 1);
-      expect(3.clamp(1, maxChapters), 3);
+      // The controller clamps with `entryLimit.clamp(1, maxEntriesPerRun)`.
+      const maxEntries = 5;
+      expect(999.clamp(1, maxEntries), maxEntries);
+      expect(0.clamp(1, maxEntries), 1);
+      expect(3.clamp(1, maxEntries), 3);
     });
   });
 }
@@ -152,14 +155,14 @@ void _hostChangeTests() {
     late BrowserController browser;
     setUp(() {
       browser = BrowserController();
-      browser.onUrlChanged('https://uzay.example/manga/foo/883');
+      browser.onUrlChanged('https://a.example/guide/foo/883');
     });
     tearDown(() => browser.dispose());
 
     test('a page-initiated hop to another host needs consent', () {
       expect(
         browser.needsHostChangeConsent(
-          fromUrl: 'https://uzay.example/manga/foo/883',
+          fromUrl: 'https://a.example/guide/foo/883',
           toUrl: 'https://ads.example/landing',
           isMainFrame: true,
           userInitiated: false,
@@ -171,8 +174,8 @@ void _hostChangeTests() {
     test('same-host navigation never asks', () {
       expect(
         browser.needsHostChangeConsent(
-          fromUrl: 'https://uzay.example/manga/foo/883',
-          toUrl: 'https://uzay.example/manga/foo/884',
+          fromUrl: 'https://a.example/guide/foo/883',
+          toUrl: 'https://a.example/guide/foo/884',
           isMainFrame: true,
           userInitiated: false,
         ),
@@ -183,7 +186,7 @@ void _hostChangeTests() {
     test('a deliberate tap while browsing is not nagged about', () {
       expect(
         browser.needsHostChangeConsent(
-          fromUrl: 'https://uzay.example/manga/foo/883',
+          fromUrl: 'https://a.example/guide/foo/883',
           toUrl: 'https://other.example/',
           isMainFrame: true,
           userInitiated: true,
@@ -192,11 +195,11 @@ void _hostChangeTests() {
       );
     });
 
-    test('during a capture job even a tap is questioned', () {
+    test('during a save run even a tap is questioned', () {
       browser.navigationLocked = true;
       expect(
         browser.needsHostChangeConsent(
-          fromUrl: 'https://uzay.example/manga/foo/883',
+          fromUrl: 'https://a.example/guide/foo/883',
           toUrl: 'https://other.example/',
           isMainFrame: true,
           userInitiated: true,
@@ -208,7 +211,7 @@ void _hostChangeTests() {
     test('sub-frames are not policed', () {
       expect(
         browser.needsHostChangeConsent(
-          fromUrl: 'https://uzay.example/manga/foo/883',
+          fromUrl: 'https://a.example/guide/foo/883',
           toUrl: 'https://cdn.example/frame',
           isMainFrame: false,
           userInitiated: false,
@@ -218,10 +221,10 @@ void _hostChangeTests() {
     });
 
     test('non-http schemes are not treated as host changes', () {
-      for (final target in ['mailto:a@b.com', 'tel:123', 'about:blank']) {
+      for (final target in ['mailto:a@b.example', 'tel:123', 'about:blank']) {
         expect(
           browser.needsHostChangeConsent(
-            fromUrl: 'https://uzay.example/a',
+            fromUrl: 'https://a.example/a',
             toUrl: target,
             isMainFrame: true,
             userInitiated: false,
@@ -236,7 +239,7 @@ void _hostChangeTests() {
       'silence refuses, and the browser stays put',
       () async {
         final decision = browser.requestHostChange(
-          fromUrl: 'https://uzay.example/manga/foo/883',
+          fromUrl: 'https://a.example/guide/foo/883',
           toUrl: 'https://ads.example/landing',
         );
         expect(browser.pendingHostChange, isNotNull);
@@ -251,7 +254,7 @@ void _hostChangeTests() {
 
     test('an explicit Stay refuses immediately', () async {
       final decision = browser.requestHostChange(
-        fromUrl: 'https://uzay.example/a',
+        fromUrl: 'https://a.example/a',
         toUrl: 'https://ads.example/landing',
       );
       await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -261,7 +264,7 @@ void _hostChangeTests() {
 
     test('an allowed host is remembered, so it asks only once', () async {
       final first = browser.requestHostChange(
-        fromUrl: 'https://uzay.example/a',
+        fromUrl: 'https://a.example/a',
         toUrl: 'https://mirror.example/a',
       );
       await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -270,7 +273,7 @@ void _hostChangeTests() {
 
       expect(
         browser.needsHostChangeConsent(
-          fromUrl: 'https://uzay.example/a',
+          fromUrl: 'https://a.example/a',
           toUrl: 'https://mirror.example/b',
           isMainFrame: true,
           userInitiated: false,
@@ -278,12 +281,12 @@ void _hostChangeTests() {
         isFalse,
       );
 
-      // ...until a capture job clears it, so a browsing-time decision does not
+      // ...until a save run clears it, so a browsing-time decision does not
       // silently widen an autonomous run.
       browser.clearAllowedHostChanges();
       expect(
         browser.needsHostChangeConsent(
-          fromUrl: 'https://uzay.example/a',
+          fromUrl: 'https://a.example/a',
           toUrl: 'https://mirror.example/b',
           isMainFrame: true,
           userInitiated: false,

@@ -24,35 +24,35 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  ChapterManifest manifest(
-    String chapterId,
+  EntryManifest manifest(
+    String entryId,
     String itemId, {
-    CaptureStatus status = CaptureStatus.complete,
-    List<AssetEntry> assets = const [],
-  }) => ChapterManifest(
+    SaveStatus status = SaveStatus.complete,
+    List<EntryAsset> assets = const [],
+  }) => EntryManifest(
     schemaVersion: 1,
-    chapterId: chapterId,
-    libraryItemId: itemId,
-    sourceUrl: 'http://localhost:8099/chapter/1',
-    title: 'Chapter 1',
-    capturedAt: DateTime(2026, 7, 25),
+    entryId: entryId,
+    collectionId: itemId,
+    sourceUrl: 'http://localhost:8099/entry/1',
+    title: 'Entry 1',
+    savedAt: DateTime(2026, 7, 25),
     status: status,
-    detectedImageCount: assets.length,
-    storedImageCount: assets.where((a) => a.isStored).length,
+    detectedAssetCount: assets.length,
+    storedAssetCount: assets.where((a) => a.isStored).length,
     assets: assets,
   );
 
   group('relative paths', () {
-    test('chapterRelativePath is relative and predictable', () {
-      final rel = FileStore.chapterRelativePath('item-1', 'chap-1');
-      expect(rel, 'library/item-1/chapters/chap-1');
+    test('entryRelativePath is relative and predictable', () {
+      final rel = FileStore.entryRelativePath('item-1', 'chap-1');
+      expect(rel, 'library/item-1/entries/chap-1');
       expect(rel, isNot(startsWith('/')));
     });
 
     test(
       'resolve joins against the runtime root, not a stored absolute path',
       () {
-        final rel = FileStore.chapterRelativePath('item-1', 'chap-1');
+        final rel = FileStore.entryRelativePath('item-1', 'chap-1');
         expect(store.resolve(rel), p.join(root.path, rel));
 
         // The same relative path resolves correctly under a *different* root,
@@ -62,34 +62,34 @@ void main() {
       },
     );
 
-    test('asset paths in a staging handle are relative to the chapter dir', () {
+    test('asset paths in a staging handle are relative to the entry dir', () {
       expect(StagingHandle.assetRelativePath('001.png'), 'assets/001.png');
     });
   });
 
   group('staging and atomic commit', () {
     test('nothing exists at the final path until commit', () async {
-      final handle = await store.beginChapter(
-        libraryItemId: 'item-1',
-        chapterId: 'c1',
+      final handle = await store.beginEntry(
+        collectionId: 'item-1',
+        entryId: 'c1',
       );
       await handle.assetFile('001.png').writeAsBytes([1, 2, 3]);
 
-      final rel = FileStore.chapterRelativePath('item-1', 'c1');
+      final rel = FileStore.entryRelativePath('item-1', 'c1');
       expect(
-        store.chapterExists(rel),
+        store.entryExists(rel),
         isFalse,
-        reason: 'staging must not be visible as a committed chapter',
+        reason: 'staging must not be visible as a committed entry',
       );
 
       await store.commit(handle, manifest('c1', 'item-1'));
-      expect(store.chapterExists(rel), isTrue);
+      expect(store.entryExists(rel), isTrue);
     });
 
     test('commit writes a readable manifest and moves the assets', () async {
-      final handle = await store.beginChapter(
-        libraryItemId: 'item-1',
-        chapterId: 'c1',
+      final handle = await store.beginEntry(
+        collectionId: 'item-1',
+        entryId: 'c1',
       );
       await handle.assetFile('001.png').writeAsBytes([1, 2, 3, 4]);
 
@@ -99,7 +99,7 @@ void main() {
           'c1',
           'item-1',
           assets: const [
-            AssetEntry(
+            EntryAsset(
               index: 1,
               sourceUrl: 'http://localhost:8099/img/1/1.png',
               status: AssetStatus.stored,
@@ -111,7 +111,7 @@ void main() {
 
       final restored = await store.readManifest(rel);
       expect(restored, isNotNull);
-      expect(restored!.chapterId, 'c1');
+      expect(restored!.entryId, 'c1');
       expect(store.assetFile(rel, 'assets/001.png').existsSync(), isTrue);
       expect(
         handle.dir.existsSync(),
@@ -121,23 +121,23 @@ void main() {
     });
 
     test('discard leaves no trace', () async {
-      final handle = await store.beginChapter(
-        libraryItemId: 'item-1',
-        chapterId: 'c1',
+      final handle = await store.beginEntry(
+        collectionId: 'item-1',
+        entryId: 'c1',
       );
       await handle.assetFile('001.png').writeAsBytes([1]);
       await store.discard(handle);
 
       expect(handle.dir.existsSync(), isFalse);
       expect(
-        store.chapterExists(FileStore.chapterRelativePath('item-1', 'c1')),
+        store.entryExists(FileStore.entryRelativePath('item-1', 'c1')),
         isFalse,
       );
     });
 
     test('sweepStaging removes orphans left by a crash', () async {
-      await store.beginChapter(libraryItemId: 'item-1', chapterId: 'c1');
-      await store.beginChapter(libraryItemId: 'item-1', chapterId: 'c2');
+      await store.beginEntry(collectionId: 'item-1', entryId: 'c1');
+      await store.beginEntry(collectionId: 'item-1', entryId: 'c2');
 
       expect(await store.sweepStaging(), 2);
       expect(await store.sweepStaging(), 0);
@@ -145,56 +145,53 @@ void main() {
   });
 
   group('reconciliation and deletion', () {
-    test('listCommittedChapterPaths finds committed chapters only', () async {
-      final h1 = await store.beginChapter(
-        libraryItemId: 'item-1',
-        chapterId: 'c1',
-      );
+    test('listCommittedEntryPaths finds committed entries only', () async {
+      final h1 = await store.beginEntry(collectionId: 'item-1', entryId: 'c1');
       await store.commit(h1, manifest('c1', 'item-1'));
       // A staging dir that never committed must not be listed.
-      await store.beginChapter(libraryItemId: 'item-1', chapterId: 'c2');
+      await store.beginEntry(collectionId: 'item-1', entryId: 'c2');
 
-      final paths = store.listCommittedChapterPaths();
-      expect(paths, ['library/item-1/chapters/c1']);
+      final paths = store.listCommittedEntryPaths();
+      expect(paths, ['library/item-1/entries/c1']);
     });
 
     test(
-      'deleteChapterContent removes files but not the parent structure',
+      'deleteEntryContent removes files but not the parent structure',
       () async {
-        final handle = await store.beginChapter(
-          libraryItemId: 'item-1',
-          chapterId: 'c1',
+        final handle = await store.beginEntry(
+          collectionId: 'item-1',
+          entryId: 'c1',
         );
         await handle.assetFile('001.png').writeAsBytes([1, 2, 3]);
         final rel = await store.commit(handle, manifest('c1', 'item-1'));
 
-        expect(store.chapterExists(rel), isTrue);
-        await store.deleteChapterContent(rel);
-        expect(store.chapterExists(rel), isFalse);
+        expect(store.entryExists(rel), isTrue);
+        await store.deleteEntryContent(rel);
+        expect(store.entryExists(rel), isFalse);
       },
     );
 
-    test('chapterByteSize totals the stored bytes', () async {
-      final handle = await store.beginChapter(
-        libraryItemId: 'item-1',
-        chapterId: 'c1',
+    test('entryByteSize totals the stored bytes', () async {
+      final handle = await store.beginEntry(
+        collectionId: 'item-1',
+        entryId: 'c1',
       );
       await handle.assetFile('001.png').writeAsBytes(List.filled(100, 0));
       await handle.assetFile('002.png').writeAsBytes(List.filled(250, 0));
       final rel = await store.commit(handle, manifest('c1', 'item-1'));
 
       // Assets plus the manifest itself.
-      expect(await store.chapterByteSize(rel), greaterThan(350));
+      expect(await store.entryByteSize(rel), greaterThan(350));
     });
 
     test(
       'readManifest returns null for a directory with no manifest',
       () async {
         Directory(
-          store.resolve('library/item-x/chapters/ghost'),
+          store.resolve('library/item-x/entries/ghost'),
         ).createSync(recursive: true);
         expect(
-          await store.readManifest('library/item-x/chapters/ghost'),
+          await store.readManifest('library/item-x/entries/ghost'),
           isNull,
         );
       },

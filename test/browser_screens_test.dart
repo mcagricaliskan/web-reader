@@ -8,7 +8,7 @@ import 'package:web_reader/browser/browser_controller.dart';
 import 'package:web_reader/browser/favicon_service.dart';
 import 'package:web_reader/browser/history_repository.dart';
 import 'package:web_reader/browser/saved_sites_repository.dart';
-import 'package:web_reader/capture/capture_job.dart';
+import 'package:web_reader/save/save_run.dart';
 import 'package:web_reader/library/update_checker.dart';
 import 'package:web_reader/queue/task_queue.dart';
 import 'package:web_reader/features/browser_data_dialogs.dart';
@@ -54,17 +54,13 @@ void main() {
     final store = FileStore(root);
     final browser = BrowserController();
     addTearDown(browser.dispose);
-    final job = CaptureJobController(
-      browser: browser,
-      db: db,
-      fileStore: store,
-    );
+    final run = SaveRunController(browser: browser, db: db, fileStore: store);
     return ProviderScope(
       overrides: [
         databaseProvider.overrideWithValue(db),
         fileStoreProvider.overrideWithValue(store),
         browserProvider.overrideWithValue(browser),
-        captureJobProvider.overrideWithValue(job),
+        saveRunProvider.overrideWithValue(run),
         updateCheckerProvider.overrideWithValue(
           UpdateChecker(browser: browser, db: db),
         ),
@@ -73,7 +69,7 @@ void main() {
           TaskQueueController(
             db: db,
             browser: browser,
-            captureJob: job,
+            saveRun: run,
             checker: UpdateChecker(browser: browser, db: db),
           ),
         ),
@@ -88,20 +84,20 @@ void main() {
   Future<void> seedVisits({DateTime? now}) async {
     final at = now ?? DateTime.now();
     await history.recordVisit(
-      url: 'https://uzaymanga.com/manga/efsanevi/885',
-      title: 'Efsanevi Büyü İmparatoru',
+      url: 'https://a.example/guide/long-guide/885',
+      title: 'The Long Guide',
       source: NavigationSource.manual,
       now: at.subtract(const Duration(minutes: 4)),
     );
     await history.recordVisit(
-      url: 'https://uzaymanga.com/manga/efsanevi',
-      title: 'Bölüm listesi',
+      url: 'https://a.example/guide/long-guide',
+      title: 'Contents',
       source: NavigationSource.manual,
       now: at.subtract(const Duration(minutes: 12)),
     );
     await history.recordVisit(
-      url: 'https://asurascans.com/comics/nebula/137',
-      title: 'The Nebula 137',
+      url: 'https://b.example/notes/field/137',
+      title: 'Field Notes 137',
       source: NavigationSource.manual,
       now: at.subtract(const Duration(days: 1, hours: 3)),
     );
@@ -115,25 +111,25 @@ void main() {
 
       expect(find.text('TODAY'), findsOneWidget);
       expect(find.text('YESTERDAY'), findsOneWidget);
-      expect(find.text('Efsanevi Büyü İmparatoru'), findsOneWidget);
-      expect(find.text('The Nebula 137'), findsOneWidget);
+      expect(find.text('The Long Guide'), findsOneWidget);
+      expect(find.text('Field Notes 137'), findsOneWidget);
     });
 
-    browserWidgetTest('shows nothing from capture automation', (tester) async {
+    browserWidgetTest('shows nothing from save automation', (tester) async {
       await history.recordVisit(
-        url: 'https://uzaymanga.com/manga/efsanevi/886',
-        title: 'Captured chapter',
-        source: NavigationSource.captureAutomation,
+        url: 'https://a.example/guide/long-guide/886',
+        title: 'Saved entry',
+        source: NavigationSource.saveAutomation,
       );
       await history.recordVisit(
-        url: 'https://uzaymanga.com/manga/efsanevi',
+        url: 'https://a.example/guide/long-guide',
         title: 'Checked list',
         source: NavigationSource.updateCheck,
       );
       await tester.pumpWidget(host(const BrowserHistoryScreen()));
       await tester.pump();
 
-      expect(find.text('Captured chapter'), findsNothing);
+      expect(find.text('Saved entry'), findsNothing);
       expect(find.text('Checked list'), findsNothing);
       expect(find.text('No history yet'), findsOneWidget);
     });
@@ -147,11 +143,11 @@ void main() {
 
       await tester.enterText(
         find.byKey(const ValueKey('historySearchField')),
-        'nebula',
+        'field',
       );
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('The Nebula 137'), findsOneWidget);
-      expect(find.text('Efsanevi Büyü İmparatoru'), findsNothing);
+      expect(find.text('Field Notes 137'), findsOneWidget);
+      expect(find.text('The Long Guide'), findsNothing);
 
       await tester.enterText(
         find.byKey(const ValueKey('historySearchField')),
@@ -171,9 +167,10 @@ void main() {
       await tester.tap(find.text('Sites'));
       await tester.pump();
 
-      expect(find.text('uzaymanga.com'), findsOneWidget);
+      // Two hosts, two rows, and the counts belong to the right ones.
+      expect(find.text('a.example'), findsOneWidget);
       expect(find.textContaining('2 visits'), findsOneWidget);
-      expect(find.text('asurascans.com'), findsOneWidget);
+      expect(find.text('b.example'), findsOneWidget);
       expect(find.textContaining('1 visit ·'), findsOneWidget);
     });
 
@@ -184,10 +181,10 @@ void main() {
       await tester.tap(find.text('Sites'));
       await tester.pump();
 
-      await tester.tap(find.byKey(const ValueKey('historyHost-uzaymanga.com')));
+      await tester.tap(find.byKey(const ValueKey('historyHost-a.example')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Bölüm listesi'), findsOneWidget);
+      expect(find.text('Contents'), findsOneWidget);
       expect(find.text('Add to Saved Sites'), findsOneWidget);
       expect(find.text('Remove site history'), findsOneWidget);
     });
@@ -199,7 +196,7 @@ void main() {
       await tester.pumpWidget(host(const BrowserHistoryScreen()));
       await tester.pump();
 
-      await tester.tap(find.text('The Nebula 137'));
+      await tester.tap(find.text('Field Notes 137'));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('historyRemoveVisit')));
       await tester.pumpAndSettle();
@@ -241,12 +238,15 @@ void main() {
 
       final left = await db.visits();
       expect(left, hasLength(1), reason: 'only yesterday survives');
-      expect(left.single.host, 'asurascans.com');
+      // Yesterday's visit is the one on the second host.
+      expect(left.single.host, 'b.example');
     });
 
     browserWidgetTest('clearing all time keeps saved sites', (tester) async {
       await seedVisits();
-      await saved.seedDefaultIfNeeded();
+      await SavedSitesRepository(
+        db,
+      ).save(url: 'https://kept.example/', title: 'Kept');
       await tester.pumpWidget(host(const BrowserHistoryScreen()));
       await tester.pump();
 
@@ -258,7 +258,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(await db.visits(), isEmpty);
-      expect(await db.allSavedSites(), hasLength(1));
+      // The saved site the test put there is untouched. Nothing is seeded, so
+      // the row has to be created for the assertion to mean anything.
+      expect(
+        (await db.allSavedSites()).map((s) => s.title),
+        ['Kept'],
+        reason: 'clearing history must not reach the saved-sites list',
+      );
     });
   });
 
@@ -290,7 +296,7 @@ void main() {
         );
         // It also says what it keeps, because that is the fear.
         expect(
-          find.textContaining('library, captured chapters, saved sites'),
+          find.textContaining('library, saved entries, saved sites'),
           findsOneWidget,
         );
 
@@ -335,7 +341,7 @@ void main() {
       expect(find.text('Visited sites'), findsOneWidget);
       expect(find.byKey(const ValueKey('addSavedSiteManual')), findsOneWidget);
 
-      await tester.tap(find.text('Efsanevi Büyü İmparatoru'));
+      await tester.tap(find.text('The Long Guide'));
       await tester.pumpAndSettle();
 
       expect(find.text('Save site'), findsWidgets);
@@ -344,7 +350,7 @@ void main() {
 
       final sites = await db.allSavedSites();
       expect(sites, hasLength(1));
-      expect(sites.single.url, 'https://uzaymanga.com/manga/efsanevi/885');
+      expect(sites.single.url, 'https://a.example/guide/long-guide/885');
     });
 
     browserWidgetTest('a hostname with no reliable root says so', (
@@ -466,7 +472,6 @@ void main() {
       tester,
     ) async {
       await seedVisits();
-      await saved.seedDefaultIfNeeded();
       await tester.pumpWidget(host(const SettingsScreen()));
       await tester.pump();
 

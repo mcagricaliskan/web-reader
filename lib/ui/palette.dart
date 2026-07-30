@@ -190,7 +190,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
   final Color toastAccent;
 
   /// (background, foreground) pairs for the generated tiles that stand in for
-  /// cover art and favicons. One table, so a series monogram and a site tile
+  /// cover art and favicons. One table, so a collection monogram and a site tile
   /// cannot drift apart.
   final List<(Color, Color)> tilePairs;
 
@@ -333,7 +333,7 @@ const _tilePairsDark = <(Color, Color)>[
   (Color(0xFF23272E), Color(0xFFAFB7C5)),
 ];
 
-/// Stable per-key tile colours: the same site or series keeps the same tile
+/// Stable per-key tile colours: the same site or collection keeps the same tile
 /// wherever it appears. Mirrors the prototype's `fav()` hash exactly so a
 /// screenshot of the design and a screenshot of the app agree.
 (Color, Color) tileColorsFor(String key, {required AppPalette palette}) {
@@ -359,16 +359,16 @@ abstract final class ReaderColors {
   /// Behind the panels.
   static const canvas = Color(0xFF0C0B0A);
 
-  /// Chapter label in the top chrome.
+  /// Entry label in the top chrome.
   static const ink = Color(0xFFE2DDD4);
 
   /// Sub-title beside it.
   static const inkMuted = Color(0xFF9A938A);
 
-  /// Counters and the end-of-chapter rule.
+  /// Counters and the end-of-entry rule.
   static const inkFaint = Color(0xFF7C766D);
 
-  /// Disabled chapter-step arrows.
+  /// Disabled entry-step arrows.
   static const inkDisabled = Color(0xFF4C4841);
 
   /// Position bar and the read pill when set.
@@ -381,7 +381,7 @@ abstract final class ReaderColors {
   static const pill = Color(0xFF19181A);
   static const pillActive = Color(0xFF1E2528);
 
-  /// The "next chapter" button at the end of a chapter.
+  /// The "next entry" button at the end of an entry.
   static const buttonSurface = Color(0xFF17191B);
   static const buttonInk = Color(0xFFD3DFE3);
   static const buttonBorder = Color(0xFF2E3336);
@@ -396,7 +396,7 @@ abstract final class ReaderColors {
   static const brokenPanel = Color(0xFF241614);
   static const brokenPanelInk = Color(0xFFD9A79C);
 
-  /// The partial-capture banner.
+  /// The partial-save banner.
   static const warnSurface = Color(0xFF2A2010);
   static const warnBorder = Color(0xFF4E3C19);
   static const warn = Color(0xFFD3A669);
@@ -404,7 +404,7 @@ abstract final class ReaderColors {
   static const warnInk = Color(0xFFEBD6AC);
   static const warnInkMuted = Color(0xFFB9A47D);
 
-  /// The "jump back to where you were" chip, and the capture-again button on
+  /// The "jump back to where you were" chip, and the save-again button on
   /// the unavailable state — the only two lit affordances on the screen.
   static const chipSurface = Color(0xFFDCE9ED);
   static const chipInk = Color(0xFF123642);

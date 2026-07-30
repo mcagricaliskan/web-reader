@@ -10,16 +10,16 @@ import 'browser/browser_presentation.dart';
 import 'browser/favicon_service.dart';
 import 'browser/history_repository.dart';
 import 'browser/saved_sites_repository.dart';
-import 'capture/capture_job.dart';
-import 'capture/rule_repository.dart';
-import 'features/continue_entry.dart';
-import 'features/library_screen.dart' show SeriesGroup;
+import 'save/save_run.dart';
+import 'save/page_hint_repository.dart';
+import 'features/resume_point.dart';
+import 'features/library_screen.dart' show LibraryCollection;
 import 'library/library_sort.dart';
-import 'library/series_repository.dart';
+import 'library/collection_repository.dart';
 import 'library/update_checker.dart';
 import 'queue/task_queue.dart';
 import 'reading/reading_repository.dart';
-import 'capture/site_rule.dart';
+import 'save/page_hint.dart';
 import 'storage/cleanup.dart';
 import 'storage/database.dart';
 import 'storage/file_store.dart';
@@ -31,24 +31,20 @@ class AppServices {
     required this.db,
     required this.fileStore,
     required this.browser,
-    required this.captureJob,
+    required this.saveRun,
     UpdateChecker? updateChecker,
     TaskQueueController? taskQueue,
     CleanupService? cleanup,
   }) : updateChecker = updateChecker ?? UpdateChecker(browser: browser, db: db),
        cleanup =
            cleanup ??
-           CleanupService(
-             db: db,
-             fileStore: fileStore,
-             captureJob: captureJob,
-           ) {
+           CleanupService(db: db, fileStore: fileStore, saveRun: saveRun) {
     this.taskQueue =
         taskQueue ??
         TaskQueueController(
           db: db,
           browser: browser,
-          captureJob: captureJob,
+          saveRun: saveRun,
           checker: this.updateChecker,
           cleanup: this.cleanup,
         );
@@ -57,7 +53,7 @@ class AppServices {
   final AppDatabase db;
   final FileStore fileStore;
   final BrowserController browser;
-  final CaptureJobController captureJob;
+  final SaveRunController saveRun;
   final UpdateChecker updateChecker;
   final CleanupService cleanup;
   late final TaskQueueController taskQueue;
@@ -79,8 +75,8 @@ final browserProvider = Provider<BrowserController>(
   (ref) => ref.watch(appServicesProvider).browser,
 );
 
-final captureJobProvider = Provider<CaptureJobController>(
-  (ref) => ref.watch(appServicesProvider).captureJob,
+final saveRunProvider = Provider<SaveRunController>(
+  (ref) => ref.watch(appServicesProvider).saveRun,
 );
 
 final updateCheckerProvider = Provider<UpdateChecker>(
@@ -94,9 +90,9 @@ final cleanupProvider = Provider<CleanupService>((ref) {
   try {
     return ref.watch(appServicesProvider).cleanup;
   } catch (_) {
-    // Widget tests override the database and file store only; the capture
-    // job is genuinely absent there, and cleanup degrades to "no running
-    // capture" rather than demanding the whole service graph.
+    // Widget tests override the database and file store only; the save
+    // run is genuinely absent there, and cleanup degrades to "no running
+    // save" rather than demanding the whole service graph.
     return CleanupService(
       db: ref.watch(databaseProvider),
       fileStore: ref.watch(fileStoreProvider),
@@ -124,25 +120,25 @@ final queueTasksProvider = StreamProvider<List<QueueTask>>(
   (ref) => ref.watch(databaseProvider).watchQueueTasks(),
 );
 
-/// Reactive library: the list updates the moment a chapter commits, with no
+/// Reactive library: the list updates the moment an entry commits, with no
 /// manual invalidation.
-final chaptersStreamProvider = StreamProvider<List<Chapter>>(
-  (ref) => ref.watch(databaseProvider).watchAllChapters(),
+final entriesStreamProvider = StreamProvider<List<Entry>>(
+  (ref) => ref.watch(databaseProvider).watchAllEntries(),
 );
 
-final libraryItemsStreamProvider = StreamProvider<List<LibraryItem>>(
-  (ref) => ref.watch(databaseProvider).watchLibraryItems(),
+final collectionsStreamProvider = StreamProvider<List<Collection>>(
+  (ref) => ref.watch(databaseProvider).watchCollections(),
 );
 
 final readingRepositoryProvider = Provider<ReadingRepository>(
   (ref) => ReadingRepository(ref.watch(databaseProvider)),
 );
 
-final seriesRepositoryProvider = Provider<SeriesRepository>(
-  (ref) => SeriesRepository(ref.watch(databaseProvider)),
+final collectionRepositoryProvider = Provider<CollectionRepository>(
+  (ref) => CollectionRepository(ref.watch(databaseProvider)),
 );
 
-/// The persisted All Series sort (Q26: defaults to last-read).
+/// The persisted All Collection sort (Q26: defaults to last-read).
 final librarySortProvider = StreamProvider<LibrarySort>(
   (ref) => ref
       .watch(databaseProvider)
@@ -155,33 +151,51 @@ final librarySortProvider = StreamProvider<LibrarySort>(
 Future<void> setLibrarySort(WidgetRef ref, LibrarySort sort) =>
     ref.read(databaseProvider).setSetting(kLibrarySortSettingKey, sort.name);
 
-/// Series groups with their chapters, recomputed whenever either table
-/// changes — so a capture that commits mid-run shows up immediately.
+/// Collection groups with their entries, recomputed whenever either table
+/// changes — so a save that commits mid-run shows up immediately.
 /// Ordered by the persisted [LibrarySort].
-/// Every series with chapters, archived included — the source both the
-/// library (active) and the Archived screen filter from, so a series can
+/// Every collection with entries, archived included — the source both the
+/// library (active) and the Archived screen filter from, so a collection can
 /// never fall through the gap between them.
-final allSeriesGroupsProvider = StreamProvider<List<SeriesGroup>>((ref) {
+final allLibraryCollectionsProvider = StreamProvider<List<LibraryCollection>>((
+  ref,
+) {
   final db = ref.watch(databaseProvider);
   final sort = ref.watch(librarySortProvider).value ?? LibrarySort.lastRead;
   // BOTH tables, genuinely. Drift invalidates per table, so watching only
-  // library_items missed chapter-only writes — removing a chapter's offline
-  // files left the shelf and the Storage screen showing stale sizes until
-  // something happened to touch a series row.
-  return _mergeTicks([db.watchLibraryItems(), db.watchAllChapters()]).asyncMap((
+  // `collections` missed entry-only writes — removing an entry's offline files
+  // left the shelf and the Storage screen showing stale sizes until something
+  // happened to touch a collection row.
+  return _mergeTicks([db.watchCollections(), db.watchAllEntries()]).asyncMap((
     _,
   ) async {
-    final items = await db.allLibraryItems();
-    final chapters = await db.allChapters();
-    final byItem = <String, List<Chapter>>{};
-    for (final c in chapters) {
-      byItem.putIfAbsent(c.libraryItemId, () => []).add(c);
+    final collections = await db.allCollections();
+    final entries = await db.allEntries();
+
+    final byCollection = <String, List<Entry>>{};
+    final standalone = <Entry>[];
+    for (final entry in entries) {
+      final id = entry.collectionId;
+      if (id == null) {
+        standalone.add(entry);
+      } else {
+        byCollection.putIfAbsent(id, () => []).add(entry);
+      }
     }
-    final groups = [
-      for (final item in items)
-        SeriesGroup(item: item, chapters: byItem[item.id] ?? const []),
-    ]..removeWhere((g) => g.chapters.isEmpty);
-    return sortSeriesGroups(groups, sort);
+
+    final shelf = <LibraryCollection>[
+      for (final collection in collections)
+        LibraryCollection(
+          collection: collection,
+          entries: byCollection[collection.id] ?? const [],
+        ),
+      // Standalone entries are shelf items in their own right, listed beside
+      // collections rather than hidden inside one. This is the read side of the
+      // nullable `entries.collection_id`.
+      for (final entry in standalone) LibraryCollection(entries: [entry]),
+    ]..removeWhere((g) => g.entries.isEmpty);
+
+    return sortLibraryCollections(shelf, sort);
   });
 });
 
@@ -219,67 +233,68 @@ Stream<void> _mergeTicks(List<Stream<Object?>> sources) {
   return controller.stream;
 }
 
-/// The library: active series only (M16 — archived ones live on their own
+/// The library: active collection only (M16 — archived ones live on their own
 /// screen and are excluded from checks).
-final seriesGroupsProvider = Provider<AsyncValue<List<SeriesGroup>>>(
-  (ref) => ref
-      .watch(allSeriesGroupsProvider)
-      .whenData(
-        (groups) =>
-            groups.where((g) => g.item.lifecycle != 'archived').toList(),
-      ),
-);
+final libraryCollectionsProvider =
+    Provider<AsyncValue<List<LibraryCollection>>>(
+      (ref) => ref
+          .watch(allLibraryCollectionsProvider)
+          .whenData(
+            (groups) => groups.where((g) => g.lifecycle != 'archived').toList(),
+          ),
+    );
 
-/// Archived series, most recently archived first.
-final archivedGroupsProvider = Provider<AsyncValue<List<SeriesGroup>>>(
+/// Archived collection, most recently archived first.
+final archivedGroupsProvider = Provider<AsyncValue<List<LibraryCollection>>>(
   (ref) => ref
-      .watch(allSeriesGroupsProvider)
+      .watch(allLibraryCollectionsProvider)
       .whenData(
         (groups) =>
-            groups.where((g) => g.item.lifecycle == 'archived').toList()..sort(
-              (a, b) => (b.item.archivedAt ?? DateTime(0)).compareTo(
-                a.item.archivedAt ?? DateTime(0),
+            groups.where((g) => g.lifecycle == 'archived').toList()..sort(
+              (a, b) => (b.archivedAt ?? DateTime(0)).compareTo(
+                a.archivedAt ?? DateTime(0),
               ),
             ),
       ),
 );
 
-/// One series' chapters, deduplicated by value.
+/// One collection's entries, deduplicated by value.
 ///
-/// Drift invalidates streams per table, so every chapter write re-emits every
-/// per-series stream; `.distinct` on row equality stops the ripple — a
-/// progress write for series A produces no new emission for series B. This is
-/// what per-series widgets watch so one chapter's change cannot rebuild the
+/// Drift invalidates streams per table, so every entry write re-emits every
+/// per-collection stream; `.distinct` on row equality stops the ripple — a
+/// progress write for collection A produces no new emission for collection B. This is
+/// what per-collection widgets watch so one entry's change cannot rebuild the
 /// whole library (M13 backend; the M17 acceptance test rides on it).
-final seriesChaptersProvider = StreamProvider.family<List<Chapter>, String>(
-  (ref, libraryItemId) => ref
+final collectionEntriesProvider = StreamProvider.family<List<Entry>, String>(
+  (ref, collectionId) => ref
       .watch(databaseProvider)
-      .watchChaptersForItem(libraryItemId)
-      .distinct(const ListEquality<Chapter>().equals),
+      .watchEntriesForCollection(collectionId)
+      .distinct(const ListEquality<Entry>().equals),
 );
 
 /// One group, derived from the same stream so the two never disagree.
 /// Looks across active AND archived: the detail screen must keep working for
-/// a series the user just archived.
-final seriesGroupProvider = Provider.family<AsyncValue<SeriesGroup?>, String>(
-  (ref, seriesId) => ref
-      .watch(allSeriesGroupsProvider)
-      .whenData(
-        (groups) => groups.where((g) => g.item.id == seriesId).firstOrNull,
-      ),
-);
+/// a collection the user just archived.
+final libraryCollectionProvider =
+    Provider.family<AsyncValue<LibraryCollection?>, String>(
+      (ref, collectionId) => ref
+          .watch(allLibraryCollectionsProvider)
+          .whenData(
+            (groups) => groups.where((g) => g.id == collectionId).firstOrNull,
+          ),
+    );
 
-/// Series with an unfinished or next-unread local chapter, most recently read
+/// Collection with an unfinished or next-unread local entry, most recently read
 /// first. Derived from the same stream as the library, so the two can never
-/// disagree and a capture or a page turn updates both without a restart.
-final continueReadingProvider = Provider<AsyncValue<List<ContinueEntry>>>(
-  (ref) => ref.watch(seriesGroupsProvider).whenData((groups) {
-    final entries = <ContinueEntry>[];
+/// disagree and a save or a page turn updates both without a restart.
+final continueReadingProvider = Provider<AsyncValue<List<ResumePoint>>>(
+  (ref) => ref.watch(libraryCollectionsProvider).whenData((groups) {
+    final entries = <ResumePoint>[];
     for (final group in groups) {
-      final state = computeSeriesReadingState(group.chapters);
-      final chapter = state.continueChapter;
-      if (chapter == null) continue;
-      entries.add(ContinueEntry(group: group, chapter: chapter, state: state));
+      final state = computeCollectionReadingState(group.entries);
+      final entry = state.continueEntry;
+      if (entry == null) continue;
+      entries.add(ResumePoint(group: group, entry: entry, state: state));
     }
     entries.sort((a, b) {
       final at = a.state.lastReadAt;
@@ -296,46 +311,46 @@ final continueReadingProvider = Provider<AsyncValue<List<ContinueEntry>>>(
   }),
 );
 
-/// Anything ever opened, most recent first — including series that are fully
+/// Anything ever opened, most recent first — including collection that are fully
 /// completed and so no longer appear under Continue Reading.
-final recentlyReadProvider = Provider<AsyncValue<List<ContinueEntry>>>(
-  (ref) => ref.watch(seriesGroupsProvider).whenData((groups) {
-    final entries = <ContinueEntry>[];
+final recentlyReadProvider = Provider<AsyncValue<List<ResumePoint>>>(
+  (ref) => ref.watch(libraryCollectionsProvider).whenData((groups) {
+    final entries = <ResumePoint>[];
     for (final group in groups) {
-      final state = computeSeriesReadingState(group.chapters);
+      final state = computeCollectionReadingState(group.entries);
       if (state.lastReadAt == null) continue;
-      // Reopen where they were: the chapter to continue, else the last one
+      // Reopen where they were: the entry to continue, else the last one
       // they finished.
-      final chapter = state.continueChapter ?? state.lastCompleted;
-      if (chapter == null) continue;
-      entries.add(ContinueEntry(group: group, chapter: chapter, state: state));
+      final entry = state.continueEntry ?? state.lastCompleted;
+      if (entry == null) continue;
+      entries.add(ResumePoint(group: group, entry: entry, state: state));
     }
     entries.sort((a, b) => b.state.lastReadAt!.compareTo(a.state.lastReadAt!));
     return entries;
   }),
 );
 
-final seriesReadingStateProvider =
-    Provider.family<AsyncValue<SeriesReadingState>, String>(
-      (ref, seriesId) => ref
-          .watch(seriesGroupProvider(seriesId))
+final collectionReadingStateProvider =
+    Provider.family<AsyncValue<CollectionReadingState>, String>(
+      (ref, collectionId) => ref
+          .watch(libraryCollectionProvider(collectionId))
           .whenData(
             (group) => group == null
-                ? const SeriesReadingState(chapters: [])
-                : computeSeriesReadingState(group.chapters),
+                ? const CollectionReadingState(entries: [])
+                : computeCollectionReadingState(group.entries),
           ),
     );
 
-final siteRulesStreamProvider = StreamProvider<List<SiteRule>>(
+final pageHintsStreamProvider = StreamProvider<List<UserPageHint>>(
   (ref) => ref
       .watch(databaseProvider)
-      .watchAllRules()
-      .map((rows) => rows.map(RuleRepository.toModel).toList()),
+      .watchAllHints()
+      .map((rows) => rows.map(PageHintRepository.toModel).toList()),
 );
 
 /// One-shot requests to switch the shell's bottom tab (0 = Library,
 /// 1 = Browser). Written by widgets that live inside a tab (the activity
-/// strip's "Open Browser" action for a capture holding on a hidden WebView);
+/// strip's "Open Browser" action for a save holding on a hidden WebView);
 /// consumed by the shell, which owns the index.
 final shellTabRequestProvider = Provider<ValueNotifier<int?>>((ref) {
   final notifier = ValueNotifier<int?>(null);
@@ -343,8 +358,8 @@ final shellTabRequestProvider = Provider<ValueNotifier<int?>>((ref) {
   return notifier;
 });
 
-final resumableJobProvider = StreamProvider<CaptureJob?>(
-  (ref) => ref.watch(databaseProvider).watchResumableJob(),
+final resumableRunProvider = StreamProvider<SaveRun?>(
+  (ref) => ref.watch(databaseProvider).watchResumableRun(),
 );
 
 // --- browser (M18) ---------------------------------------------------------

@@ -14,7 +14,7 @@ import 'page_data.dart';
 /// The single boundary between the app and `flutter_inappwebview`.
 ///
 /// Nothing else in `lib/` imports the plugin. Swapping the WebView means
-/// reimplementing this class and the injected JS — not touching capture,
+/// reimplementing this class and the injected JS — not touching save,
 /// storage, or UI.
 class BrowserController extends ChangeNotifier {
   InAppWebViewController? _webView;
@@ -30,13 +30,13 @@ class BrowserController extends ChangeNotifier {
   final _navigationCompleters = <Completer<void>>[];
   final _selectionController = StreamController<SelectedElement>.broadcast();
 
-  /// While a capture job runs, the page may not initiate its own top-level
+  /// While a save run runs, the page may not initiate its own top-level
   /// navigation. A user-selected control is a strong signal about *one* link;
   /// it is not permission to follow whatever the page does next.
   bool navigationLocked = false;
   String? _allowedNavigationUrl;
 
-  /// Who is driving the WebView right now ("a capture job", "an update
+  /// Who is driving the WebView right now ("a save run", "an update
   /// check"), or null. There is exactly one WebView; two autonomous processes
   /// navigating it at once would corrupt both, so each refuses to start while
   /// the other holds this.
@@ -47,7 +47,7 @@ class BrowserController extends ChangeNotifier {
   /// Set beside [automationOwner] by whoever takes the WebView. History
   /// recording reads it, and *also* refuses outright while
   /// [automationOwner] is non-null — two independent guards, because a
-  /// capture flooding the user's history is the failure this exists to
+  /// save flooding the user's history is the failure this exists to
   /// prevent (D53).
   NavigationSource navigationSource = NavigationSource.manual;
 
@@ -79,9 +79,9 @@ class BrowserController extends ChangeNotifier {
   /// Identity of the page currently on screen, as a monotonically increasing
   /// counter.
   ///
-  /// Everything the Browser shows *about a page* — a capture result, a
+  /// Everything the Browser shows *about a page* — a save result, a
   /// preflight summary, an offline badge — is scoped to this number, so a
-  /// completed job cannot go on being the state of the next page the user
+  /// completed run cannot go on being the state of the next page the user
   /// opens. It changes only for a main-frame page change: asset loads,
   /// sub-frames and hash-only jumps do not reach it (they never produce a
   /// different [pageIdentityKey]), and an address that is not a renderable
@@ -98,7 +98,7 @@ class BrowserController extends ChangeNotifier {
 
   /// Who moved the Browser onto this page. Automation moving the page forward
   /// is a page change like any other for *presentation* — but it is not the
-  /// user browsing, and the running job it belongs to is untouched by it.
+  /// user browsing, and the running run it belongs to is untouched by it.
   NavigationSource get pageSessionSource => _pageSessionSource;
 
   /// True when the user is what put this page on screen.
@@ -155,12 +155,12 @@ class BrowserController extends ChangeNotifier {
 
   static InAppWebViewSettings get settings => InAppWebViewSettings(
     javaScriptEnabled: true,
-    // Needed so navigation can be vetoed while a job is running.
+    // Needed so navigation can be vetoed while a run is running.
     useShouldOverrideUrlLoading: true,
     javaScriptCanOpenWindowsAutomatically: false,
     supportMultipleWindows: false,
     // Non-incognito and never cleared: the session the user browsed with
-    // is the session capture runs in.
+    // is the session save runs in.
     incognito: false,
     cacheEnabled: true,
     mediaPlaybackRequiresUserGesture: true,
@@ -170,7 +170,7 @@ class BrowserController extends ChangeNotifier {
     allowsInlineMediaPlayback: true,
   );
 
-  /// Allow exactly one upcoming navigation (the chapter the job chose).
+  /// Allow exactly one upcoming navigation (the entry the run chose).
   void allowNextNavigation(String url) => _allowedNavigationUrl = url;
 
   /// Veto policy for `shouldOverrideUrlLoading`. Returns true to block.
@@ -250,7 +250,7 @@ class BrowserController extends ChangeNotifier {
     if (!request.completer.isCompleted) request.completer.complete(allow);
   }
 
-  /// Forget the session's allow-list (used when a capture job starts, so a
+  /// Forget the session's allow-list (used when a save run starts, so a
   /// decision made while browsing does not silently widen an autonomous run).
   void clearAllowedHostChanges() => _allowedHostChanges.clear();
 
@@ -358,7 +358,7 @@ class BrowserController extends ChangeNotifier {
   String? _pageIconUrl;
   String? get pageIconUrl => _pageIconUrl;
 
-  /// True while the connection is one we would let a capture run on.
+  /// True while the connection is one we would let a save run on.
   bool get isSecure =>
       _currentUrl.startsWith('https://') &&
       _fault?.state != BrowserPageState.certificate;
@@ -450,7 +450,7 @@ class BrowserController extends ChangeNotifier {
 
   /// Load [url].
   ///
-  /// Callers that already hold an absolute address (capture, checks, a saved
+  /// Callers that already hold an absolute address (save, checks, a saved
   /// site, a history row) pass it straight through. Free text typed by the
   /// user goes through [interpretUrlInput] first — see [open].
   Future<void> load(String url) async {
@@ -479,7 +479,7 @@ class BrowserController extends ChangeNotifier {
     return intent;
   }
 
-  /// Navigate and wait for the load to settle (or time out). The capture
+  /// Navigate and wait for the load to settle (or time out). The save
   /// engine does its own readiness checks afterwards — `onLoadStop` is only a
   /// hint, never proof that content has arrived.
   Future<void> loadAndWait(String url, {Duration? timeout}) async {
@@ -572,7 +572,7 @@ class BrowserController extends ChangeNotifier {
   /// storage, and the HTTP cache.
   ///
   /// Deliberately does **not** touch anything the app owns — saved sites,
-  /// history, the library, captured files, reading progress and queue rows
+  /// history, the library, saved files, reading progress and queue rows
   /// all live in SQLite and are not reachable from here.
   ///
   /// Returns what could not be cleared, so the caller can say so honestly
@@ -641,7 +641,7 @@ class BrowserController extends ChangeNotifier {
 
   /// Every bridge call is bounded. `callAsyncJavaScript` awaits a promise, and
   /// a promise that never settles — a `fetch` against a dead socket, a page
-  /// navigating out from under us — would otherwise hang the capture job with
+  /// navigating out from under us — would otherwise hang the save run with
   /// no way back.
   static const Duration defaultCallTimeout = Duration(seconds: 20);
 
@@ -797,7 +797,7 @@ class BrowserController extends ChangeNotifier {
 /// One completed main-frame load, as the controller saw it.
 ///
 /// Emitted for *every* completed load, automation included — the recording
-/// rule is the repository's job, and handing it the source rather than
+/// rule is the repository's run, and handing it the source rather than
 /// pre-filtering keeps that rule in one readable place.
 class BrowserVisit {
   const BrowserVisit({

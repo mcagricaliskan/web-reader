@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/browser/page_data.dart';
-import 'package:web_reader/capture/capture_preflight.dart';
+import 'package:web_reader/save/save_preflight.dart';
 import 'package:web_reader/library/update_checker.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
@@ -11,15 +11,15 @@ import 'package:web_reader/storage/file_store.dart';
 import 'helpers/fake_browser.dart';
 
 /// The M8 update check: bounded, metadata-only discovery over the same
-/// navigation trust chain captures use.
+/// navigation trust chain saves use.
 void main() {
   late AppDatabase db;
   late FakeBrowser browser;
   late UpdateChecker checker;
 
   const host = 'https://x.example';
-  String chapterUrl(int n) => '$host/manga/foo/$n';
-  const seriesUrl = '$host/manga/foo';
+  String entryUrl(int n) => '$host/guide/foo/$n';
+  const collectionIndexUrl = '$host/guide/foo';
 
   setUp(() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
@@ -33,97 +33,106 @@ void main() {
 
   tearDown(() => db.close());
 
-  Future<void> seedSeries({String? withSeriesUrl}) => db.upsertLibraryItem(
-    LibraryItem(
-      lifecycle: 'active',
-      id: 'series-1',
-      title: 'Foo',
-      sourceUrl: seriesUrl,
-      host: 'x.example',
-      seriesKey: '/manga/foo',
-      seriesUrl: withSeriesUrl,
-      createdAt: DateTime(2026, 7, 1),
-    ),
-  );
+  Future<void> seedCollection({String? withCollectionUrl}) =>
+      db.upsertCollection(
+        Collection(
+          contentKind: 'unknownWebContent',
+          sequenceKind: 'none',
+          orderingBasis: 'discoveryOrder',
+          shapeConfidence: 'low',
+          lifecycle: 'active',
+          id: 'collection-1',
+          title: 'Foo',
+          sourceUrl: collectionIndexUrl,
+          host: 'x.example',
+          collectionKey: '/guide/foo',
+          collectionIndexUrl: withCollectionUrl,
+          createdAt: DateTime(2026, 7, 1),
+        ),
+      );
 
-  Future<void> seedCaptured(int n, {String? nextUrl}) => db.upsertChapter(
-    Chapter(
+  Future<void> seedSaved(int n, {String? nextUrl}) => db.upsertEntry(
+    Entry(
+      host: '',
+      contentKind: 'unknownWebContent',
+      contentKindConfidence: 'low',
+      contentKindIsUserSet: false,
       id: 'ch$n',
-      libraryItemId: 'series-1',
-      title: 'Foo Chapter $n',
-      sourceUrl: chapterUrl(n),
-      urlKey: chapterUrl(n),
-      captureStatus: 'complete',
-      contentPath: 'library/series-1/chapters/ch$n',
-      capturedAt: DateTime(2026, 7, 10),
-      detectedImageCount: 3,
-      storedImageCount: 3,
+      collectionId: 'collection-1',
+      title: 'Foo Entry $n',
+      sourceUrl: entryUrl(n),
+      urlKey: entryUrl(n),
+      saveStatus: 'complete',
+      contentPath: 'library/collection-1/entries/ch$n',
+      savedAt: DateTime(2026, 7, 10),
+      detectedAssetCount: 3,
+      storedAssetCount: 3,
       nextSourceUrl: nextUrl,
-      sequence: n,
+      entryOrder: n,
       byteSize: 128,
-      chapterNumber: n.toDouble(),
-      chapterLabel: 'Chapter $n',
+      entryNumber: n.toDouble(),
+      sourceMarker: 'Entry $n',
       readStatus: 'unread',
       progressFraction: 0,
-      progressImageIndex: 0,
-      progressOffsetInImage: 0,
+      progressPageIndex: 0,
+      progressOffsetInPage: 0,
     ),
   );
 
-  /// Chapter pages [from]..[to], each linking rel=next to its successor.
+  /// Entry pages [from]..[to], each linking rel=next to its successor.
   void serveChain(int from, int to) {
     for (var n = from; n <= to; n++) {
       browser.addPage(
-        chapterUrl(n),
-        chapterProbe(
-          url: chapterUrl(n),
-          title: 'Foo Chapter $n',
+        entryUrl(n),
+        entryProbe(
+          url: entryUrl(n),
+          title: 'Foo Entry $n',
           imageUrls: const [],
-          nextHref: n < to ? chapterUrl(n + 1) : null,
+          nextHref: n < to ? entryUrl(n + 1) : null,
         ),
       );
     }
   }
 
   group('next-chain discovery', () {
-    test('finds new chapters without downloading anything', () async {
-      await seedSeries();
-      await seedCaptured(1, nextUrl: chapterUrl(2));
-      await seedCaptured(2); // captured while it was the newest — no next
+    test('finds new entries without downloading anything', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2); // saved while it was the newest — no next
       serveChain(2, 4);
 
-      final outcome = await checker.check('series-1');
+      final outcome = await checker.check('collection-1');
 
       expect(outcome.state, UpdateCheckState.updatesAvailable);
-      expect(outcome.newChapters, 2);
+      expect(outcome.newEntries, 2);
 
-      final discovered = (await db.allChapters())
-          .where((c) => c.captureStatus == 'knownRemote')
+      final discovered = (await db.allEntries())
+          .where((c) => c.saveStatus == 'knownRemote')
           .toList();
       expect(discovered, hasLength(2));
       for (final c in discovered) {
         expect(c.contentPath, isNull, reason: 'metadata only, no bytes');
-        expect(c.storedImageCount, 0);
+        expect(c.storedAssetCount, 0);
         expect(c.discoveredAt, isNotNull);
         expect(c.discoveryBasis, 'nextChain');
       }
-      expect(discovered.map((c) => c.chapterNumber), containsAll([3.0, 4.0]));
+      expect(discovered.map((c) => c.entryNumber), containsAll([3.0, 4.0]));
     });
 
     test('a second check discovers nothing new and reports upToDate', () async {
-      await seedSeries();
-      await seedCaptured(1, nextUrl: chapterUrl(2));
-      await seedCaptured(2);
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
       serveChain(2, 4);
 
-      await checker.check('series-1');
-      final second = await checker.check('series-1');
+      await checker.check('collection-1');
+      final second = await checker.check('collection-1');
 
       expect(second.state, UpdateCheckState.upToDate);
-      expect(second.newChapters, 0);
+      expect(second.newEntries, 0);
       expect(
-        (await db.allChapters())
-            .where((c) => c.captureStatus == 'knownRemote')
+        (await db.allEntries())
+            .where((c) => c.saveStatus == 'knownRemote')
             .length,
         2,
         reason: 'no duplicate discovery rows',
@@ -131,53 +140,53 @@ void main() {
     });
 
     test(
-      'check state is persisted on the series, including failures',
+      'check state is persisted on the collection, including failures',
       () async {
-        await seedSeries();
-        await seedCaptured(1, nextUrl: chapterUrl(2));
-        await seedCaptured(2);
+        await seedCollection();
+        await seedSaved(1, nextUrl: entryUrl(2));
+        await seedSaved(2);
         serveChain(2, 3);
 
-        await checker.check('series-1');
-        var item = (await db.libraryItemById('series-1'))!;
+        await checker.check('collection-1');
+        var item = (await db.collectionById('collection-1'))!;
         expect(item.lastCheckAt, isNotNull);
         expect(item.lastCheckSuccessAt, isNotNull);
         expect(item.lastCheckResult, 'updatesAvailable');
         expect(item.lastCheckError, isNull);
 
-        // Now a failing check: the latest chapter's page does not exist.
-        await db.upsertChapter(
-          (await db.chapterById('ch2'))!.copyWith(sourceUrl: '$host/gone'),
+        // Now a failing check: the latest entry's page does not exist.
+        await db.upsertEntry(
+          (await db.entryById('ch2'))!.copyWith(sourceUrl: '$host/gone'),
         );
         browser.pages.clear();
-        final failing = await checker.check('series-1');
+        final failing = await checker.check('collection-1');
         expect(failing.state, UpdateCheckState.failed);
 
-        item = (await db.libraryItemById('series-1'))!;
+        item = (await db.collectionById('collection-1'))!;
         expect(item.lastCheckResult, 'failed');
         expect(item.lastCheckError, isNotNull);
       },
     );
 
-    test('bounded: stops at maxNewChapters and maxPagesInspected', () async {
+    test('bounded: stops at maxNewEntries and maxPagesInspected', () async {
       final bounded = UpdateChecker(
         browser: browser,
         db: db,
         config: const UpdateCheckConfig(
-          maxNewChapters: 3,
+          maxNewEntries: 3,
           maxPagesInspected: 5,
           cooldownBetweenPages: Duration.zero,
         ),
       );
-      await seedSeries();
-      await seedCaptured(1, nextUrl: chapterUrl(2));
-      await seedCaptured(2);
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
       serveChain(2, 40); // a "site" with vastly more than the bound
 
-      final outcome = await bounded.check('series-1');
+      final outcome = await bounded.check('collection-1');
 
       expect(outcome.state, UpdateCheckState.updatesAvailable);
-      expect(outcome.newChapters, 3);
+      expect(outcome.newEntries, 3);
       expect(
         outcome.pagesInspected,
         lessThanOrEqualTo(5),
@@ -186,9 +195,9 @@ void main() {
     });
 
     test('cancel stops the walk and keeps what was found', () async {
-      await seedSeries();
-      await seedCaptured(1, nextUrl: chapterUrl(2));
-      await seedCaptured(2);
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
       serveChain(2, 10);
 
       // Cancel as soon as the first discovery lands.
@@ -196,176 +205,176 @@ void main() {
         if (checker.log.any((l) => l.contains('found:'))) checker.cancel();
       });
 
-      final outcome = await checker.check('series-1');
+      final outcome = await checker.check('collection-1');
       expect(outcome.state, UpdateCheckState.cancelled);
       expect(
-        (await db.allChapters())
-            .where((c) => c.captureStatus == 'knownRemote')
+        (await db.allEntries())
+            .where((c) => c.saveStatus == 'knownRemote')
             .length,
         greaterThanOrEqualTo(1),
         reason: 'discovered metadata is kept, not rolled back',
       );
 
-      final item = (await db.libraryItemById('series-1'))!;
+      final item = (await db.collectionById('collection-1'))!;
       expect(item.lastCheckResult, 'cancelled');
     });
 
-    test('a next link that leaves the series ends the check', () async {
-      await seedSeries();
-      await seedCaptured(1, nextUrl: chapterUrl(2));
-      await seedCaptured(2);
+    test('a next link that leaves the collection ends the check', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
       browser.addPage(
-        chapterUrl(2),
-        chapterProbe(
-          url: chapterUrl(2),
-          title: 'Foo Chapter 2',
+        entryUrl(2),
+        entryProbe(
+          url: entryUrl(2),
+          title: 'Foo Entry 2',
           imageUrls: const [],
-          nextHref: '$host/manga/OTHER-SERIES/1',
+          nextHref: '$host/guide/OTHER-SERIES/1',
         ),
       );
 
-      final outcome = await checker.check('series-1');
+      final outcome = await checker.check('collection-1');
       expect(outcome.state, UpdateCheckState.upToDate);
-      expect(outcome.newChapters, 0);
+      expect(outcome.newEntries, 0);
       expect(
-        (await db.chaptersForItem('series-1')).length,
+        (await db.entriesForCollection('collection-1')).length,
         2,
-        reason: 'nothing from another series was recorded',
+        reason: 'nothing from another collection was recorded',
       );
     });
 
     test('refuses to run while something else drives the browser', () async {
-      await seedSeries();
-      await seedCaptured(1);
-      browser.automationOwner = 'a capture job';
+      await seedCollection();
+      await seedSaved(1);
+      browser.automationOwner = 'a save run';
 
-      final outcome = await checker.check('series-1');
+      final outcome = await checker.check('collection-1');
       expect(outcome.state, UpdateCheckState.failed);
-      expect(outcome.error, contains('capture job'));
+      expect(outcome.error, contains('save run'));
 
       browser.automationOwner = null;
     });
 
-    test('a discovered chapter is free to capture, not a failed one', () async {
-      await seedSeries();
-      await seedCaptured(1, nextUrl: chapterUrl(2));
-      await seedCaptured(2);
+    test('a discovered entry is free to save, not a failed one', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
       serveChain(2, 3);
-      await checker.check('series-1');
+      await checker.check('collection-1');
 
-      final discovered = (await db.allChapters())
-          .where((c) => c.captureStatus == 'knownRemote')
+      final discovered = (await db.allEntries())
+          .where((c) => c.saveStatus == 'knownRemote')
           .single;
-      expect(discovered.chapterNumber, 3.0);
+      expect(discovered.entryNumber, 3.0);
 
       final root = Directory.systemTemp.createTempSync('webread_uc');
       addTearDown(() => root.deleteSync(recursive: true));
-      final preflight = await CapturePreflight(
+      final preflight = await SavePreflight(
         db: db,
         fileStore: FileStore(root),
-      ).inspect(discovered.sourceUrl, libraryItemId: 'series-1');
+      ).inspect(discovered.sourceUrl, collectionId: 'collection-1');
 
       expect(
         preflight.state,
-        ChapterLocalState.none,
-        reason: 'capturing it must neither prompt nor look like a retry',
+        EntryLocalState.none,
+        reason: 'saving it must neither prompt nor look like a retry',
       );
     });
   });
 
-  group('series-page checkpoint', () {
-    PageProbe seriesListPage(List<int> chaptersNewestFirst) => PageProbe(
-      url: seriesUrl,
-      title: 'Foo — all chapters',
+  group('collection-page checkpoint', () {
+    PageProbe collectionListPage(List<int> entriesNewestFirst) => PageProbe(
+      url: collectionIndexUrl,
+      title: 'Foo — all entries',
       readyState: 'complete',
       documentHeight: 2000,
       viewportHeight: 800,
       links: [
-        for (final n in chaptersNewestFirst)
-          PageLink(href: '/manga/foo/$n', text: 'Chapter $n'),
+        for (final n in entriesNewestFirst)
+          PageLink(href: '/guide/foo/$n', text: 'Entry $n'),
       ],
     );
 
     test('a newest-first list is recorded oldest first', () async {
-      await seedSeries(withSeriesUrl: seriesUrl);
-      await seedCaptured(1);
-      await seedCaptured(2);
-      browser.addPage(seriesUrl, seriesListPage([6, 5, 4, 3, 2, 1]));
+      await seedCollection(withCollectionUrl: collectionIndexUrl);
+      await seedSaved(1);
+      await seedSaved(2);
+      browser.addPage(
+        collectionIndexUrl,
+        collectionListPage([6, 5, 4, 3, 2, 1]),
+      );
 
-      final outcome = await checker.check('series-1');
+      final outcome = await checker.check('collection-1');
 
       expect(outcome.state, UpdateCheckState.updatesAvailable);
-      expect(outcome.newChapters, 4);
+      expect(outcome.newEntries, 4);
 
       final discovered =
-          (await db.allChapters())
-              .where((c) => c.captureStatus == 'knownRemote')
+          (await db.allEntries())
+              .where((c) => c.saveStatus == 'knownRemote')
               .toList()
-            ..sort((a, b) => a.sequence.compareTo(b.sequence));
+            ..sort((a, b) => a.entryOrder.compareTo(b.entryOrder));
       expect(
-        discovered.map((c) => c.chapterNumber),
+        discovered.map((c) => c.entryNumber),
         [3.0, 4.0, 5.0, 6.0],
         reason: 'sequence runs forward even though the page runs backward',
       );
-      expect(
-        discovered.every((c) => c.discoveryBasis == 'chapterList'),
-        isTrue,
-      );
+      expect(discovered.every((c) => c.discoveryBasis == 'entryList'), isTrue);
     });
 
     test('an unorderable list does not stop the check early', () async {
-      await seedSeries(withSeriesUrl: seriesUrl);
-      await seedCaptured(1, nextUrl: chapterUrl(2));
-      await seedCaptured(2);
-      // Recognisable (it shows chapters we hold) but too short to establish an
+      await seedCollection(withCollectionUrl: collectionIndexUrl);
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
+      // Recognisable (it shows entries we hold) but too short to establish an
       // ordering — so "nothing new here" is not evidence of being up to date.
-      browser.addPage(seriesUrl, seriesListPage([2, 1]));
+      browser.addPage(collectionIndexUrl, collectionListPage([2, 1]));
       serveChain(2, 3);
 
-      final outcome = await checker.check('series-1');
+      final outcome = await checker.check('collection-1');
 
       expect(
         outcome.state,
         UpdateCheckState.updatesAvailable,
         reason: 'the chain walk got its turn instead of an early up-to-date',
       );
-      final discovered = (await db.allChapters())
-          .where((c) => c.captureStatus == 'knownRemote')
+      final discovered = (await db.allEntries())
+          .where((c) => c.saveStatus == 'knownRemote')
           .toList();
-      expect(discovered.single.chapterNumber, 3.0);
+      expect(discovered.single.entryNumber, 3.0);
       expect(discovered.single.discoveryBasis, 'nextChain');
     });
   });
 
-  group('chapter-list discovery (pure)', () {
+  group('entry-list discovery (pure)', () {
     PageProbe listProbe(List<PageLink> links) => PageProbe(
-      url: seriesUrl,
-      title: 'Foo — all chapters',
+      url: collectionIndexUrl,
+      title: 'Foo — all entries',
       readyState: 'complete',
       links: links,
     );
 
-    test('new numbered chapters above the latest known are found', () {
+    test('new numbered entries above the latest known are found', () {
       final probe = listProbe([
-        const PageLink(href: '/manga/foo/1', text: 'Chapter 1'),
-        const PageLink(href: '/manga/foo/2', text: 'Chapter 2'),
-        const PageLink(href: '/manga/foo/3', text: 'Chapter 3'),
-        const PageLink(href: '/manga/foo/4', text: 'Chapter 4'),
-        // Same host, different series: must not leak in.
-        const PageLink(href: '/manga/bar/9', text: 'Chapter 9'),
+        const PageLink(href: '/guide/foo/1', text: 'Entry 1'),
+        const PageLink(href: '/guide/foo/2', text: 'Entry 2'),
+        const PageLink(href: '/guide/foo/3', text: 'Entry 3'),
+        const PageLink(href: '/guide/foo/4', text: 'Entry 4'),
+        // Same host, different collection: must not leak in.
+        const PageLink(href: '/guide/bar/9', text: 'Entry 9'),
         // Unnumbered: cannot be established as new from a list alone.
-        const PageLink(href: '/manga/foo/extra', text: 'Extra'),
+        const PageLink(href: '/guide/foo/extra', text: 'Extra'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 2,
-        knownUrlKeys: {chapterUrl(1), chapterUrl(2)},
+        knownUrlKeys: {entryUrl(1), entryUrl(2)},
       );
 
       expect(result.listRecognised, isTrue);
-      expect(result.newChapters.map((c) => c.number), [3.0, 4.0]);
+      expect(result.newEntries.map((c) => c.number), [3.0, 4.0]);
       expect(result.knownSeen, 2);
     });
 
@@ -375,11 +384,11 @@ void main() {
         const PageLink(href: '/login', text: 'Login'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 2,
-        knownUrlKeys: {chapterUrl(1), chapterUrl(2)},
+        knownUrlKeys: {entryUrl(1), entryUrl(2)},
       );
 
       expect(
@@ -387,117 +396,117 @@ void main() {
         isFalse,
         reason: 'a 404 or an error page must fall back to the chain walk',
       );
-      expect(result.newChapters, isEmpty);
+      expect(result.newEntries, isEmpty);
     });
 
     test('a newest-first list is read in its own order', () {
-      // What most sites actually serve: chapter 6 at the top, 1 at the bottom.
+      // What most sites actually serve: entry 6 at the top, 1 at the bottom.
       final probe = listProbe([
         for (var n = 6; n >= 1; n--)
-          PageLink(href: '/manga/foo/$n', text: 'Chapter $n'),
+          PageLink(href: '/guide/foo/$n', text: 'Entry $n'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 3,
-        knownUrlKeys: {chapterUrl(1), chapterUrl(2), chapterUrl(3)},
+        knownUrlKeys: {entryUrl(1), entryUrl(2), entryUrl(3)},
       );
 
-      expect(result.direction, ChapterListDirection.newestFirst);
+      expect(result.direction, EntryListDirection.newestFirst);
       expect(result.orderingConfident, isTrue);
       expect(
-        result.newChapters.map((c) => c.number),
+        result.newEntries.map((c) => c.number),
         [4.0, 5.0, 6.0],
-        reason: 'emitted oldest first so capture runs forward',
+        reason: 'emitted oldest first so save runs forward',
       );
     });
 
-    test('decimal chapters sort between their neighbours', () {
+    test('decimal entries sort between their neighbours', () {
       final probe = listProbe([
-        const PageLink(href: '/manga/foo/386', text: 'Chapter 386'),
-        const PageLink(href: '/manga/foo/385-5', text: 'Chapter 385.5'),
-        const PageLink(href: '/manga/foo/385', text: 'Chapter 385'),
-        const PageLink(href: '/manga/foo/384', text: 'Chapter 384'),
+        const PageLink(href: '/guide/foo/386', text: 'Entry 386'),
+        const PageLink(href: '/guide/foo/385-5', text: 'Entry 385.5'),
+        const PageLink(href: '/guide/foo/385', text: 'Entry 385'),
+        const PageLink(href: '/guide/foo/384', text: 'Entry 384'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 385,
-        knownUrlKeys: {'$host/manga/foo/385', '$host/manga/foo/384'},
+        knownUrlKeys: {'$host/guide/foo/385', '$host/guide/foo/384'},
       );
 
       expect(
-        result.newChapters.map((c) => c.number),
+        result.newEntries.map((c) => c.number),
         [385.5, 386.0],
         reason: '385 < 385.5 < 386 — never a string comparison',
       );
     });
 
-    test('an unnumbered chapter above the known block is not discarded', () {
+    test('an unnumbered entry above the known block is not discarded', () {
       final probe = listProbe([
-        const PageLink(href: '/manga/foo/5', text: 'Chapter 5'),
-        const PageLink(href: '/manga/foo/extra', text: 'Side Story'),
-        const PageLink(href: '/manga/foo/4', text: 'Chapter 4'),
-        const PageLink(href: '/manga/foo/3', text: 'Chapter 3'),
-        const PageLink(href: '/manga/foo/2', text: 'Chapter 2'),
+        const PageLink(href: '/guide/foo/5', text: 'Entry 5'),
+        const PageLink(href: '/guide/foo/extra', text: 'Side Story'),
+        const PageLink(href: '/guide/foo/4', text: 'Entry 4'),
+        const PageLink(href: '/guide/foo/3', text: 'Entry 3'),
+        const PageLink(href: '/guide/foo/2', text: 'Entry 2'),
         // Page furniture at a different depth: still excluded.
-        const PageLink(href: '/manga/foo', text: 'All chapters'),
+        const PageLink(href: '/guide/foo', text: 'All entries'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 3,
-        knownUrlKeys: {chapterUrl(2), chapterUrl(3)},
+        knownUrlKeys: {entryUrl(2), entryUrl(3)},
       );
 
       expect(
-        result.newChapters.map((c) => c.title),
-        ['Chapter 4', 'Side Story', 'Chapter 5'],
+        result.newEntries.map((c) => c.title),
+        ['Entry 4', 'Side Story', 'Entry 5'],
         reason: 'placed by list position, since it has no number to compare',
       );
     });
 
-    test('the same chapter linked twice is recorded once', () {
+    test('the same entry linked twice is recorded once', () {
       final probe = listProbe([
-        const PageLink(href: '/manga/foo/4', text: 'Chapter 4'),
-        const PageLink(href: '/manga/foo/4', text: 'Chapter 4 (new!)'),
-        const PageLink(href: '/manga/foo/3', text: 'Chapter 3'),
-        const PageLink(href: '/manga/foo/2', text: 'Chapter 2'),
+        const PageLink(href: '/guide/foo/4', text: 'Entry 4'),
+        const PageLink(href: '/guide/foo/4', text: 'Entry 4 (new!)'),
+        const PageLink(href: '/guide/foo/3', text: 'Entry 3'),
+        const PageLink(href: '/guide/foo/2', text: 'Entry 2'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 3,
-        knownUrlKeys: {chapterUrl(2), chapterUrl(3)},
+        knownUrlKeys: {entryUrl(2), entryUrl(3)},
       );
 
-      expect(result.newChapters, hasLength(1));
-      expect(result.newChapters.single.number, 4.0);
+      expect(result.newEntries, hasLength(1));
+      expect(result.newEntries.single.number, 4.0);
     });
 
     test('a library that starts in the middle continues from there', () {
-      // 400 chapters listed newest first; the user holds 100–105.
+      // 400 entries listed newest first; the user holds 100–105.
       final probe = listProbe([
         for (var n = 400; n >= 1; n--)
-          PageLink(href: '/manga/foo/$n', text: 'Chapter $n'),
+          PageLink(href: '/guide/foo/$n', text: 'Entry $n'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 105,
-        knownUrlKeys: {for (var n = 100; n <= 105; n++) chapterUrl(n)},
+        knownUrlKeys: {for (var n = 100; n <= 105; n++) entryUrl(n)},
         maxNew: 5,
       );
 
       expect(
-        result.newChapters.map((c) => c.number),
+        result.newEntries.map((c) => c.number),
         [106.0, 107.0, 108.0, 109.0, 110.0],
-        reason: 'upward from the checkpoint, not from chapter 1',
+        reason: 'upward from the checkpoint, not from entry 1',
       );
       expect(
         result.dropped,
@@ -507,78 +516,78 @@ void main() {
     });
 
     test('shortcut links above the list do not defeat the ordering', () {
-      // What both live sites actually serve: "First Chapter" and "Latest
-      // Chapter" jump links sit above a newest-first list. They break strict
+      // What both live sites actually serve: "First Entry" and "Latest
+      // Entry" jump links sit above a newest-first list. They break strict
       // monotonicity, and an earlier version of this went `unknown` on every
       // real page because of them.
       final probe = listProbe([
-        const PageLink(href: '/manga/foo/1', text: 'İlk Bölüm'),
-        const PageLink(href: '/manga/foo/8', text: 'En Son Bölüm'),
+        const PageLink(href: '/guide/foo/1', text: 'İlk part'),
+        const PageLink(href: '/guide/foo/8', text: 'En Son part'),
         for (var n = 8; n >= 1; n--)
-          PageLink(href: '/manga/foo/$n', text: 'Chapter $n'),
+          PageLink(href: '/guide/foo/$n', text: 'Entry $n'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 6,
-        knownUrlKeys: {for (var n = 1; n <= 6; n++) chapterUrl(n)},
+        knownUrlKeys: {for (var n = 1; n <= 6; n++) entryUrl(n)},
       );
 
-      expect(result.direction, ChapterListDirection.newestFirst);
+      expect(result.direction, EntryListDirection.newestFirst);
       expect(
         result.orderingConfident,
         isTrue,
         reason: 'a couple of jump links is not an unorderable list',
       );
-      expect(result.newChapters.map((c) => c.number), [7.0, 8.0]);
+      expect(result.newEntries.map((c) => c.number), [7.0, 8.0]);
     });
 
-    test('an unnumbered chapter is placed between its neighbours', () {
+    test('an unnumbered entry is placed between its neighbours', () {
       // Ordering by interpolated position, not by list index — so a shortcut
       // link at the top cannot displace it either.
       final probe = listProbe([
-        const PageLink(href: '/manga/foo/1', text: 'First Chapter'),
-        const PageLink(href: '/manga/foo/386', text: 'Chapter 386'),
-        const PageLink(href: '/manga/foo/extra', text: 'Side Story'),
-        const PageLink(href: '/manga/foo/385', text: 'Chapter 385'),
-        const PageLink(href: '/manga/foo/384', text: 'Chapter 384'),
+        const PageLink(href: '/guide/foo/1', text: 'First Entry'),
+        const PageLink(href: '/guide/foo/386', text: 'Entry 386'),
+        const PageLink(href: '/guide/foo/extra', text: 'Side Story'),
+        const PageLink(href: '/guide/foo/385', text: 'Entry 385'),
+        const PageLink(href: '/guide/foo/384', text: 'Entry 384'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 385,
         knownUrlKeys: {
-          '$host/manga/foo/1',
-          '$host/manga/foo/384',
-          '$host/manga/foo/385',
+          '$host/guide/foo/1',
+          '$host/guide/foo/384',
+          '$host/guide/foo/385',
         },
       );
 
       expect(
-        result.newChapters.map((c) => c.title),
-        ['Side Story', 'Chapter 386'],
+        result.newEntries.map((c) => c.title),
+        ['Side Story', 'Entry 386'],
         reason: 'interpolated to 385.5 — after 385, before 386',
       );
     });
 
     test('an unorderable list is not confident, even when it is a list', () {
       final probe = listProbe([
-        const PageLink(href: '/manga/foo/2', text: 'Chapter 2'),
-        const PageLink(href: '/manga/foo/5', text: 'Chapter 5'),
-        const PageLink(href: '/manga/foo/3', text: 'Chapter 3'),
+        const PageLink(href: '/guide/foo/2', text: 'Entry 2'),
+        const PageLink(href: '/guide/foo/5', text: 'Entry 5'),
+        const PageLink(href: '/guide/foo/3', text: 'Entry 3'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 5,
-        knownUrlKeys: {chapterUrl(2), chapterUrl(3), chapterUrl(5)},
+        knownUrlKeys: {entryUrl(2), entryUrl(3), entryUrl(5)},
       );
 
       expect(result.listRecognised, isTrue);
-      expect(result.newChapters, isEmpty);
+      expect(result.newEntries, isEmpty);
       expect(
         result.orderingConfident,
         isFalse,
@@ -589,22 +598,22 @@ void main() {
     test('respects the maxNew bound', () {
       final probe = listProbe([
         for (var n = 1; n <= 30; n++)
-          PageLink(href: '/manga/foo/$n', text: 'Chapter $n'),
+          PageLink(href: '/guide/foo/$n', text: 'Entry $n'),
       ]);
 
-      final result = discoverFromChapterList(
+      final result = discoverFromEntryList(
         probe,
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         latestKnownNumber: 2,
-        knownUrlKeys: {chapterUrl(1), chapterUrl(2)},
+        knownUrlKeys: {entryUrl(1), entryUrl(2)},
         maxNew: 5,
       );
 
-      expect(result.newChapters, hasLength(5));
+      expect(result.newEntries, hasLength(5));
       expect(
-        result.newChapters.first.number,
+        result.newEntries.first.number,
         3.0,
-        reason: 'oldest new first, so capture continues in reading order',
+        reason: 'oldest new first, so save continues in reading order',
       );
     });
   });

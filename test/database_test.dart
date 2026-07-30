@@ -1,8 +1,5 @@
-import 'dart:io';
-
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path/path.dart' as p;
 import 'package:web_reader/storage/database.dart';
 
 void main() {
@@ -11,87 +8,95 @@ void main() {
   setUp(() => db = AppDatabase.forTesting(NativeDatabase.memory()));
   tearDown(() => db.close());
 
-  LibraryItem item(String id) => LibraryItem(
+  Collection item(String id) => Collection(
+    contentKind: 'unknownWebContent',
+    sequenceKind: 'none',
+    orderingBasis: 'discoveryOrder',
+    shapeConfidence: 'low',
     lifecycle: 'active',
     id: id,
-    title: 'Fixture Webtoon',
-    sourceUrl: 'http://localhost:8099/chapter',
+    title: 'Fixture image sequence',
+    sourceUrl: 'http://localhost:8099/entry',
     host: 'localhost',
     createdAt: DateTime(2026, 7, 25),
   );
 
-  Chapter chapter(
+  Entry entry(
     String id,
     String itemId, {
-    int sequence = 1,
+    int entryOrder = 1,
     String status = 'complete',
     String? urlKey,
-  }) => Chapter(
+  }) => Entry(
+    host: 'localhost',
+    contentKind: 'unknownWebContent',
+    contentKindConfidence: 'low',
+    contentKindIsUserSet: false,
     readStatus: 'unread',
     progressFraction: 0,
-    progressImageIndex: 0,
-    progressOffsetInImage: 0,
+    progressPageIndex: 0,
+    progressOffsetInPage: 0,
     id: id,
-    libraryItemId: itemId,
-    title: 'Chapter $sequence',
-    sourceUrl: 'http://localhost:8099/chapter/$sequence',
-    urlKey: urlKey ?? 'http://localhost:8099/chapter/$sequence',
-    captureStatus: status,
-    contentPath: 'library/$itemId/chapters/$id',
-    capturedAt: DateTime(2026, 7, 25, 12, sequence),
-    detectedImageCount: 6,
-    storedImageCount: 6,
-    sequence: sequence,
+    collectionId: itemId,
+    title: 'Entry $entryOrder',
+    sourceUrl: 'http://localhost:8099/entry/$entryOrder',
+    urlKey: urlKey ?? 'http://localhost:8099/entry/$entryOrder',
+    saveStatus: status,
+    contentPath: 'library/$itemId/entries/$id',
+    savedAt: DateTime(2026, 7, 25, 12, entryOrder),
+    detectedAssetCount: 6,
+    storedAssetCount: 6,
+    entryOrder: entryOrder,
     byteSize: 1024,
   );
 
   test('insert and read back a library item', () async {
-    await db.upsertLibraryItem(item('item-1'));
+    await db.upsertCollection(item('item-1'));
 
-    final found = await db.findLibraryItemBySourceUrl(
-      'http://localhost:8099/chapter',
+    final found = await db.findCollectionBySourceUrl(
+      'http://localhost:8099/entry',
     );
     expect(found, isNotNull);
-    expect(found!.title, 'Fixture Webtoon');
+    expect(found!.title, 'Fixture image sequence');
     expect(found.host, 'localhost');
   });
 
-  test('chapters are returned in capture-chain order', () async {
-    await db.upsertLibraryItem(item('item-1'));
+  test('entries are returned in save-chain order', () async {
+    await db.upsertCollection(item('item-1'));
     // Insert out of order on purpose.
-    await db.upsertChapter(chapter('c3', 'item-1', sequence: 3));
-    await db.upsertChapter(chapter('c1', 'item-1', sequence: 1));
-    await db.upsertChapter(chapter('c2', 'item-1', sequence: 2));
+    await db.upsertEntry(entry('c3', 'item-1', entryOrder: 3));
+    await db.upsertEntry(entry('c1', 'item-1', entryOrder: 1));
+    await db.upsertEntry(entry('c2', 'item-1', entryOrder: 2));
 
-    final chapters = await db.chaptersForItem('item-1');
-    expect(chapters.map((c) => c.sequence), [1, 2, 3]);
-    expect(chapters.map((c) => c.id), ['c1', 'c2', 'c3']);
+    final entries = await db.entriesForCollection('item-1');
+    expect(entries.map((c) => c.entryOrder), [1, 2, 3]);
+    expect(entries.map((c) => c.id), ['c1', 'c2', 'c3']);
   });
 
-  test('the same urlKey cannot be captured twice for one item', () async {
-    await db.upsertLibraryItem(item('item-1'));
-    await db.upsertChapter(chapter('c1', 'item-1', sequence: 1));
+  test('the same urlKey cannot be saved twice for one item', () async {
+    await db.upsertCollection(item('item-1'));
+    await db.upsertEntry(entry('c1', 'item-1', entryOrder: 1));
 
-    final duplicate = chapter(
+    final duplicate = entry(
       'c-other',
       'item-1',
-      sequence: 9,
-    ).copyWith(urlKey: 'http://localhost:8099/chapter/1');
+      entryOrder: 9,
+    ).copyWith(urlKey: 'http://localhost:8099/entry/1');
 
-    await expectLater(db.upsertChapter(duplicate), throwsA(isA<Exception>()));
+    await expectLater(db.upsertEntry(duplicate), throwsA(isA<Exception>()));
   });
 
-  test('findChapterByUrlKey locates an existing capture', () async {
-    await db.upsertLibraryItem(item('item-1'));
-    await db.upsertChapter(chapter('c1', 'item-1', sequence: 1));
+  test('findEntryByUrlKey locates an existing save', () async {
+    await db.upsertCollection(item('item-1'));
+    await db.upsertEntry(entry('c1', 'item-1', entryOrder: 1));
 
-    final found = await db.findChapterByUrlKey(
+    final found = await db.findEntryByUrlKey(
       'item-1',
-      'http://localhost:8099/chapter/1',
+      'http://localhost:8099/entry/1',
     );
     expect(found?.id, 'c1');
 
-    final missing = await db.findChapterByUrlKey(
+    final missing = await db.findEntryByUrlKey(
       'item-1',
       'http://localhost:8099/nope',
     );
@@ -99,165 +104,95 @@ void main() {
   });
 
   test(
-    'resetInFlightChapters demotes interrupted captures, never promotes',
+    'resetInFlightEntries demotes interrupted saves, never promotes',
     () async {
-      await db.upsertLibraryItem(item('item-1'));
-      await db.upsertChapter(chapter('c1', 'item-1', sequence: 1));
-      await db.upsertChapter(
-        chapter('c2', 'item-1', sequence: 2, status: 'capturing'),
+      await db.upsertCollection(item('item-1'));
+      await db.upsertEntry(entry('c1', 'item-1', entryOrder: 1));
+      await db.upsertEntry(
+        entry('c2', 'item-1', entryOrder: 2, status: 'saving'),
       );
 
-      final reset = await db.resetInFlightChapters();
+      final reset = await db.resetInFlightEntries();
       expect(reset, 1);
 
-      final interrupted = await db.chapterById('c2');
-      expect(interrupted!.captureStatus, 'failed');
-      expect(interrupted.captureError, contains('interrupted'));
+      final interrupted = await db.entryById('c2');
+      expect(interrupted!.saveStatus, 'failed');
+      expect(interrupted.saveError, contains('interrupted'));
 
-      // The already-complete chapter is untouched.
-      final done = await db.chapterById('c1');
-      expect(done!.captureStatus, 'complete');
+      // The already-complete entry is untouched.
+      final done = await db.entryById('c1');
+      expect(done!.saveStatus, 'complete');
     },
   );
 
-  test('markChapterContentMissing keeps the row but drops the path', () async {
-    await db.upsertLibraryItem(item('item-1'));
-    await db.upsertChapter(chapter('c1', 'item-1', sequence: 1));
+  test('markEntryContentMissing keeps the row but drops the path', () async {
+    await db.upsertCollection(item('item-1'));
+    await db.upsertEntry(entry('c1', 'item-1', entryOrder: 1));
 
-    await db.markChapterContentMissing('c1');
+    await db.markEntryContentMissing('c1');
 
-    final row = await db.chapterById('c1');
+    final row = await db.entryById('c1');
     expect(row, isNotNull, reason: 'history must survive missing files');
     expect(row!.contentPath, isNull);
-    expect(row.captureStatus, 'failed');
+    expect(row.saveStatus, 'failed');
   });
 
-  test('watchAllChapters emits when a chapter commits', () async {
-    await db.upsertLibraryItem(item('item-1'));
+  test('watchAllEntries emits when an entry commits', () async {
+    await db.upsertCollection(item('item-1'));
 
     final emissions = <int>[];
-    final sub = db.watchAllChapters().listen((rows) {
+    final sub = db.watchAllEntries().listen((rows) {
       emissions.add(rows.length);
     });
 
-    await db.upsertChapter(chapter('c1', 'item-1', sequence: 1));
+    await db.upsertEntry(entry('c1', 'item-1', entryOrder: 1));
     await pumpEventQueue();
-    await db.upsertChapter(chapter('c2', 'item-1', sequence: 2));
+    await db.upsertEntry(entry('c2', 'item-1', entryOrder: 2));
     await pumpEventQueue();
     await sub.cancel();
 
     expect(emissions.last, 2);
   });
 
-  group('capture jobs', () {
-    CaptureJob job(String id, String state, {int completed = 0}) => CaptureJob(
-      rangeMode: 'fixedCount',
+  group('save runs', () {
+    SaveRun run(String id, String state, {int completed = 0}) => SaveRun(
+      visitedCanonicals: '',
+      includeImages: true,
+      origin: 'queue',
+      scope: 'fixedCount',
       id: id,
-      startUrl: 'http://localhost:8099/chapter/1',
-      currentUrl: 'http://localhost:8099/chapter/2',
-      requestedChapters: 3,
-      completedChapters: completed,
+      startUrl: 'http://localhost:8099/entry/1',
+      currentUrl: 'http://localhost:8099/entry/2',
+      requestedEntries: 3,
+      completedEntries: completed,
       state: state,
-      visitedUrls: 'http://localhost:8099/chapter/1',
+      visitedUrls: 'http://localhost:8099/entry/1',
       createdAt: DateTime(2026, 7, 25),
       updatedAt: DateTime(2026, 7, 25),
     );
 
-    test('an interrupted job is resumable, a finished one is not', () async {
-      await db.upsertJob(job('j1', 'complete', completed: 3));
-      expect(await db.findResumableJob(), isNull);
+    test('an interrupted run is resumable, a finished one is not', () async {
+      await db.upsertRun(run('j1', 'complete', completed: 3));
+      expect(await db.findResumableRun(), isNull);
 
-      await db.upsertJob(job('j2', 'downloading', completed: 1));
-      final resumable = await db.findResumableJob();
+      await db.upsertRun(run('j2', 'downloading', completed: 1));
+      final resumable = await db.findResumableRun();
       expect(resumable?.id, 'j2');
-      expect(resumable?.completedChapters, 1);
-      expect(resumable?.visitedUrls, contains('chapter/1'));
+      expect(resumable?.completedEntries, 1);
+      expect(resumable?.visitedUrls, contains('entry/1'));
     });
 
-    test('cancelled and failed jobs are not offered for resume', () async {
-      await db.upsertJob(job('j-cancelled', 'cancelled'));
-      await db.upsertJob(job('j-failed', 'failed'));
-      expect(await db.findResumableJob(), isNull);
+    test('cancelled and failed runs are not offered for resume', () async {
+      await db.upsertRun(run('j-cancelled', 'cancelled'));
+      await db.upsertRun(run('j-failed', 'failed'));
+      expect(await db.findResumableRun(), isNull);
     });
 
-    test('deleting a job removes it from the resume list', () async {
-      await db.upsertJob(job('j1', 'scrolling'));
-      expect(await db.findResumableJob(), isNotNull);
-      await db.deleteJob('j1');
-      expect(await db.findResumableJob(), isNull);
-    });
-  });
-
-  group('schema v12 — the per-series cleanup decision (D37)', () {
-    late Directory root;
-    late File file;
-
-    setUp(() {
-      root = Directory.systemTemp.createTempSync('webread_migrate');
-      file = File(p.join(root.path, 'migrate.sqlite'));
-    });
-    tearDown(() {
-      if (root.existsSync()) root.deleteSync(recursive: true);
-    });
-
-    /// A v11-shaped database: the current schema minus the v12 column, with
-    /// `user_version` wound back so opening it runs the real migration.
-    Future<void> buildV11() async {
-      final seed = AppDatabase.forTesting(NativeDatabase(file));
-      await seed.upsertLibraryItem(item('s1'));
-      await seed.upsertLibraryItem(item('s2'));
-      // What an old install would carry: a global answer and nothing else.
-      await seed.setSetting('storage.afterFinished', 'remove');
-      await seed.customStatement(
-        'ALTER TABLE library_items DROP COLUMN finished_cleanup',
-      );
-      await seed.customStatement('PRAGMA user_version = 11');
-      await seed.close();
-    }
-
-    test(
-      'upgrading adds the column and leaves every series undecided',
-      () async {
-        await buildV11();
-
-        final upgraded = AppDatabase.forTesting(NativeDatabase(file));
-        // The first query is what forces the migration to run.
-        expect((await upgraded.libraryItemById('s1'))!.finishedCleanup, isNull);
-        expect(
-          (await upgraded.libraryItemById('s2'))!.finishedCleanup,
-          isNull,
-          reason:
-              'the old global answer was never given per series, so it is not '
-              'backfilled onto one',
-        );
-        await upgraded.close();
-      },
-    );
-
-    test('upgrading deletes the obsolete global row', () async {
-      await buildV11();
-
-      final upgraded = AppDatabase.forTesting(NativeDatabase(file));
-      expect(await upgraded.libraryItemById('s1'), isNotNull);
-      expect(await upgraded.getSetting('storage.afterFinished'), isNull);
-      await upgraded.close();
-    });
-
-    test('other settings survive the upgrade untouched', () async {
-      final seed = AppDatabase.forTesting(NativeDatabase(file));
-      await seed.upsertLibraryItem(item('s1'));
-      await seed.setSetting('storage.afterFinished', 'keep');
-      await seed.setSetting('appearance', 'dark');
-      await seed.customStatement(
-        'ALTER TABLE library_items DROP COLUMN finished_cleanup',
-      );
-      await seed.customStatement('PRAGMA user_version = 11');
-      await seed.close();
-
-      final upgraded = AppDatabase.forTesting(NativeDatabase(file));
-      expect(await upgraded.getSetting('appearance'), 'dark');
-      expect(await upgraded.getSetting('storage.afterFinished'), isNull);
-      await upgraded.close();
+    test('deleting a run removes it from the resume list', () async {
+      await db.upsertRun(run('j1', 'scrolling'));
+      expect(await db.findResumableRun(), isNotNull);
+      await db.deleteRun('j1');
+      expect(await db.findResumableRun(), isNull);
     });
   });
 }

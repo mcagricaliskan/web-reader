@@ -9,8 +9,8 @@ import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
 import 'package:web_reader/storage/manifest.dart';
 
-/// Offline-file removal: the files go, everything that makes the chapter a
-/// chapter stays. This is the contract the whole cleanup feature rests on.
+/// Offline-file removal: the files go, everything that makes the entry a
+/// entry stays. This is the contract the whole cleanup feature rests on.
 void main() {
   late AppDatabase db;
   late Directory root;
@@ -38,80 +38,85 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  Future<void> seedSeries() => db.upsertLibraryItem(
-    LibraryItem(
+  Future<void> seedCollection() => db.upsertCollection(
+    Collection(
+      contentKind: 'unknownWebContent',
+      sequenceKind: 'none',
+      orderingBasis: 'discoveryOrder',
+      shapeConfidence: 'low',
       lifecycle: 'active',
       id: 's1',
       title: 'Foo',
-      sourceUrl: 'https://x.example/manga/foo',
+      sourceUrl: 'https://x.example/guide/foo',
       host: 'x.example',
-      seriesKey: '/manga/foo',
+      collectionKey: '/guide/foo',
       createdAt: DateTime(2026, 7, 1),
     ),
   );
 
-  /// A committed chapter with real files, fully read by default.
-  Future<Chapter> seedChapter(
+  /// A committed entry with real files, fully read by default.
+  Future<Entry> seedEntry(
     int n, {
     String readStatus = 'completed',
-    String captureStatus = 'complete',
+    String saveStatus = 'complete',
   }) async {
     final id = 'c$n';
-    final staging = await store.beginChapter(
-      libraryItemId: 's1',
-      chapterId: id,
-    );
+    final staging = await store.beginEntry(collectionId: 's1', entryId: id);
     for (var i = 1; i <= 3; i++) {
       await staging.assetFile('00$i.png').writeAsBytes(List.filled(500, 7));
     }
     final relative = await store.commit(
       staging,
-      ChapterManifest(
-        schemaVersion: ChapterManifest.currentSchemaVersion,
-        chapterId: id,
-        libraryItemId: 's1',
-        sourceUrl: 'https://x.example/manga/foo/$n',
-        title: 'Foo Chapter $n',
-        capturedAt: DateTime(2026, 7, 20),
-        status: CaptureStatus.complete,
-        detectedImageCount: 3,
-        storedImageCount: 3,
+      EntryManifest(
+        schemaVersion: EntryManifest.currentSchemaVersion,
+        entryId: id,
+        collectionId: 's1',
+        sourceUrl: 'https://x.example/guide/foo/$n',
+        title: 'Foo Entry $n',
+        savedAt: DateTime(2026, 7, 20),
+        status: SaveStatus.complete,
+        detectedAssetCount: 3,
+        storedAssetCount: 3,
         assets: const [],
       ),
     );
-    final chapter = Chapter(
+    final entry = Entry(
+      host: '',
+      contentKind: 'unknownWebContent',
+      contentKindConfidence: 'low',
+      contentKindIsUserSet: false,
       id: id,
-      libraryItemId: 's1',
-      title: 'Foo Chapter $n',
-      sourceUrl: 'https://x.example/manga/foo/$n',
-      urlKey: 'https://x.example/manga/foo/$n',
-      captureStatus: captureStatus,
+      collectionId: 's1',
+      title: 'Foo Entry $n',
+      sourceUrl: 'https://x.example/guide/foo/$n',
+      urlKey: 'https://x.example/guide/foo/$n',
+      saveStatus: saveStatus,
       contentPath: relative,
-      capturedAt: DateTime(2026, 7, 20),
-      detectedImageCount: 3,
-      storedImageCount: 3,
-      sequence: n,
+      savedAt: DateTime(2026, 7, 20),
+      detectedAssetCount: 3,
+      storedAssetCount: 3,
+      entryOrder: n,
       byteSize: 1500,
-      chapterNumber: n.toDouble(),
-      chapterLabel: 'Chapter $n',
+      entryNumber: n.toDouble(),
+      sourceMarker: 'Entry $n',
       readStatus: readStatus,
       progressFraction: readStatus == 'completed' ? 1 : 0.42,
-      progressImageIndex: 2,
-      progressOffsetInImage: 0.25,
+      progressPageIndex: 2,
+      progressOffsetInPage: 0.25,
       firstOpenedAt: DateTime(2026, 7, 21),
       lastReadAt: DateTime(2026, 7, 22),
       completedAt: readStatus == 'completed' ? DateTime(2026, 7, 22) : null,
       discoveredAt: DateTime(2026, 7, 19),
-      discoveryBasis: 'chapterList',
+      discoveryBasis: 'entryList',
       discoveryConfidence: 'high',
     );
-    await db.upsertChapter(chapter);
-    return chapter;
+    await db.upsertEntry(entry);
+    return entry;
   }
 
   test('files go; every piece of metadata stays', () async {
-    await seedSeries();
-    final before = await seedChapter(1);
+    await seedCollection();
+    final before = await seedEntry(1);
     final dir = Directory(store.resolve(before.contentPath!));
     expect(dir.existsSync(), isTrue);
 
@@ -119,72 +124,72 @@ void main() {
     expect(result.removed, 1);
     expect(result.freedBytes, 1500);
 
-    final after = (await db.chapterById('c1'))!;
+    final after = (await db.entryById('c1'))!;
     expect(after.contentPath, isNull, reason: 'no longer offline');
     expect(after.byteSize, 0);
     expect(after.offlineRemovedAt, isNotNull, reason: 'user removal recorded');
 
     // Everything that must survive.
-    expect(after.libraryItemId, before.libraryItemId);
+    expect(after.collectionId, before.collectionId);
     expect(after.sourceUrl, before.sourceUrl);
     expect(after.urlKey, before.urlKey);
-    expect(after.sequence, before.sequence);
-    expect(after.chapterNumber, before.chapterNumber);
-    expect(after.chapterLabel, before.chapterLabel);
+    expect(after.entryOrder, before.entryOrder);
+    expect(after.entryNumber, before.entryNumber);
+    expect(after.sourceMarker, before.sourceMarker);
     expect(after.readStatus, 'completed');
     expect(after.progressFraction, before.progressFraction);
-    expect(after.progressImageIndex, before.progressImageIndex);
+    expect(after.progressPageIndex, before.progressPageIndex);
     expect(after.completedAt, before.completedAt);
     expect(after.lastReadAt, before.lastReadAt);
     expect(after.firstOpenedAt, before.firstOpenedAt);
     expect(after.discoveredAt, before.discoveredAt);
     expect(after.discoveryBasis, before.discoveryBasis);
-    // The series itself is untouched.
-    expect(await db.libraryItemById('s1'), isNotNull);
+    // The collection itself is untouched.
+    expect(await db.collectionById('s1'), isNotNull);
   });
 
-  test('the chapter can be captured again afterwards', () async {
-    await seedSeries();
-    final chapter = await seedChapter(1);
-    await cleanup.removeOffline([chapter.id]);
-    expect((await db.chapterById('c1'))!.contentPath, isNull);
+  test('the entry can be saved again afterwards', () async {
+    await seedCollection();
+    final entry = await seedEntry(1);
+    await cleanup.removeOffline([entry.id]);
+    expect((await db.entryById('c1'))!.contentPath, isNull);
 
-    // A re-capture writes the row and explicitly clears the removed marker
+    // A re-save writes the row and explicitly clears the removed marker
     // (drift's upsert treats a null field as "leave it alone", so the engine
     // clears it deliberately — see AppDatabase.clearOfflineRemovedMark).
-    await db.upsertChapter(
-      chapter.copyWith(contentPath: Value(chapter.contentPath), byteSize: 1500),
+    await db.upsertEntry(
+      entry.copyWith(contentPath: Value(entry.contentPath), byteSize: 1500),
     );
-    await db.clearOfflineRemovedMark(chapter.id);
-    final recaptured = (await db.chapterById('c1'))!;
-    expect(recaptured.contentPath, isNotNull);
-    expect(recaptured.offlineRemovedAt, isNull);
-    expect(recaptured.readStatus, 'completed', reason: 'history survived');
+    await db.clearOfflineRemovedMark(entry.id);
+    final resaved = (await db.entryById('c1'))!;
+    expect(resaved.contentPath, isNotNull);
+    expect(resaved.offlineRemovedAt, isNull);
+    expect(resaved.readStatus, 'completed', reason: 'history survived');
   });
 
   test('undo restores both the files and the row', () async {
-    await seedSeries();
-    final chapter = await seedChapter(1);
-    final dir = Directory(store.resolve(chapter.contentPath!));
+    await seedCollection();
+    final entry = await seedEntry(1);
+    final dir = Directory(store.resolve(entry.contentPath!));
 
-    final result = await cleanup.removeOffline([chapter.id]);
+    final result = await cleanup.removeOffline([entry.id]);
     expect(dir.existsSync(), isFalse, reason: 'moved aside');
     expect(result.canUndo, isTrue);
 
     await result.undo.undo();
     expect(dir.existsSync(), isTrue, reason: 'files are back');
-    final after = (await db.chapterById('c1'))!;
-    expect(after.contentPath, chapter.contentPath);
+    final after = (await db.entryById('c1'))!;
+    expect(after.contentPath, entry.contentPath);
     expect(after.byteSize, 1500);
     expect(after.offlineRemovedAt, isNull);
   });
 
   test('after the undo window the files are really gone', () async {
-    await seedSeries();
-    final chapter = await seedChapter(1);
-    final dir = Directory(store.resolve(chapter.contentPath!));
+    await seedCollection();
+    final entry = await seedEntry(1);
+    final dir = Directory(store.resolve(entry.contentPath!));
 
-    final result = await cleanup.removeOffline([chapter.id]);
+    final result = await cleanup.removeOffline([entry.id]);
     await Future<void>.delayed(const Duration(milliseconds: 400));
 
     expect(result.canUndo, isFalse);
@@ -195,35 +200,35 @@ void main() {
     expect(undoDir.existsSync(), isFalse, reason: 'staging cleaned');
   });
 
-  test('a chapter open in the reader cannot be removed', () async {
-    await seedSeries();
-    final chapter = await seedChapter(1);
-    cleanup.openReaderChapterId.value = chapter.id;
+  test('an entry open in the reader cannot be removed', () async {
+    await seedCollection();
+    final entry = await seedEntry(1);
+    cleanup.openReaderEntryId.value = entry.id;
 
-    expect(await cleanup.lockReasonFor(chapter), 'open in the reader');
-    final result = await cleanup.removeOffline([chapter.id]);
+    expect(await cleanup.lockReasonFor(entry), 'open in the reader');
+    final result = await cleanup.removeOffline([entry.id]);
 
     expect(result.removed, 0);
     expect(result.keptLocked, hasLength(1));
     expect(result.keptLocked.single, contains('open in the reader'));
-    expect((await db.chapterById('c1'))!.contentPath, isNotNull);
-    expect(Directory(store.resolve(chapter.contentPath!)).existsSync(), isTrue);
+    expect((await db.entryById('c1'))!.contentPath, isNotNull);
+    expect(Directory(store.resolve(entry.contentPath!)).existsSync(), isTrue);
   });
 
-  test('a chapter being captured cannot be removed', () async {
-    await seedSeries();
-    final chapter = await seedChapter(1, captureStatus: 'capturing');
-    expect(await cleanup.lockReasonFor(chapter), 'being captured');
-    final result = await cleanup.removeOffline([chapter.id]);
+  test('an entry being saved cannot be removed', () async {
+    await seedCollection();
+    final entry = await seedEntry(1, saveStatus: 'saving');
+    expect(await cleanup.lockReasonFor(entry), 'being saved');
+    final result = await cleanup.removeOffline([entry.id]);
     expect(result.removed, 0, reason: 'not even eligible');
   });
 
-  test('bulk removal reports progress and skips locked chapters', () async {
-    await seedSeries();
+  test('bulk removal reports progress and skips locked entries', () async {
+    await seedCollection();
     for (var n = 1; n <= 5; n++) {
-      await seedChapter(n);
+      await seedEntry(n);
     }
-    cleanup.openReaderChapterId.value = 'c3';
+    cleanup.openReaderEntryId.value = 'c3';
 
     final progress = <(int, int)>[];
     final result = await cleanup.removeOfflineNow([
@@ -238,84 +243,145 @@ void main() {
     expect(result.freedBytes, 4 * 1500);
     expect(result.keptLocked, hasLength(1));
     expect(progress, isNotEmpty, reason: 'observable while it runs');
-    expect((await db.chapterById('c3'))!.contentPath, isNotNull);
+    expect((await db.entryById('c3'))!.contentPath, isNotNull);
     for (final id in ['c1', 'c2', 'c4', 'c5']) {
-      expect((await db.chapterById(id))!.contentPath, isNull);
-      expect((await db.chapterById(id))!.readStatus, 'completed');
+      expect((await db.entryById(id))!.contentPath, isNull);
+      expect((await db.entryById(id))!.readStatus, 'completed');
     }
   });
 
-  test(
-    'removing a chapter whose files already vanished still records it',
-    () async {
-      await seedSeries();
-      final chapter = await seedChapter(1);
-      Directory(
-        store.resolve(chapter.contentPath!),
-      ).deleteSync(recursive: true);
+  test('a bulk removal stops between entries when asked (D64)', () async {
+    await seedCollection();
+    for (var n = 1; n <= 5; n++) {
+      await seedEntry(n);
+    }
 
-      final result = await cleanup.removeOffline([chapter.id]);
+    // Stop after the second entry — the boundary the queue's Cancel uses.
+    var processedSoFar = 0;
+    final result = await cleanup.removeOfflineNow(
+      ['c1', 'c2', 'c3', 'c4', 'c5'],
+      onProgress: (processed, _) => processedSoFar = processed,
+      shouldContinue: () => processedSoFar < 2,
+    );
+
+    expect(result.removed, 2);
+    expect(result.stoppedEarly, isTrue, reason: 'and it says so');
+    for (final id in ['c1', 'c2']) {
+      expect((await db.entryById(id))!.contentPath, isNull);
+    }
+    for (final id in ['c3', 'c4', 'c5']) {
+      final entry = (await db.entryById(id))!;
+      expect(
+        entry.contentPath,
+        isNotNull,
+        reason: 'never reached — the files are still there',
+      );
+      expect(Directory(store.resolve(entry.contentPath!)).existsSync(), isTrue);
+      expect(entry.offlineRemovedAt, isNull, reason: 'and nothing was marked');
+    }
+  });
+
+  test('a removal that is never asked to stop runs to the end', () async {
+    await seedCollection();
+    for (var n = 1; n <= 3; n++) {
+      await seedEntry(n);
+    }
+    final result = await cleanup.removeOfflineNow([
+      'c1',
+      'c2',
+      'c3',
+    ], shouldContinue: () => true);
+    expect(result.removed, 3);
+    expect(result.stoppedEarly, isFalse);
+  });
+
+  test(
+    'removing an entry whose files already vanished still records it',
+    () async {
+      await seedCollection();
+      final entry = await seedEntry(1);
+      Directory(store.resolve(entry.contentPath!)).deleteSync(recursive: true);
+
+      final result = await cleanup.removeOffline([entry.id]);
       expect(result.removed, 1);
-      expect((await db.chapterById('c1'))!.offlineRemovedAt, isNotNull);
+      expect((await db.entryById('c1'))!.offlineRemovedAt, isNotNull);
     },
   );
 
-  group('the per-series cleanup preference', () {
-    Future<SeriesCleanupPref?> prefOf(String id) async =>
-        seriesCleanupFromName((await db.libraryItemById(id))!.finishedCleanup);
+  group('the per-collection cleanup preference', () {
+    Future<CollectionCleanupPreference?> prefOf(String id) async =>
+        collectionCleanupFromName(
+          (await db.collectionById(id))!.cleanupPreference,
+        );
 
-    Future<void> seedSecondSeries() => db.upsertLibraryItem(
-      LibraryItem(
+    Future<void> seedSecondCollection() => db.upsertCollection(
+      Collection(
+        contentKind: 'unknownWebContent',
+        sequenceKind: 'none',
+        orderingBasis: 'discoveryOrder',
+        shapeConfidence: 'low',
         lifecycle: 'active',
         id: 's2',
         title: 'Bar',
-        sourceUrl: 'https://x.example/manga/bar',
+        sourceUrl: 'https://x.example/guide/bar',
         host: 'x.example',
-        seriesKey: '/manga/bar',
+        collectionKey: '/guide/bar',
         createdAt: DateTime(2026, 7, 2),
       ),
     );
 
-    test('a new series has no decision', () async {
-      await seedSeries();
+    test('a new collection has no decision', () async {
+      await seedCollection();
       expect(await prefOf('s1'), isNull);
     });
 
     test('stores, reads back, and resets to undecided', () async {
-      await seedSeries();
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
-      expect(await prefOf('s1'), SeriesCleanupPref.remove);
+      await seedCollection();
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
+      expect(await prefOf('s1'), CollectionCleanupPreference.remove);
 
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.keep.name);
-      expect(await prefOf('s1'), SeriesCleanupPref.keep);
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.keep.name,
+      );
+      expect(await prefOf('s1'), CollectionCleanupPreference.keep);
 
       // "Ask again next time" — a null that must actually reach the column.
-      await db.setSeriesFinishedCleanup('s1', null);
+      await db.setCollectionCleanupPreference('s1', null);
       expect(await prefOf('s1'), isNull);
     });
 
-    test('each series carries its own, and resets independently', () async {
-      await seedSeries();
-      await seedSecondSeries();
+    test('each collection carries its own, and resets independently', () async {
+      await seedCollection();
+      await seedSecondCollection();
 
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
-      await db.setSeriesFinishedCleanup('s2', SeriesCleanupPref.keep.name);
-      expect(await prefOf('s1'), SeriesCleanupPref.remove);
-      expect(await prefOf('s2'), SeriesCleanupPref.keep);
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
+      await db.setCollectionCleanupPreference(
+        's2',
+        CollectionCleanupPreference.keep.name,
+      );
+      expect(await prefOf('s1'), CollectionCleanupPreference.remove);
+      expect(await prefOf('s2'), CollectionCleanupPreference.keep);
 
-      await db.setSeriesFinishedCleanup('s1', null);
+      await db.setCollectionCleanupPreference('s1', null);
       expect(await prefOf('s1'), isNull);
       expect(
         await prefOf('s2'),
-        SeriesCleanupPref.keep,
-        reason: 'resetting one series says nothing about another',
+        CollectionCleanupPreference.keep,
+        reason: 'resetting one collection says nothing about another',
       );
     });
 
     test('an unknown or empty stored value reads as undecided', () async {
-      await seedSeries();
+      await seedCollection();
       for (final stored in ['nonsense', '', 'ask', 'REMOVE']) {
-        await db.setSeriesFinishedCleanup('s1', stored);
+        await db.setCollectionCleanupPreference('s1', stored);
         expect(
           await prefOf('s1'),
           isNull,
@@ -324,132 +390,84 @@ void main() {
       }
     });
 
-    test('the obsolete global key is not a decision for any series', () async {
-      await seedSeries();
-      await seedSecondSeries();
-      for (final stale in ['remove', 'keep', 'ask', 'nonsense']) {
-        await db.setSetting('storage.afterFinished', stale);
-        expect(await prefOf('s1'), isNull);
-        expect(await prefOf('s2'), isNull);
-      }
-    });
+    test(
+      'the obsolete global key is not a decision for any collection',
+      () async {
+        await seedCollection();
+        await seedSecondCollection();
+        for (final stale in ['remove', 'keep', 'ask', 'nonsense']) {
+          await db.setSetting('storage.afterFinished', stale);
+          expect(await prefOf('s1'), isNull);
+          expect(await prefOf('s2'), isNull);
+        }
+      },
+    );
 
-    test('changing it never touches already-stored chapters', () async {
-      await seedSeries();
-      final chapter = await seedChapter(1);
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
-      // The decision is a rule for future transitions, not a command.
-      expect((await db.chapterById(chapter.id))!.contentPath, isNotNull);
-      expect(
-        Directory(store.resolve(chapter.contentPath!)).existsSync(),
-        isTrue,
+    test('changing it never touches already-stored entries', () async {
+      await seedCollection();
+      final entry = await seedEntry(1);
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
       );
+      // The decision is a rule for future transitions, not a command.
+      expect((await db.entryById(entry.id))!.contentPath, isNotNull);
+      expect(Directory(store.resolve(entry.contentPath!)).existsSync(), isTrue);
     });
   });
 
   group('across a restart', () {
-    test('each series keeps its own decision, on disk', () async {
+    test('each collection keeps its own decision, on disk', () async {
       final file = File(p.join(root.path, 'restart.sqlite'));
       var reopened = AppDatabase.forTesting(NativeDatabase(file));
       for (final (id, title) in [('s1', 'Foo'), ('s2', 'Bar')]) {
-        await reopened.upsertLibraryItem(
-          LibraryItem(
+        await reopened.upsertCollection(
+          Collection(
+            contentKind: 'unknownWebContent',
+            sequenceKind: 'none',
+            orderingBasis: 'discoveryOrder',
+            shapeConfidence: 'low',
             lifecycle: 'active',
             id: id,
             title: title,
-            sourceUrl: 'https://x.example/manga/$id',
+            sourceUrl: 'https://x.example/guide/$id',
             host: 'x.example',
-            seriesKey: '/manga/$id',
+            collectionKey: '/guide/$id',
             createdAt: DateTime(2026, 7, 1),
           ),
         );
       }
-      await reopened.setSeriesFinishedCleanup(
+      await reopened.setCollectionCleanupPreference(
         's1',
-        SeriesCleanupPref.remove.name,
+        CollectionCleanupPreference.remove.name,
       );
-      await reopened.setSeriesFinishedCleanup(
+      await reopened.setCollectionCleanupPreference(
         's2',
-        SeriesCleanupPref.keep.name,
+        CollectionCleanupPreference.keep.name,
       );
       await reopened.close();
 
       // A second process opening the same file — the restart case.
       reopened = AppDatabase.forTesting(NativeDatabase(file));
       expect(
-        (await reopened.libraryItemById('s1'))!.finishedCleanup,
-        SeriesCleanupPref.remove.name,
+        (await reopened.collectionById('s1'))!.cleanupPreference,
+        CollectionCleanupPreference.remove.name,
       );
       expect(
-        (await reopened.libraryItemById('s2'))!.finishedCleanup,
-        SeriesCleanupPref.keep.name,
+        (await reopened.collectionById('s2'))!.cleanupPreference,
+        CollectionCleanupPreference.keep.name,
       );
 
-      await reopened.setSeriesFinishedCleanup('s2', null);
+      await reopened.setCollectionCleanupPreference('s2', null);
       await reopened.close();
 
       reopened = AppDatabase.forTesting(NativeDatabase(file));
       expect(
-        (await reopened.libraryItemById('s2'))!.finishedCleanup,
+        (await reopened.collectionById('s2'))!.cleanupPreference,
         isNull,
         reason: 'a reset survives too — it is a stored null, not a gap',
       );
       await reopened.close();
-    });
-  });
-
-  group('the global preference model is gone', () {
-    /// A stale reader trusts what it finds. These names described an app-wide
-    /// cleanup default that no longer exists (D37), so the only safe number of
-    /// them in shipping code is zero.
-    test('no source file mentions it any more', () {
-      const obsolete = [
-        'storage.afterFinished',
-        'AfterFinishedPref',
-        'afterFinishedPrefProvider',
-        'setAfterFinishedPref',
-        'afterFinishedFromName',
-        'kAfterFinishedPrefKey',
-        'showAfterFinishedSheet',
-        'showFinishedChapterDialog',
-        'FinishedChapterChoice',
-        "Don't ask again",
-        'Ask each time',
-        'Remove automatically',
-        'After finishing a chapter',
-      ];
-      // The one legitimate mention left: the migration that deletes the
-      // obsolete row names the key it is deleting. Nothing reads it.
-      const allowed = {'storage.afterFinished': 'lib/storage/database.dart'};
-
-      final offenders = <String>[];
-      for (final file
-          in Directory('lib')
-              .listSync(recursive: true)
-              .whereType<File>()
-              .where((f) => f.path.endsWith('.dart'))) {
-        final source = file.readAsStringSync();
-        for (final name in obsolete) {
-          if (!source.contains(name)) continue;
-          if (allowed[name] == file.path) continue;
-          offenders.add('${file.path}: $name');
-        }
-      }
-      expect(offenders, isEmpty);
-    });
-
-    test('the migration deletes the obsolete row rather than reading it', () {
-      final source = File('lib/storage/database.dart').readAsStringSync();
-      expect(
-        source,
-        contains("t.key.equals('storage.afterFinished')"),
-        reason: 'the only mention left is the one that removes it',
-      );
-      expect(
-        source.contains("getSetting('storage.afterFinished')") ||
-            source.contains("watchSetting('storage.afterFinished')"),
-        isFalse,
-      );
     });
   });
 }

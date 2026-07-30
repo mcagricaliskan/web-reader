@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/browser/page_data.dart';
-import 'package:web_reader/capture/image_candidates.dart';
+import 'package:web_reader/save/image_candidates.dart';
 
 /// A page image built from the same JSON shape the bridge produces.
 PageImage img({
@@ -196,7 +196,7 @@ void main() {
 
     test('keeps everything when no cluster is convincing', () {
       // Three different widths: no group reaches minClusterSize, so nothing
-      // is dropped — a noisy chapter beats a silently truncated one.
+      // is dropped — a noisy entry beats a silently truncated one.
       final selection = selectImageCandidates([
         img(index: 0, src: 'https://x/a.png', naturalWidth: 600),
         img(index: 1, src: 'https://x/b.png', naturalWidth: 900),
@@ -206,9 +206,9 @@ void main() {
       expect(selection.accepted.length, 3);
     });
 
-    test('keeps a BROKEN content image so the chapter fails honestly', () {
+    test('keeps a BROKEN content image so the entry fails honestly', () {
       // Regression: a 503 panel has no intrinsic size and a collapsed box.
-      // Filtering it out made a 6-page chapter save 5 pages and report
+      // Filtering it out made a 6-page entry save 5 pages and report
       // "complete" — losing a page while claiming success.
       final selection = selectImageCandidates([
         img(index: 0, src: 'https://x/p1.png'),

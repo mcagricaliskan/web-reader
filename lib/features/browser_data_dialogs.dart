@@ -125,7 +125,7 @@ class _ClearHistorySheetState extends ConsumerState<_ClearHistorySheet> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Saved sites · your library · captured chapters · reading '
+                    'Saved sites · your library · saved entries · reading '
                     'progress · website sign-ins.',
                     style: TextStyle(
                       fontSize: 11.5,
@@ -242,7 +242,7 @@ class _RangeOption extends StatelessWidget {
 /// Clear website data — cookies, site storage, cache.
 ///
 /// A stronger confirmation than clearing history, because it signs the user
-/// out of sources that need a login, and capture on those sources stops
+/// out of sources that need a login, and save on those sources stops
 /// working until they sign in again (§11).
 Future<void> showClearWebsiteDataDialog(
   BuildContext context,
@@ -310,7 +310,7 @@ class _ClearWebsiteDataDialogState
           Text(
             "This signs you out of every site you've logged into in the "
             'Browser and clears their cookies and stored data. Sources that '
-            'need a login will have to be signed in again before capture '
+            'need a login will have to be signed in again before save '
             'works.',
             style: TextStyle(
               fontSize: 13,
@@ -327,7 +327,7 @@ class _ClearWebsiteDataDialogState
               border: Border.all(color: palette.border),
             ),
             child: Text(
-              'Your library, captured chapters, saved sites and reading '
+              'Your library, saved entries, saved sites and reading '
               'progress are kept. Browsing history is cleared separately.',
               style: TextStyle(
                 fontSize: 11.5,

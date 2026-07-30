@@ -2,28 +2,31 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:web_reader/capture/asset_downloader.dart';
+import 'package:web_reader/save/asset_fetcher.dart';
 
 Uint8List bytesOf(List<int> v) => Uint8List.fromList(v);
 
 void main() {
   group('detectImageMime', () {
-    test('recognises AVIF, which a real webtoon CDN actually serves', () async {
-      // Regression: uzaymanga.com serves `.avif` panels. The verifier only knew
-      // PNG/JPEG/GIF/WebP, so all 15 detected images were rejected as "not a
-      // usable image" and the chapter failed with "No images could be
-      // downloaded" — despite every download succeeding.
-      final file = File('test/fixtures/sample.avif');
-      expect(
-        file.existsSync(),
-        isTrue,
-        reason: 'sample.avif is the real byte stream from that CDN',
-      );
-      final bytes = await file.readAsBytes();
+    test(
+      'recognises AVIF, which a real image sequence CDN actually serves',
+      () async {
+        // Regression: example.com serves `.avif` panels. The verifier only knew
+        // PNG/JPEG/GIF/WebP, so all 15 detected images were rejected as "not a
+        // usable image" and the entry failed with "No images could be
+        // downloaded" — despite every download succeeding.
+        final file = File('test/fixtures/sample.avif');
+        expect(
+          file.existsSync(),
+          isTrue,
+          reason: 'sample.avif is the real byte stream from that CDN',
+        );
+        final bytes = await file.readAsBytes();
 
-      expect(detectImageMime(bytes), 'image/avif');
-      expect(bytes.length, greaterThan(1000));
-    });
+        expect(detectImageMime(bytes), 'image/avif');
+        expect(bytes.length, greaterThan(1000));
+      },
+    );
 
     test('recognises the ISO-BMFF brands by name', () {
       Uint8List isoBmff(String brand) => bytesOf([

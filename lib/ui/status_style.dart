@@ -11,7 +11,7 @@ import 'theme.dart';
 
 /// The two status vocabularies the design keeps strictly apart.
 ///
-/// Capture state answers "is this on the device" and never uses a checkmark.
+/// Save state answers "is this on the device" and never uses a checkmark.
 /// Read state owns the checkmark and nothing else does. Mixing them is the
 /// single worst thing this UI could do, so they live in one file where the
 /// separation is visible.
@@ -21,10 +21,10 @@ import 'theme.dart';
 /// colour in this file becomes a literal colour on every page at once, which
 /// is a large part of how the dark appearance broke (D62).
 
-// ─── capture state ──────────────────────────────────────────────────────────
+// ─── save state ──────────────────────────────────────────────────────────
 
-class CaptureLook {
-  const CaptureLook(this.icon, this.color, this.label, {this.dimTitle = false});
+class SaveLook {
+  const SaveLook(this.icon, this.color, this.label, {this.dimTitle = false});
 
   final IconData icon;
   final Color color;
@@ -34,49 +34,45 @@ class CaptureLook {
   final bool dimTitle;
 }
 
-/// Presentation for a chapter's capture state. [filesMissing] is decided by
+/// Presentation for an entry's save state. [filesMissing] is decided by
 /// the caller (the manifest is on disk but its images are not), because the
 /// database has no such status — the files simply stopped existing.
-CaptureLook captureLook(
-  Chapter chapter,
+SaveLook saveLook(
+  Entry entry,
   AppPalette palette, {
   bool filesMissing = false,
 }) {
   if (filesMissing) {
-    return CaptureLook(
+    return SaveLook(
       Icons.folder_off,
       palette.danger,
       'Files missing',
       dimTitle: true,
     );
   }
-  // A chapter whose files the USER removed is not an error and not a
-  // discovery — it is a known chapter that simply is not downloaded.
-  if (chapter.contentPath == null && chapter.offlineRemovedAt != null) {
-    return CaptureLook(Icons.cloud, palette.inkFaint, 'Not downloaded');
+  // An entry whose files the USER removed is not an error and not a
+  // discovery — it is a known entry that simply is not downloaded.
+  if (entry.contentPath == null && entry.offlineRemovedAt != null) {
+    return SaveLook(Icons.cloud, palette.inkFaint, 'Not downloaded');
   }
-  return switch (chapter.captureStatus) {
-    'knownRemote' => CaptureLook(
-      Icons.cloud,
-      palette.inkFaint,
-      'On source only',
-    ),
-    'complete' => CaptureLook(
+  return switch (entry.saveStatus) {
+    'knownRemote' => SaveLook(Icons.cloud, palette.inkFaint, 'On source only'),
+    'complete' => SaveLook(
       Icons.download_for_offline,
       palette.primary,
       'Saved offline',
     ),
-    'partial' => CaptureLook(Icons.arrow_circle_down, palette.warn, 'Partial'),
-    'capturing' => CaptureLook(Icons.downloading, palette.primary, 'Capturing'),
-    _ => CaptureLook(Icons.error, palette.danger, 'Failed', dimTitle: true),
+    'partial' => SaveLook(Icons.arrow_circle_down, palette.warn, 'Partial'),
+    'saving' => SaveLook(Icons.downloading, palette.primary, 'Saving'),
+    _ => SaveLook(Icons.error, palette.danger, 'Failed', dimTitle: true),
   };
 }
 
-/// The capture glyph on its own — 22px, matching the chapter rows.
-class CaptureGlyph extends StatelessWidget {
-  const CaptureGlyph(this.look, {super.key, this.size = 22});
+/// The save glyph on its own — 22px, matching the entry rows.
+class SaveGlyph extends StatelessWidget {
+  const SaveGlyph(this.look, {super.key, this.size = 22});
 
-  final CaptureLook look;
+  final SaveLook look;
   final double size;
 
   @override
@@ -209,7 +205,7 @@ class HeaderIconButton extends StatelessWidget {
   );
 }
 
-/// The episode list's progress pie, driven by the real reading fraction.
+/// The entry list's progress pie, driven by the real reading fraction.
 ///
 /// A painter rather than a set of range icons: the design's pie is a
 /// continuous quantity, and bucketing it into "quarter / half / three
@@ -218,15 +214,15 @@ class HeaderIconButton extends StatelessWidget {
 ///
 /// Cheap by construction — two `drawArc` calls, no animation, no layout — so
 /// it costs nothing to have one per row in a long list.
-class ChapterProgressRing extends StatelessWidget {
-  const ChapterProgressRing({
+class EntryProgressRing extends StatelessWidget {
+  const EntryProgressRing({
     super.key,
     required this.fraction,
     required this.completed,
     this.size = 18,
   });
 
-  /// 0..1. Callers pass [readProgressFor]'s output, so a completed chapter is
+  /// 0..1. Callers pass [readProgressFor]'s output, so a completed entry is
   /// already pinned at 1 (D39).
   final double fraction;
 
@@ -255,10 +251,10 @@ class ChapterProgressRing extends StatelessWidget {
           painter: _ProgressRingPainter(
             fraction: value,
             completed: completed,
-            // The unfilled part. Present at 0% so an unread chapter reads as
+            // The unfilled part. Present at 0% so an unread entry reads as
             // "nothing yet", not as "no indicator".
             track: palette.borderStrong,
-            // The filled wedge: body ink, so a finished chapter is the
+            // The filled wedge: body ink, so a finished entry is the
             // strongest mark on its row without borrowing a colour that
             // already means something else.
             fill: palette.ink,
@@ -329,18 +325,18 @@ class _ProgressRingPainter extends CustomPainter {
 }
 
 class ReadGlyph extends StatelessWidget {
-  const ReadGlyph({super.key, required this.chapter});
+  const ReadGlyph({super.key, required this.entry});
 
-  final Chapter chapter;
+  final Entry entry;
 
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
-    final status = readStatusFromName(chapter.readStatus);
+    final status = readStatusFromName(entry.readStatus);
     final pct =
         (readProgressFor(
-                  readStatus: chapter.readStatus,
-                  stored: chapter.progressFraction,
+                  readStatus: entry.readStatus,
+                  stored: entry.progressFraction,
                 ) *
                 100)
             .round();
@@ -354,12 +350,12 @@ class ReadGlyph extends StatelessWidget {
             child: Text('$pct%', style: monoStyle(color: palette.inkMuted)),
           ),
         // One component for all three states: the ring IS the state, so an
-        // unread chapter cannot render as finished by picking a wrong icon.
-        ChapterProgressRing(
-          key: ValueKey('progressRing-${chapter.id}'),
+        // unread entry cannot render as finished by picking a wrong icon.
+        EntryProgressRing(
+          key: ValueKey('progressRing-${entry.id}'),
           fraction: readProgressFor(
-            readStatus: chapter.readStatus,
-            stored: chapter.progressFraction,
+            readStatus: entry.readStatus,
+            stored: entry.progressFraction,
           ),
           completed: status == ReadStatus.completed,
         ),
@@ -370,8 +366,8 @@ class ReadGlyph extends StatelessWidget {
 
 // ─── update-check state ─────────────────────────────────────────────────────
 
-/// How a series' update-check state reads on its library row. "Never checked"
-/// is its own state and must never render as "no new chapters".
+/// How a collection's update-check state reads on its library row. "Never checked"
+/// is its own state and must never render as "no new entries".
 class CheckLook {
   const CheckLook(this.icon, this.label, this.bg, this.fg, this.border);
 

@@ -162,7 +162,7 @@ class _ToolbarButton extends StatelessWidget {
 ///
 /// Not an editor. It shows the host in full and as much path as fits, because
 /// a squeezed full URL is unreadable — tapping opens the expanded editor,
-/// which is where a long chapter address can actually be inspected (§2).
+/// which is where a long entry address can actually be inspected (§2).
 class _AddressField extends StatelessWidget {
   const _AddressField({required this.browser, required this.onTap});
 

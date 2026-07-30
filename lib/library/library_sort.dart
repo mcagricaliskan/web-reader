@@ -1,12 +1,11 @@
 import 'package:collection/collection.dart';
 
-import '../features/library_screen.dart' show SeriesGroup;
-import '../storage/database.dart';
+import '../features/library_screen.dart' show LibraryCollection;
 
-/// How the All Series list is ordered. Persisted in the settings store so the
+/// How the All Collection list is ordered. Persisted in the settings store so the
 /// choice survives restarts (Q26).
 enum LibrarySort {
-  /// Default: what the user last touched leads; never-read series follow,
+  /// Default: what the user last touched leads; never-read collection follow,
   /// then everything ties break by name. The library leads with what the
   /// user cares about, not with what the app last did.
   lastRead,
@@ -22,9 +21,12 @@ LibrarySort librarySortFromName(String? name) => LibrarySort.values.firstWhere(
   orElse: () => LibrarySort.lastRead,
 );
 
-/// Pure ordering over series groups — unit-tested directly; the provider just
+/// Pure ordering over collection groups — unit-tested directly; the provider just
 /// applies it.
-List<SeriesGroup> sortSeriesGroups(List<SeriesGroup> groups, LibrarySort sort) {
+List<LibraryCollection> sortLibraryCollections(
+  List<LibraryCollection> groups,
+  LibrarySort sort,
+) {
   final sorted = [...groups];
   switch (sort) {
     case LibrarySort.name:
@@ -33,13 +35,13 @@ List<SeriesGroup> sortSeriesGroups(List<SeriesGroup> groups, LibrarySort sort) {
       );
     case LibrarySort.lastRead:
       sorted.sort((a, b) {
-        final at = _lastReadOf(a.item);
-        final bt = _lastReadOf(b.item);
+        final at = a.lastReadAt;
+        final bt = b.lastReadAt;
         if (at != null && bt != null) {
           final byTime = bt.compareTo(at);
           if (byTime != 0) return byTime;
         } else if (at != null) {
-          return -1; // read series before never-read ones
+          return -1; // read collection before never-read ones
         } else if (bt != null) {
           return 1;
         }
@@ -48,5 +50,3 @@ List<SeriesGroup> sortSeriesGroups(List<SeriesGroup> groups, LibrarySort sort) {
   }
   return sorted;
 }
-
-DateTime? _lastReadOf(LibraryItem item) => item.lastReadAt;

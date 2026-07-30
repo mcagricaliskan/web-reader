@@ -6,7 +6,6 @@ import 'package:web_reader/browser/browser_controller.dart';
 import 'package:web_reader/browser/browser_presentation.dart';
 import 'package:web_reader/browser/favicon_service.dart';
 import 'package:web_reader/browser/history_repository.dart';
-import 'package:web_reader/browser/saved_sites_repository.dart';
 import 'package:web_reader/features/browser_home.dart';
 import 'package:web_reader/features/browser_toolbar.dart';
 import 'package:web_reader/features/browser_ui.dart';
@@ -14,6 +13,7 @@ import 'package:web_reader/features/browser_url_editor.dart';
 import 'package:web_reader/providers.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/ui/theme.dart';
+import 'package:web_reader/browser/saved_sites_repository.dart';
 
 /// The Browser's own chrome: toolbar shape and state, Browser Home, and the
 /// URL editor's suggestions.
@@ -146,7 +146,7 @@ void main() {
       tester,
     ) async {
       browser.onUrlChanged(
-        'https://uzaymanga.com/manga/efsanevi-buyu-imparatoru/885-bolum-oku',
+        'https://example.com/guide/the-long-guide/885-part-oku',
       );
       await tester.pumpWidget(toolbar());
 
@@ -157,8 +157,8 @@ void main() {
         ),
       );
       final shown = rich.textSpan!.toPlainText();
-      expect(shown, startsWith('uzaymanga.com'));
-      expect(shown, contains('885-bolum-oku'));
+      expect(shown, startsWith('example.com'));
+      expect(shown, contains('885-part-oku'));
       // Never the raw, unreadable full URL.
       expect(shown, isNot(contains('https://')));
       expect(shown.length, lessThan(45));
@@ -184,7 +184,7 @@ void main() {
     );
 
     browserWidgetTest('fits at 320pt with no overflow', (tester) async {
-      browser.onUrlChanged('https://uzaymanga.com/manga/x/885-bolum-oku');
+      browser.onUrlChanged('https://example.com/guide/x/885-part-oku');
       tester.view.physicalSize = const Size(320, 640);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -210,7 +210,7 @@ void main() {
     browserWidgetTest('survives large text without overflowing', (
       tester,
     ) async {
-      browser.onUrlChanged('https://uzaymanga.com/manga/x/885-bolum-oku');
+      browser.onUrlChanged('https://example.com/guide/x/885-part-oku');
       await tester.pumpWidget(
         ProviderScope(
           overrides: [databaseProvider.overrideWithValue(db)],
@@ -260,10 +260,12 @@ void main() {
     browserWidgetTest(
       'renders saved sites and recently visited from real data',
       (tester) async {
-        await SavedSitesRepository(db).seedDefaultIfNeeded();
+        await SavedSitesRepository(
+          db,
+        ).save(url: 'https://a.example/', title: 'Example A');
         await HistoryRepository(db).recordVisit(
-          url: 'https://uzaymanga.com/manga/x/885',
-          title: 'Bölüm 885',
+          url: 'https://example.com/guide/x/885',
+          title: 'part 885',
           source: NavigationSource.manual,
         );
 
@@ -271,9 +273,9 @@ void main() {
         await tester.pump();
 
         expect(find.text('Saved sites'.toUpperCase()), findsOneWidget);
-        expect(find.text('Google'), findsOneWidget);
+        expect(find.text('Example A'), findsOneWidget);
         expect(find.text('Recently visited'.toUpperCase()), findsOneWidget);
-        expect(find.text('Bölüm 885'), findsOneWidget);
+        expect(find.text('part 885'), findsOneWidget);
       },
     );
 
@@ -291,8 +293,8 @@ void main() {
       await tester.pumpWidget(
         home(
           preserved: const PreservedPage(
-            url: 'https://uzaymanga.com/manga/x/885',
-            title: 'Bölüm 885',
+            url: 'https://example.com/guide/x/885',
+            title: 'part 885',
           ),
         ),
       );
@@ -335,13 +337,20 @@ void main() {
       );
     });
 
-    browserWidgetTest('only the default saved site still renders a grid', (
+    browserWidgetTest('a single saved site is enough to render the grid', (
       tester,
     ) async {
-      await SavedSitesRepository(db).seedDefaultIfNeeded();
+      // Nothing is seeded on a clean install, so the grid appears only once the
+      // user has put something in it — and one row is enough.
+      await SavedSitesRepository(
+        db,
+      ).save(url: 'https://a.example/', title: 'Example A');
+
       await tester.pumpWidget(home());
       await tester.pump();
+
       expect(find.text('No saved sites yet'), findsNothing);
+      expect(find.text('Example A'), findsOneWidget);
       expect(find.byKey(const ValueKey('addSavedSiteTile')), findsOneWidget);
     });
 
@@ -375,7 +384,6 @@ void main() {
     });
 
     browserWidgetTest('fits at 320pt', (tester) async {
-      await SavedSitesRepository(db).seedDefaultIfNeeded();
       tester.view.physicalSize = const Size(320, 640);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -390,9 +398,9 @@ void main() {
       await tester.pumpWidget(
         host(
           BrowserUrlEditor(
-            initialText: 'https://uzaymanga.com/manga/x/885?lang=tr',
+            initialText: 'https://example.com/guide/x/885?lang=tr',
             selectAll: true,
-            currentPageUrl: 'https://uzaymanga.com/manga/x/885?lang=tr',
+            currentPageUrl: 'https://example.com/guide/x/885?lang=tr',
             onSubmit: (_) {},
             onCancel: () {},
             onSaveSite: (_, _) {},
@@ -404,10 +412,7 @@ void main() {
       final field = tester.widget<TextField>(
         find.byKey(const ValueKey('urlEditorField')),
       );
-      expect(
-        field.controller!.text,
-        'https://uzaymanga.com/manga/x/885?lang=tr',
-      );
+      expect(field.controller!.text, 'https://example.com/guide/x/885?lang=tr');
       expect(field.controller!.selection.baseOffset, 0);
       expect(
         field.controller!.selection.extentOffset,
@@ -453,12 +458,12 @@ void main() {
 
         await tester.enterText(
           find.byKey(const ValueKey('urlEditorField')),
-          'uzaymanga.com/manga/x',
+          'example.com/guide/x',
         );
         await tester.pump();
         await tester.tap(find.byKey(const ValueKey('urlEditorGo')));
         await tester.pump();
-        expect(submitted, ['uzaymanga.com/manga/x']);
+        expect(submitted, ['example.com/guide/x']);
 
         await tester.testTextInput.receiveAction(TextInputAction.go);
         await tester.pump();
@@ -484,14 +489,14 @@ void main() {
 
       await tester.enterText(
         find.byKey(const ValueKey('urlEditorField')),
-        'baekmyeong chapter',
+        'baekmyeong entry',
       );
       await tester.pump();
       expect(find.text('Search Google'), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const ValueKey('urlEditorField')),
-        'uzaymanga.com',
+        'example.com',
       );
       await tester.pump();
       expect(find.text('Go'), findsOneWidget);
@@ -522,8 +527,8 @@ void main() {
       'suggestions are debounced, not recomputed per keystroke',
       (tester) async {
         await HistoryRepository(db).recordVisit(
-          url: 'https://uzaymanga.com/manga/x',
-          title: 'Uzay chapter',
+          url: 'https://example.com/guide/x',
+          title: 'Uzay entry',
           source: NavigationSource.manual,
         );
         await tester.pumpWidget(
@@ -540,7 +545,7 @@ void main() {
         await tester.pump();
 
         // An empty query matches everything, so the row is there to begin with.
-        expect(find.text('Uzay chapter'), findsOneWidget);
+        expect(find.text('Uzay entry'), findsOneWidget);
 
         // Type something that matches nothing, in two quick keystrokes.
         await tester.enterText(
@@ -555,10 +560,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 40));
         // Still inside the debounce window: the list is deliberately stale.
         // This is the assertion that the query is not recomputed per keystroke.
-        expect(find.text('Uzay chapter'), findsOneWidget);
+        expect(find.text('Uzay entry'), findsOneWidget);
 
         await tester.pump(const Duration(milliseconds: 300));
-        expect(find.text('Uzay chapter'), findsNothing);
+        expect(find.text('Uzay entry'), findsNothing);
         // Searching for it is still offered — that is always a real option.
         expect(find.textContaining('Search Google for'), findsOneWidget);
         expect(find.text('HISTORY'), findsNothing);
@@ -570,24 +575,23 @@ void main() {
     List<SavedSite> savedFixture() => [
       SavedSite(
         id: 's1',
-        url: 'https://uzaymanga.com/',
-        urlKey: 'https://uzaymanga.com/',
-        host: 'uzaymanga.com',
-        title: 'Uzay Manga',
+        url: 'https://example.com/',
+        urlKey: 'https://example.com/',
+        host: 'example.com',
+        title: 'Uzay guide',
         createdAt: DateTime(2026),
         updatedAt: DateTime(2026),
         orderIndex: 0,
-        isDefault: false,
       ),
     ];
 
     List<BrowsingHistoryData> visitFixture() => [
       BrowsingHistoryData(
         id: 'v1',
-        url: 'https://asurascans.com/comics/x/137',
-        urlKey: 'https://asurascans.com/comics/x/137',
-        host: 'asurascans.com',
-        title: 'Nebula 137',
+        url: 'https://example.com/comics/x/137',
+        urlKey: 'https://example.com/comics/x/137',
+        host: 'example.com',
+        title: 'Field Notes 137',
         source: 'manual',
         completed: true,
         visitedAt: DateTime(2026, 7, 28),
@@ -595,10 +599,15 @@ void main() {
     ];
 
     test('scores exact above prefix above contains', () {
-      expect(matchScore('uzaymanga.com', 'uzaymanga.com'), 100);
-      expect(matchScore('uzaymanga.com', 'uzay'), 60);
-      expect(matchScore('uzaymanga.com', 'manga'), 20);
-      expect(matchScore('uzaymanga.com', 'zzz'), 0);
+      expect(matchScore('example.com', 'example.com'), 100, reason: 'exact');
+      expect(matchScore('example.com', 'exam'), 60, reason: 'prefix');
+      expect(
+        matchScore('www.example.com', 'exam'),
+        55,
+        reason: 'prefix past www',
+      );
+      expect(matchScore('example.com', 'ample'), 20, reason: 'contains');
+      expect(matchScore('example.com', 'zzz'), 0, reason: 'no match');
     });
 
     test('saved sites rank above history', () {
@@ -626,12 +635,12 @@ void main() {
 
     test('a typed hostname is offered as somewhere to open, not to search', () {
       final groups = buildSuggestions(
-        query: 'uzaymanga.com/manga',
+        query: 'example.com/guide',
         saved: savedFixture(),
         visits: visitFixture(),
       );
       expect(groups.first.$1, 'Open');
-      expect(groups.first.$2.single.url, 'https://uzaymanga.com/manga');
+      expect(groups.first.$2.single.url, 'https://example.com/guide');
     });
 
     test('a page already saved is not repeated under History', () {
@@ -639,17 +648,17 @@ void main() {
       final visits = [
         BrowsingHistoryData(
           id: 'v2',
-          url: 'https://uzaymanga.com/',
-          urlKey: 'https://uzaymanga.com/',
-          host: 'uzaymanga.com',
-          title: 'Uzay Manga',
+          url: 'https://example.com/',
+          urlKey: 'https://example.com/',
+          host: 'example.com',
+          title: 'Uzay guide',
           source: 'manual',
           completed: true,
           visitedAt: DateTime(2026, 7, 28),
         ),
       ];
       final groups = buildSuggestions(
-        query: 'uzay',
+        query: 'exam',
         saved: saved,
         visits: visits,
       );
@@ -662,11 +671,11 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(
-        host(const Center(child: FaviconTile(host: 'uzaymanga.com', size: 30))),
+        host(const Center(child: FaviconTile(host: 'example.com', size: 30))),
       );
       await tester.pump();
 
-      expect(find.text('U'), findsOneWidget);
+      expect(find.text('E'), findsOneWidget);
       final box = tester.getSize(find.byType(FaviconTile));
       expect(box, const Size(30, 30));
     });
@@ -689,8 +698,8 @@ void main() {
         host(
           const Column(
             children: [
-              FaviconTile(host: 'uzaymanga.com'),
-              FaviconTile(host: 'uzaymanga.com'),
+              FaviconTile(host: 'example.com'),
+              FaviconTile(host: 'example.com'),
             ],
           ),
         ),

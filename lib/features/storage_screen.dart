@@ -12,53 +12,54 @@ import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 import 'cleanup_dialogs.dart';
-import 'library_screen.dart' show SeriesGroup, formatBytes;
+import 'library_screen.dart' show LibraryCollection, formatBytes;
+import '../library/entry_labels.dart';
 
 /// What Storage shows, derived once per library emission rather than per
-/// widget rebuild: `byteSize` already lives on every chapter row, so the
+/// widget rebuild: `byteSize` already lives on every entry row, so the
 /// whole screen is arithmetic over data the library stream carries — no file
 /// tree is walked here.
 class StorageSummary {
   const StorageSummary({
     required this.totalBytes,
-    required this.offlineChapters,
-    required this.offlineSeries,
-    required this.finishedOfflineChapters,
+    required this.offlineEntries,
+    required this.offlineCollection,
+    required this.finishedOfflineEntries,
     required this.finishedOfflineBytes,
-    required this.series,
+    required this.collection,
   });
 
   final int totalBytes;
-  final int offlineChapters;
-  final int offlineSeries;
-  final int finishedOfflineChapters;
+  final int offlineEntries;
+  final int offlineCollection;
+  final int finishedOfflineEntries;
   final int finishedOfflineBytes;
 
-  /// Series holding offline bytes, largest first.
-  final List<SeriesStorage> series;
+  /// Collection holding offline bytes, largest first.
+  final List<CollectionStorage> collection;
 }
 
-class SeriesStorage {
-  const SeriesStorage({
+class CollectionStorage {
+  const CollectionStorage({
     required this.group,
     required this.bytes,
-    required this.offlineChapters,
-    required this.partialChapters,
+    required this.offlineEntries,
+    required this.partialEntries,
   });
 
-  final SeriesGroup group;
+  final LibraryCollection group;
   final int bytes;
-  final int offlineChapters;
-  final int partialChapters;
+  final int offlineEntries;
+  final int partialEntries;
 }
 
 /// Storage totals, derived from the same library stream everything else uses
 /// so the numbers can never disagree with the shelf.
 final storageSummaryProvider = Provider<AsyncValue<StorageSummary>>(
-  (ref) => ref.watch(allSeriesGroupsProvider).whenData((groups) {
-    final series = <SeriesStorage>[];
+  (ref) => ref.watch(allLibraryCollectionsProvider).whenData((groups) {
+    final collection = <CollectionStorage>[];
     var total = 0;
-    var chapters = 0;
+    var entries = 0;
     var finished = 0;
     var finishedBytes = 0;
 
@@ -66,11 +67,11 @@ final storageSummaryProvider = Provider<AsyncValue<StorageSummary>>(
       var bytes = 0;
       var offline = 0;
       var partial = 0;
-      for (final c in group.chapters) {
+      for (final c in group.entries) {
         if (c.contentPath == null) continue;
         bytes += c.byteSize;
         offline++;
-        if (c.captureStatus == 'partial') partial++;
+        if (c.saveStatus == 'partial') partial++;
         if (c.readStatus == 'completed') {
           finished++;
           finishedBytes += c.byteSize;
@@ -78,24 +79,24 @@ final storageSummaryProvider = Provider<AsyncValue<StorageSummary>>(
       }
       if (offline == 0) continue;
       total += bytes;
-      chapters += offline;
-      series.add(
-        SeriesStorage(
+      entries += offline;
+      collection.add(
+        CollectionStorage(
           group: group,
           bytes: bytes,
-          offlineChapters: offline,
-          partialChapters: partial,
+          offlineEntries: offline,
+          partialEntries: partial,
         ),
       );
     }
-    series.sort((a, b) => b.bytes.compareTo(a.bytes));
+    collection.sort((a, b) => b.bytes.compareTo(a.bytes));
     return StorageSummary(
       totalBytes: total,
-      offlineChapters: chapters,
-      offlineSeries: series.length,
-      finishedOfflineChapters: finished,
+      offlineEntries: entries,
+      offlineCollection: collection.length,
+      finishedOfflineEntries: finished,
       finishedOfflineBytes: finishedBytes,
-      series: series,
+      collection: collection,
     );
   }),
 );
@@ -137,21 +138,21 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
         data: (s) {
           final free = capacity?.freeBytes;
           final temp = staging.value ?? 0;
-          final series = [...s.series];
+          final collection = [...s.collection];
           if (!_sortBySize) {
-            series.sort(
+            collection.sort(
               (a, b) => a.group.displayName.toLowerCase().compareTo(
                 b.group.displayName.toLowerCase(),
               ),
             );
           }
-          final largest = s.series.isEmpty ? 1 : s.series.first.bytes;
+          final largest = s.collection.isEmpty ? 1 : s.collection.first.bytes;
 
           return ListView(
             padding: const EdgeInsets.only(bottom: 40),
             children: [
               // The device first: it is the number that decides whether a
-              // capture will finish, and the one the Library pill quotes.
+              // save will finish, and the one the Library pill quotes.
               _DeviceMeter(capacity: capacity),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
@@ -169,10 +170,10 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${s.offlineChapters} chapter'
-                      '${s.offlineChapters == 1 ? '' : 's'} across '
-                      '${s.offlineSeries} series · reading history not '
-                      'included',
+                      '${kPlainEntryLabels.count(s.offlineEntries)} across '
+                      '${s.offlineCollection} '
+                      'collection${s.offlineCollection == 1 ? '' : 's'} · '
+                      'reading history not included',
                       style: TextStyle(fontSize: 12.5, color: palette.inkMuted),
                     ),
                   ],
@@ -188,8 +189,8 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                   crossAxisSpacing: 8,
                   mainAxisSpacing: 8,
                   children: [
-                    _Metric('${s.offlineChapters}', 'chapters offline'),
-                    _Metric('${s.offlineSeries}', 'series offline'),
+                    _Metric('${s.offlineEntries}', 'entries offline'),
+                    _Metric('${s.offlineCollection}', 'collection offline'),
                     // Free space stays as a figure; the *percentage* and its
                     // colour live in the meter above, so this tile does not
                     // carry a second, differently-derived warning.
@@ -214,7 +215,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                     border: Border.all(color: palette.border),
                   ),
                   child: Text(
-                    "Available device space can't be read right now. Capture "
+                    "Available device space can't be read right now. Save "
                     'still works — space is checked as files are written.',
                     style: TextStyle(
                       fontSize: 12.5,
@@ -225,44 +226,44 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                 ),
               if (temp > 0) _TempFilesCard(bytes: temp),
               SectionLabel(
-                'BY SERIES',
+                'BY COLLECTION',
                 trailing: _SortToggle(
                   label: _sortBySize ? 'Largest' : 'Name',
                   onTap: () => setState(() => _sortBySize = !_sortBySize),
                 ),
               ),
               const Divider(),
-              for (final row in series) ...[
-                _SeriesRow(row: row, largestBytes: largest),
+              for (final row in collection) ...[
+                _CollectionRow(row: row, largestBytes: largest),
                 const Divider(),
               ],
               const SectionLabel('FREE UP SPACE'),
               const Divider(),
               _CleanupRow(
                 icon: Icons.auto_delete,
-                label: 'Remove finished offline chapters',
-                sub: s.finishedOfflineChapters == 0
+                label: 'Remove finished offline entries',
+                sub: s.finishedOfflineEntries == 0
                     ? 'Nothing finished is stored offline right now'
-                    : '${s.finishedOfflineChapters} chapters read to the end · '
+                    : '${s.finishedOfflineEntries} entries read to the end · '
                           'frees ~${formatBytes(s.finishedOfflineBytes)}',
-                enabled: s.finishedOfflineChapters > 0,
+                enabled: s.finishedOfflineEntries > 0,
                 onTap: () => _confirmGlobalCleanup(s),
               ),
               _CleanupRow(
                 icon: Icons.checklist,
-                label: 'Choose chapters to remove',
-                sub: 'Open a series and select chapters yourself',
-                enabled: series.isNotEmpty,
+                label: 'Choose entries to remove',
+                sub: 'Open a collection and select entries yourself',
+                enabled: collection.isNotEmpty,
                 onTap: () => context.push(
-                  '/series/${series.first.group.item.id}?select=1',
+                  '/collection/${collection.first.group.id}?select=1',
                 ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
                 child: Text(
-                  'Removing offline files never deletes a series, read marks '
-                  'or reading history. Chapters stay listed and can be '
-                  'captured again any time.',
+                  'Removing offline files never deletes a collection, read marks '
+                  'or reading history. Entries stay listed and can be '
+                  'saved again any time.',
                   style: TextStyle(
                     fontSize: 11.5,
                     height: 1.55,
@@ -281,17 +282,17 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
     final ok = await showRemovalConfirm(
       context: context,
       summary: RemovalSummary(
-        title: 'Remove finished offline chapters?',
+        title: 'Remove finished offline entries?',
         body:
-            "Chapters you've read to the end will no longer be stored "
+            "Entries you've read to the end will no longer be stored "
             'offline. They stay in your library with read marks and history, '
-            'and you can capture any of them again.',
+            'and you can save any of them again.',
         facts: [
-          ('Chapters', '${s.finishedOfflineChapters}'),
+          ('Entries', '${s.finishedOfflineEntries}'),
           ('Space freed', '~${formatBytes(s.finishedOfflineBytes)}'),
         ],
         lockNote:
-            'Anything open in the reader or being captured right now is '
+            'Anything open in the reader or being saved right now is '
             'kept.',
       ),
     );
@@ -301,7 +302,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
     showCleanupToast(
       context,
       text:
-          'Removing ${s.finishedOfflineChapters} chapters — progress in '
+          'Removing ${s.finishedOfflineEntries} entries — progress in '
           'Activity',
       icon: Icons.delete_sweep,
     );
@@ -346,7 +347,7 @@ class _Metric extends StatelessWidget {
 /// language that changes with the level.
 ///
 /// The percentage is the headline because it is the thing that predicts
-/// whether the next capture finishes — "12 GB free" means nothing without
+/// whether the next save finishes — "12 GB free" means nothing without
 /// knowing the size of the disk it is free on.
 class _DeviceMeter extends StatelessWidget {
   const _DeviceMeter({required this.capacity});
@@ -424,7 +425,7 @@ class _DeviceMeter extends StatelessWidget {
   ) {
     if (percent == null) {
       return "This device won't report its capacity, so the figure above is "
-          'unknown. Captures still check for space as they write.';
+          'unknown. Saves still check for space as they write.';
     }
     final space = free == null
         ? ''
@@ -433,12 +434,12 @@ class _DeviceMeter extends StatelessWidget {
         : '${formatBytes(free)} free of ${formatBytes(total)}. ';
     return switch (level) {
       StorageLevel.critical =>
-        '$space${look.label} — a large chapter may not finish. Remove '
+        '$space${look.label} — a large entry may not finish. Remove '
             'offline files below, or free space elsewhere on the device.',
       StorageLevel.warning =>
-        '$space${look.label} — worth removing chapters you have finished '
-            'before starting a long capture.',
-      _ => '${space}Plenty of room for more chapters.',
+        '$space${look.label} — worth removing entries you have finished '
+            'before starting a long save.',
+      _ => '${space}Plenty of room for more entries.',
     };
   }
 }
@@ -478,8 +479,8 @@ class _TempFilesCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Left behind by interrupted captures. Cleaning never touches '
-                  'saved chapters.',
+                  'Left behind by interrupted saves. Cleaning never touches '
+                  'saved entries.',
                   style: TextStyle(
                     fontSize: 12,
                     height: 1.45,
@@ -557,10 +558,10 @@ class _SortToggle extends StatelessWidget {
   }
 }
 
-class _SeriesRow extends StatelessWidget {
-  const _SeriesRow({required this.row, required this.largestBytes});
+class _CollectionRow extends StatelessWidget {
+  const _CollectionRow({required this.row, required this.largestBytes});
 
-  final SeriesStorage row;
+  final CollectionStorage row;
   final int largestBytes;
 
   @override
@@ -570,8 +571,8 @@ class _SeriesRow extends StatelessWidget {
         ? 0.0
         : (row.bytes / largestBytes).clamp(0.0, 1.0);
     return InkWell(
-      key: ValueKey('storageRow-${row.group.item.id}'),
-      onTap: () => context.push('/series/${row.group.item.id}'),
+      key: ValueKey('storageRow-${row.group.id}'),
+      onTap: () => context.push('/collection/${row.group.id}'),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
         child: Row(
@@ -593,10 +594,10 @@ class _SeriesRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '${row.offlineChapters} chapters offline',
+                    '${row.offlineEntries} entries offline',
                     style: monoStyle(color: palette.inkFaint),
                   ),
-                  if (row.partialChapters > 0) ...[
+                  if (row.partialEntries > 0) ...[
                     const SizedBox(height: 5),
                     Row(
                       children: [
@@ -607,7 +608,7 @@ class _SeriesRow extends StatelessWidget {
                         ),
                         const SizedBox(width: 5),
                         Text(
-                          '${row.partialChapters} partial',
+                          '${row.partialEntries} partial',
                           style: TextStyle(fontSize: 11.5, color: palette.warn),
                         ),
                       ],
@@ -705,7 +706,7 @@ class StoragePill extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final capacity = ref.watch(deviceCapacityProvider).value;
     final percent = capacity?.usedPercent;
-    // The colour is the percentage's job now (D51): one rule, shared with
+    // The colour is the percentage's run now (D51): one rule, shared with
     // the Storage screen, rather than a second free-bytes threshold here.
     final level = capacity?.level ?? StorageLevel.unknown;
     final look = storageLook(level, AppPalette.of(context));

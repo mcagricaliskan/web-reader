@@ -5,7 +5,7 @@ import 'package:web_reader/browser/saved_sites_repository.dart';
 import 'package:web_reader/storage/database.dart';
 
 /// The recording rule (§7, D53), the clear ranges (§10) and the aggregation
-/// (§9). This is the file that guards "capture automation never pollutes
+/// (§9). This is the file that guards "save automation never pollutes
 /// browsing history".
 void main() {
   late AppDatabase db;
@@ -34,9 +34,9 @@ void main() {
 
   group('what gets recorded', () {
     test('a completed manual visit is recorded', () async {
-      final row = await visit('https://uzaymanga.com/manga/x/1', title: 'Ch 1');
+      final row = await visit('https://example.com/guide/x/1', title: 'Ch 1');
       expect(row, isNotNull);
-      expect(row!.host, 'uzaymanga.com');
+      expect(row!.host, 'example.com');
       expect(row.title, 'Ch 1');
       expect(row.source, 'manual');
       expect(await db.visits(), hasLength(1));
@@ -46,7 +46,7 @@ void main() {
       for (final source in NavigationSource.values) {
         if (source == NavigationSource.manual) continue;
         expect(
-          await visit('https://uzaymanga.com/manga/x/2', source: source),
+          await visit('https://example.com/guide/x/2', source: source),
           isNull,
           reason: source.name,
         );
@@ -54,28 +54,31 @@ void main() {
       expect(await db.visits(), isEmpty);
     });
 
-    test('a capture walking the chapter chain leaves no history', () async {
-      // What the capture job does: many pages, one after another.
+    test('a save walking the entry chain leaves no history', () async {
+      // What the save run does: many pages, one after another.
       for (var i = 1; i <= 12; i++) {
         await visit(
-          'https://uzaymanga.com/manga/x/$i',
-          source: NavigationSource.captureAutomation,
+          'https://example.com/guide/x/$i',
+          source: NavigationSource.saveAutomation,
         );
       }
       expect(await db.visits(), isEmpty);
     });
 
-    test('an update check reading a series index leaves no history', () async {
-      await visit(
-        'https://uzaymanga.com/manga/x',
-        source: NavigationSource.updateCheck,
-      );
-      expect(await db.visits(), isEmpty);
-    });
+    test(
+      'an update check reading a collection index leaves no history',
+      () async {
+        await visit(
+          'https://example.com/guide/x',
+          source: NavigationSource.updateCheck,
+        );
+        expect(await db.visits(), isEmpty);
+      },
+    );
 
     test('a load that never completed is not a destination', () async {
       expect(
-        await visit('https://uzaymanga.com/manga/x/1', completed: false),
+        await visit('https://example.com/guide/x/1', completed: false),
         isNull,
       );
     });
@@ -85,7 +88,7 @@ void main() {
         'about:blank',
         '',
         '   ',
-        'reader://open?chapter=1',
+        'reader://open?entry=1',
         'data:text/html,hello',
         'file:///tmp/x.html',
       ]) {
@@ -95,8 +98,8 @@ void main() {
     });
 
     test('a page with no title reads as its host, not as blank', () async {
-      final row = await visit('https://uzaymanga.com/manga/x/1', title: '  ');
-      expect(row!.title, 'uzaymanga.com');
+      final row = await visit('https://example.com/guide/x/1', title: '  ');
+      expect(row!.title, 'example.com');
     });
   });
 
@@ -186,14 +189,20 @@ void main() {
 
     test('clearing history keeps saved sites, library and settings', () async {
       final saved = SavedSitesRepository(db);
-      await saved.seedDefaultIfNeeded();
+      // Two rows the *user* saved. There is no seeded row to make up the count,
+      // and the point of the test is that clearing history reaches none of them.
       await saved.save(url: 'https://a.example/', title: 'A');
-      await db.setSetting('series.chapterSort', 'newestFirst');
-      await db.upsertLibraryItem(
-        LibraryItem(
+      await saved.save(url: 'https://b.example/', title: 'B');
+      await db.setSetting('collection.entrySort', 'newestFirst');
+      await db.upsertCollection(
+        Collection(
+          contentKind: 'unknownWebContent',
+          sequenceKind: 'none',
+          orderingBasis: 'discoveryOrder',
+          shapeConfidence: 'low',
           id: 'item-1',
-          title: 'Series',
-          sourceUrl: 'https://a.example/series',
+          title: 'Collection',
+          sourceUrl: 'https://a.example/collection',
           host: 'a.example',
           createdAt: now,
           lifecycle: 'active',
@@ -202,9 +211,13 @@ void main() {
 
       await history.clear(HistoryClearRange.allTime, now: now);
 
-      expect(await db.allSavedSites(), hasLength(2));
-      expect(await db.setting('series.chapterSort'), 'newestFirst');
-      expect(await db.allLibraryItems(), hasLength(1));
+      expect(
+        (await db.allSavedSites()).map((s) => s.title),
+        ['A', 'B'],
+        reason: 'clearing history must not reach the saved-sites list',
+      );
+      expect(await db.setting('collection.entrySort'), 'newestFirst');
+      expect(await db.allCollections(), hasLength(1));
     });
   });
 
@@ -278,23 +291,31 @@ void main() {
   });
 
   group('search', () {
+    // Two visits on **different hosts**. Search covers three columns, so the
+    // fixture has to be able to tell them apart — one host matching both rows
+    // cannot show that a host query is a host query.
     setUp(() async {
       await visit(
-        'https://uzaymanga.com/manga/efsanevi/885',
-        title: 'Efsanevi Büyü İmparatoru',
+        'https://a.example/guide/long-guide/885',
+        title: 'The Long Guide',
       );
-      await visit('https://asurascans.com/comics/nebula/137', title: 'Nebula');
+      await visit('https://b.example/notes/field/137', title: 'Field Notes');
     });
 
     test('matches title, URL and host', () async {
-      expect(await history.search('efsanevi'), hasLength(1));
-      expect(await history.search('asurascans'), hasLength(1));
-      expect(await history.search('comics/nebula'), hasLength(1));
+      expect(await history.search('long guide'), hasLength(1), reason: 'title');
+      expect(await history.search('notes/field'), hasLength(1), reason: 'url');
+      expect(await history.search('b.example'), hasLength(1), reason: 'host');
+      expect(
+        await history.search('example'),
+        hasLength(2),
+        reason: 'a query both hosts share matches both',
+      );
     });
 
     test('is case-insensitive', () async {
-      expect(await history.search('NEBULA'), hasLength(1));
-      expect(await history.search('nebula'), hasLength(1));
+      expect(await history.search('FIELD NOTES'), hasLength(1));
+      expect(await history.search('field notes'), hasLength(1));
     });
 
     test('an empty query returns everything', () async {

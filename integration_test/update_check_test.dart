@@ -1,6 +1,6 @@
 // M8 acceptance, end to end on the Simulator against the in-process fixture:
-// capture 1-2, source publishes 3-4, check discovers them WITHOUT downloading,
-// capture them, count clears, re-check says up to date, state survives a
+// save 1-2, source publishes 3-4, check discovers them WITHOUT downloading,
+// save them, count clears, re-check says up to date, state survives a
 // restart.
 //
 //   flutter test integration_test/update_check_test.dart -d <simulator-id>
@@ -12,9 +12,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:web_reader/app.dart';
+import 'package:web_reader/core/config.dart';
 import 'package:web_reader/browser/browser_controller.dart';
-import 'package:web_reader/capture/capture_job.dart';
-import 'package:web_reader/capture/capture_preflight.dart';
+import 'package:web_reader/save/save_run.dart';
+import 'package:web_reader/save/save_preflight.dart';
 import 'package:web_reader/library/update_checker.dart';
 import 'package:web_reader/providers.dart';
 import 'package:web_reader/storage/database.dart';
@@ -34,13 +35,13 @@ void main() {
   late AppDatabase db;
   late FileStore fileStore;
   late BrowserController browser;
-  late CaptureJobController job;
+  late SaveRunController run;
   late UpdateChecker checker;
   HttpServer? server;
   late String baseUrl;
 
-  /// The "site" grows mid-test: this is how the source publishes chapters.
-  var liveChapterCount = 2;
+  /// The "site" grows mid-test: this is how the source publishes entries.
+  var liveEntryCount = 2;
 
   Future<void> startFixture() async {
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -52,7 +53,7 @@ void main() {
             await handleFixtureRequest(
               req,
               applyDelays: false,
-              chapterCount: liveChapterCount,
+              entryCount: liveEntryCount,
             );
           } catch (_) {}
         }
@@ -77,7 +78,7 @@ void main() {
     );
     browser = BrowserController();
     checker = UpdateChecker(browser: browser, db: db);
-    job = CaptureJobController(browser: browser, db: db, fileStore: fileStore);
+    run = SaveRunController(browser: browser, db: db, fileStore: fileStore);
 
     await tester.pumpWidget(
       ProviderScope(
@@ -87,7 +88,7 @@ void main() {
               db: db,
               fileStore: fileStore,
               browser: browser,
-              captureJob: job,
+              saveRun: run,
               updateChecker: checker,
             ),
           ),
@@ -110,40 +111,40 @@ void main() {
   }
 
   tearDown(() async {
-    job.stop();
+    run.stop();
     checker.cancel();
     final deadline = DateTime.now().add(const Duration(seconds: 20));
-    while (job.isRunning && DateTime.now().isBefore(deadline)) {
+    while (run.isRunning && DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     await server?.close(force: true);
     await db.close();
   });
 
-  testWidgets('M8: discover, list, capture, clear, up-to-date, persist', (
+  testWidgets('M8: discover, list, save, clear, up-to-date, persist', (
     tester,
   ) async {
-    liveChapterCount = 2;
+    liveEntryCount = 2;
     await startFixture();
     await boot(tester);
 
-    // --- 1. capture chapters 1 and 2 --------------------------------------
-    await browser.loadAndWait('$baseUrl/chapter/1');
+    // --- 1. save entries 1 and 2 --------------------------------------
+    await browser.loadAndWait('$baseUrl/entry/1');
     await settle(tester, const Duration(seconds: 1));
-    unawaited(job.start(chapterLimit: 2));
+    unawaited(run.start(range: SaveScope.fixedCount, entryLimit: 2));
     await waitFor(
       tester,
-      () => job.progress.state.isTerminal && !job.isRunning,
+      () => run.progress.state.isTerminal && !run.isRunning,
     );
 
-    var chapters = await db.allChapters();
-    expect(chapters.length, 2, reason: 'two chapters captured');
-    final itemId = chapters.first.libraryItemId;
-    debugPrint('[M8] captured ${chapters.length} chapters');
+    var entries = await db.allEntries();
+    expect(entries.length, 2, reason: 'two entries saved');
+    final itemId = entries.first.collectionId!;
+    debugPrint('[M8] saved ${entries.length} entries');
 
-    // --- 2. the source publishes chapters 3 and 4 -------------------------
-    liveChapterCount = 4;
-    debugPrint('[M8] source now has 4 chapters');
+    // --- 2. the source publishes entries 3 and 4 -------------------------
+    liveEntryCount = 4;
+    debugPrint('[M8] source now has 4 entries');
 
     // --- 3-4. check discovers them without downloading --------------------
     final outcome = await checker.check(itemId);
@@ -151,75 +152,76 @@ void main() {
       debugPrint('[check] $line');
     }
     expect(outcome.state, UpdateCheckState.updatesAvailable);
-    expect(outcome.newChapters, 2);
+    expect(outcome.newEntries, 2);
 
-    chapters = await db.allChapters();
-    final discovered = chapters
-        .where((c) => c.captureStatus == 'knownRemote')
+    entries = await db.allEntries();
+    final discovered = entries
+        .where((c) => c.saveStatus == 'knownRemote')
         .toList();
-    expect(discovered.length, 2, reason: 'chapters 3 and 4 discovered');
+    expect(discovered.length, 2, reason: 'entries 3 and 4 discovered');
     for (final c in discovered) {
       expect(c.contentPath, isNull, reason: 'discovered, never downloaded');
-      expect(c.storedImageCount, 0);
+      expect(c.storedAssetCount, 0);
       expect(c.discoveredAt, isNotNull);
       expect(c.discoveryBasis, isNotNull);
     }
     debugPrint(
       '[M8] discovered without downloading: '
-      '${discovered.map((c) => c.chapterLabel ?? c.title).toList()}',
+      '${discovered.map((c) => c.sourceMarker ?? c.title).toList()}',
     );
 
-    // --- 5. the series row earns its "N new" chip -------------------------
-    final item = (await db.libraryItemById(itemId))!;
+    // --- 5. the collection row earns its "N new" chip -------------------------
+    final item = (await db.collectionById(itemId))!;
     expect(item.lastCheckSuccessAt, isNotNull);
     expect(item.lastCheckResult, 'updatesAvailable');
-    debugPrint('[M8] series row shows "2 new" (2 uncaptured known)');
+    debugPrint('[M8] collection row shows "2 new" (2 unsaved known)');
 
-    // --- 6-7. capture the discovered chapters ------------------------------
+    // --- 6-7. save the discovered entries ------------------------------
     final ordered = [...discovered]
-      ..sort((a, b) => (a.chapterNumber ?? 0).compareTo(b.chapterNumber ?? 0));
+      ..sort((a, b) => (a.entryNumber ?? 0).compareTo(b.entryNumber ?? 0));
     unawaited(
-      job.start(
-        chapterLimit: ordered.length,
+      run.start(
+        range: SaveScope.fixedCount,
+        entryLimit: ordered.length,
         startUrl: ordered.first.sourceUrl,
         policy: DuplicatePolicy.skipComplete,
       ),
     );
     await waitFor(
       tester,
-      () => job.progress.state.isTerminal && !job.isRunning,
+      () => run.progress.state.isTerminal && !run.isRunning,
     );
-    for (final line in job.log.reversed.take(14)) {
-      debugPrint('[job] $line');
+    for (final line in run.log.reversed.take(14)) {
+      debugPrint('[run] $line');
     }
 
-    chapters = await db.allChapters();
-    expect(chapters.length, 4, reason: 'no duplicate rows created');
+    entries = await db.allEntries();
+    expect(entries.length, 4, reason: 'no duplicate rows created');
     // --- 8. the "N new" count clears ---------------------------------------
     expect(
-      chapters.where((c) => c.captureStatus == 'knownRemote'),
+      entries.where((c) => c.saveStatus == 'knownRemote'),
       isEmpty,
-      reason: 'discovered chapters became offline chapters',
+      reason: 'discovered entries became offline entries',
     );
-    for (final c in chapters) {
+    for (final c in entries) {
       expect(c.contentPath, isNotNull);
-      expect(c.captureStatus, anyOf('complete', 'partial'));
+      expect(c.saveStatus, anyOf('complete', 'partial'));
     }
-    debugPrint('[M8] discovered chapters captured; "new" count cleared');
+    debugPrint('[M8] discovered entries saved; "new" count cleared');
 
     // --- 9. re-check: up to date -------------------------------------------
     final second = await checker.check(itemId);
     expect(second.state, UpdateCheckState.upToDate);
-    expect(second.newChapters, 0);
+    expect(second.newEntries, 0);
     debugPrint('[M8] re-check: upToDate');
 
     // --- 10. check state survives a restart --------------------------------
     await db.close();
     await boot(tester);
-    final after = (await db.libraryItemById(itemId))!;
+    final after = (await db.collectionById(itemId))!;
     expect(after.lastCheckSuccessAt, isNotNull);
     expect(after.lastCheckResult, 'upToDate');
-    expect((await db.chaptersForItem(itemId)).length, 4);
+    expect((await db.entriesForCollection(itemId)).length, 4);
     debugPrint(
       '[M8] after restart: lastCheckResult=${after.lastCheckResult} kept',
     );

@@ -15,9 +15,9 @@ import 'package:web_reader/storage/manifest.dart';
 
 import '../tool/fixture/fixture_site.dart';
 
-/// The finished-chapter transition, driven through the real reader: when the
-/// series is asked, what each answer stores, and that the answer belongs to
-/// that series and to no other (D37).
+/// The finished-entry transition, driven through the real reader: when the
+/// collection is asked, what each answer stores, and that the answer belongs to
+/// that collection and to no other (D37).
 void main() {
   late AppDatabase db;
   late Directory root;
@@ -39,45 +39,49 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  Future<void> seedSeries({String id = 's1', String title = 'Foo'}) =>
-      db.upsertLibraryItem(
-        LibraryItem(
+  Future<void> seedCollection({String id = 's1', String title = 'Foo'}) =>
+      db.upsertCollection(
+        Collection(
+          contentKind: 'unknownWebContent',
+          sequenceKind: 'none',
+          orderingBasis: 'discoveryOrder',
+          shapeConfidence: 'low',
           lifecycle: 'active',
           id: id,
           title: title,
-          sourceUrl: 'https://x.example/manga/$id',
+          sourceUrl: 'https://x.example/guide/$id',
           host: 'x.example',
-          seriesKey: '/manga/$id',
+          collectionKey: '/guide/$id',
           createdAt: DateTime(2026, 7, 1),
         ),
       );
 
-  /// Chapter ids stay `c1`, `c2`… for the first series so the common case
-  /// reads plainly; a second series prefixes its own.
-  String chapterId(String seriesId, int n) =>
-      seriesId == 's1' ? 'c$n' : '${seriesId}c$n';
+  /// Entry ids stay `c1`, `c2`… for the first collection so the common case
+  /// reads plainly; a second collection prefixes its own.
+  String entryId(String collectionId, int n) =>
+      collectionId == 's1' ? 'c$n' : '${collectionId}c$n';
 
   /// Real files so the reader actually opens.
-  Future<void> seedChapter(
+  Future<void> seedEntry(
     int n, {
     required String readStatus,
     bool withFiles = true,
-    String seriesId = 's1',
+    String collectionId = 's1',
   }) async {
-    final id = chapterId(seriesId, n);
+    final id = entryId(collectionId, n);
     String? relative;
     if (withFiles) {
-      final staging = await store.beginChapter(
-        libraryItemId: seriesId,
-        chapterId: id,
+      final staging = await store.beginEntry(
+        collectionId: collectionId,
+        entryId: id,
       );
-      final entries = <AssetEntry>[];
+      final entries = <EntryAsset>[];
       for (var i = 1; i <= 3; i++) {
         await staging
             .assetFile('00$i.png')
-            .writeAsBytes(panelPng(chapter: n, index: i));
+            .writeAsBytes(panelPng(entry: n, index: i));
         entries.add(
-          AssetEntry(
+          EntryAsset(
             index: i,
             sourceUrl: 'https://cdn.example/$n/$i.png',
             status: AssetStatus.stored,
@@ -90,54 +94,58 @@ void main() {
       }
       relative = await store.commit(
         staging,
-        ChapterManifest(
-          schemaVersion: ChapterManifest.currentSchemaVersion,
-          chapterId: id,
-          libraryItemId: seriesId,
-          sourceUrl: 'https://x.example/manga/$seriesId/$n',
-          title: 'Chapter $n',
-          capturedAt: DateTime(2026, 7, 20),
-          status: CaptureStatus.complete,
-          detectedImageCount: 3,
-          storedImageCount: 3,
+        EntryManifest(
+          schemaVersion: EntryManifest.currentSchemaVersion,
+          entryId: id,
+          collectionId: collectionId,
+          sourceUrl: 'https://x.example/guide/$collectionId/$n',
+          title: 'Entry $n',
+          savedAt: DateTime(2026, 7, 20),
+          status: SaveStatus.complete,
+          detectedAssetCount: 3,
+          storedAssetCount: 3,
           assets: entries,
         ),
       );
     }
-    await db.upsertChapter(
-      Chapter(
+    await db.upsertEntry(
+      Entry(
+        host: '',
+        contentKind: 'unknownWebContent',
+        contentKindConfidence: 'low',
+        contentKindIsUserSet: false,
         id: id,
-        libraryItemId: seriesId,
-        title: 'Chapter $n',
-        sourceUrl: 'https://x.example/manga/$seriesId/$n',
-        urlKey: 'https://x.example/manga/$seriesId/$n',
-        captureStatus: withFiles ? 'complete' : 'knownRemote',
+        collectionId: collectionId,
+        title: 'Entry $n',
+        sourceUrl: 'https://x.example/guide/$collectionId/$n',
+        urlKey: 'https://x.example/guide/$collectionId/$n',
+        saveStatus: withFiles ? 'complete' : 'knownRemote',
         contentPath: relative,
-        capturedAt: DateTime(2026, 7, 20),
-        detectedImageCount: 3,
-        storedImageCount: withFiles ? 3 : 0,
-        sequence: n,
+        savedAt: DateTime(2026, 7, 20),
+        detectedAssetCount: 3,
+        storedAssetCount: withFiles ? 3 : 0,
+        entryOrder: n,
         byteSize: withFiles ? 1500 : 0,
-        chapterNumber: n.toDouble(),
-        chapterLabel: 'Chapter $n',
+        entryNumber: n.toDouble(),
+        sourceMarker: 'Entry $n',
         readStatus: readStatus,
         progressFraction: readStatus == 'completed' ? 1 : 0.4,
-        progressImageIndex: 0,
-        progressOffsetInImage: 0,
+        progressPageIndex: 0,
+        progressOffsetInPage: 0,
         completedAt: readStatus == 'completed' ? DateTime(2026, 7, 22) : null,
       ),
     );
   }
 
-  Future<SeriesCleanupPref?> prefOf(String seriesId) async =>
-      seriesCleanupFromName(
-        (await db.libraryItemById(seriesId))!.finishedCleanup,
+  Future<CollectionCleanupPreference?> prefOf(String collectionId) async =>
+      collectionCleanupFromName(
+        (await db.collectionById(collectionId))!.cleanupPreference,
       );
 
   /// [undoWindow] defaults to a short one so the finalize timer cannot outlive
   /// the test; the Undo test needs a real window and passes its own.
   Widget harness(
-    String chapterId, {
+    String entryId, {
     Duration undoWindow = const Duration(milliseconds: 50),
   }) => ProviderScope(
     overrides: [
@@ -153,7 +161,7 @@ void main() {
         routes: [
           GoRoute(
             path: '/',
-            builder: (_, _) => ReaderScreen(chapterId: chapterId),
+            builder: (_, _) => ReaderScreen(entryId: entryId),
           ),
         ],
       ),
@@ -164,10 +172,10 @@ void main() {
   /// pumped with `runAsync` windows.
   Future<void> openReader(
     WidgetTester tester,
-    String chapterId, {
+    String entryId, {
     Duration undoWindow = const Duration(milliseconds: 50),
   }) async {
-    await tester.pumpWidget(harness(chapterId, undoWindow: undoWindow));
+    await tester.pumpWidget(harness(entryId, undoWindow: undoWindow));
     for (var i = 0; i < 100; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -181,9 +189,9 @@ void main() {
     fail('reader never finished loading');
   }
 
-  /// Tap "next chapter" in the bottom chrome.
+  /// Tap "next entry" in the bottom chrome.
   Future<void> tapNext(WidgetTester tester) async {
-    await tester.tap(find.byTooltip('Next saved chapter'));
+    await tester.tap(find.byTooltip('Next saved entry'));
     for (var i = 0; i < 60; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -214,10 +222,11 @@ void main() {
     fail(reason);
   }
 
-  final noticeText = find.text('Previous chapter removed offline');
-  final cleanupDialog = find.text('Downloaded chapters in this series');
-  final removeOption = find.byKey(const ValueKey('seriesCleanup-remove'));
-  final keepOption = find.byKey(const ValueKey('seriesCleanup-keep'));
+  final noticeText = find.text('Removed downloads');
+  final restoredText = find.text('Restored downloads');
+  final cleanupDialog = find.text('Downloaded entries in this collection');
+  final removeOption = find.byKey(const ValueKey('collectionCleanup-remove'));
+  final keepOption = find.byKey(const ValueKey('collectionCleanup-keep'));
 
   /// Which option the dialog has selected right now.
   bool isSelected(Finder option) => find
@@ -226,24 +235,27 @@ void main() {
       .isNotEmpty;
 
   Future<void> saveChoice(WidgetTester tester) async {
-    await tester.tap(find.byKey(const ValueKey('saveSeriesCleanup')));
+    await tester.tap(find.byKey(const ValueKey('saveCollectionCleanup')));
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 100)),
     );
     await tester.pump();
   }
 
-  /// A series already set to remove, one finished chapter and one to move on
+  /// A collection already set to remove, one finished entry and one to move on
   /// to; returns with the removal notice on screen.
   Future<void> removeByMovingOn(WidgetTester tester) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
     });
     await openReader(tester, 'c1');
-    await tester.tap(find.byTooltip('Next saved chapter'));
+    await tester.tap(find.byTooltip('Next saved entry'));
     await pumpUntil(
       tester,
       () async => noticeText.evaluate().isNotEmpty,
@@ -261,40 +273,41 @@ void main() {
 
   // --- when the question is asked -------------------------------------------
 
-  testWidgets('an undecided series is asked on the first forward transition', (
-    tester,
-  ) async {
-    await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
-    });
-    await openReader(tester, 'c1');
-    await tapNext(tester);
+  testWidgets(
+    'an undecided collection is asked on the first forward transition',
+    (tester) async {
+      await tester.runAsync(() async {
+        await seedCollection();
+        await seedEntry(1, readStatus: 'completed');
+        await seedEntry(2, readStatus: 'unread');
+      });
+      await openReader(tester, 'c1');
+      await tapNext(tester);
 
-    expect(cleanupDialog, findsOneWidget);
-    expect(
-      find.textContaining('after you continue to the next'),
-      findsOneWidget,
-    );
-    expect(find.text('Remove after continuing'), findsOneWidget);
-    expect(find.text('Keep downloaded files'), findsOneWidget);
-    expect(find.text('Save choice'), findsOneWidget);
-    expect(
-      find.textContaining('applies only to this series'),
-      findsOneWidget,
-      reason: 'the scope is stated where the decision is made',
-    );
-    await settleDown(tester);
-  });
+      expect(cleanupDialog, findsOneWidget);
+      expect(
+        find.textContaining('after you continue to the next'),
+        findsOneWidget,
+      );
+      expect(find.text('Remove after continuing'), findsOneWidget);
+      expect(find.text('Keep downloaded files'), findsOneWidget);
+      expect(find.text('Save choice'), findsOneWidget);
+      expect(
+        find.textContaining('applies only to this collection'),
+        findsOneWidget,
+        reason: 'the scope is stated where the decision is made',
+      );
+      await settleDown(tester);
+    },
+  );
 
   testWidgets('Remove after continuing is the preselected answer', (
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
     });
     await openReader(tester, 'c1');
     await tapNext(tester);
@@ -304,29 +317,29 @@ void main() {
     await settleDown(tester);
   });
 
-  testWidgets('a partially read chapter never asks', (tester) async {
+  testWidgets('a partially read entry never asks', (tester) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'inProgress');
-      await seedChapter(2, readStatus: 'unread');
+      await seedCollection();
+      await seedEntry(1, readStatus: 'inProgress');
+      await seedEntry(2, readStatus: 'unread');
     });
     await openReader(tester, 'c1');
     await tapNext(tester);
 
     expect(find.byType(AlertDialog), findsNothing);
-    expect((await db.chapterById('c1'))!.contentPath, isNotNull);
+    expect((await db.entryById('c1'))!.contentPath, isNotNull);
     expect(await prefOf('s1'), isNull, reason: 'nothing was decided');
     await settleDown(tester);
   });
 
   testWidgets('moving backward never asks', (tester) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'completed');
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'completed');
     });
     await openReader(tester, 'c2');
-    await tester.tap(find.byTooltip('Previous saved chapter'));
+    await tester.tap(find.byTooltip('Previous saved entry'));
     for (var i = 0; i < 40; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -335,54 +348,54 @@ void main() {
     }
 
     expect(find.byType(AlertDialog), findsNothing);
-    expect((await db.chapterById('c2'))!.contentPath, isNotNull);
+    expect((await db.entryById('c2'))!.contentPath, isNotNull);
     await settleDown(tester);
   });
 
   // --- what an answer does --------------------------------------------------
 
-  testWidgets('saving Remove stores it on this series and applies it now', (
+  testWidgets('saving Remove stores it on this collection and applies it now', (
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedSeries(id: 's2', title: 'Bar');
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
+      await seedCollection();
+      await seedCollection(id: 's2', title: 'Bar');
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
     });
     await openReader(tester, 'c1');
     await tapNext(tester);
     await saveChoice(tester);
 
-    expect(await prefOf('s1'), SeriesCleanupPref.remove);
+    expect(await prefOf('s1'), CollectionCleanupPreference.remove);
     expect(
       await prefOf('s2'),
       isNull,
-      reason: 'a decision reaches exactly one series',
+      reason: 'a decision reaches exactly one collection',
     );
 
-    final removed = (await db.chapterById('c1'))!;
+    final removed = (await db.entryById('c1'))!;
     expect(removed.contentPath, isNull);
     expect(removed.readStatus, 'completed', reason: 'history kept');
     expect(removed.completedAt, isNotNull);
     expect(removed.sourceUrl, isNotEmpty, reason: 'metadata kept');
-    expect(await db.libraryItemById('s1'), isNotNull);
+    expect(await db.collectionById('s1'), isNotNull);
     expect(
-      (await db.chapterById('c2'))!.contentPath,
+      (await db.entryById('c2'))!.contentPath,
       isNotNull,
-      reason: 'the newly opened chapter is never the one removed',
+      reason: 'the newly opened entry is never the one removed',
     );
     await settleDown(tester);
   });
 
-  testWidgets('saving Keep stores it on this series and removes nothing', (
+  testWidgets('saving Keep stores it on this collection and removes nothing', (
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedSeries(id: 's2', title: 'Bar');
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
+      await seedCollection();
+      await seedCollection(id: 's2', title: 'Bar');
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
     });
     await openReader(tester, 'c1');
     await tapNext(tester);
@@ -393,12 +406,12 @@ void main() {
     expect(isSelected(removeOption), isFalse);
     await saveChoice(tester);
 
-    expect(await prefOf('s1'), SeriesCleanupPref.keep);
+    expect(await prefOf('s1'), CollectionCleanupPreference.keep);
     expect(await prefOf('s2'), isNull);
-    expect((await db.chapterById('c1'))!.contentPath, isNotNull);
+    expect((await db.entryById('c1'))!.contentPath, isNotNull);
     expect(
       Directory(
-        store.resolve((await db.chapterById('c1'))!.contentPath!),
+        store.resolve((await db.entryById('c1'))!.contentPath!),
       ).existsSync(),
       isTrue,
     );
@@ -409,9 +422,9 @@ void main() {
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
     });
     await openReader(tester, 'c1');
     await tapNext(tester);
@@ -425,7 +438,7 @@ void main() {
 
     expect(cleanupDialog, findsNothing);
     expect(await prefOf('s1'), isNull);
-    expect((await db.chapterById('c1'))!.contentPath, isNotNull);
+    expect((await db.entryById('c1'))!.contentPath, isNotNull);
     await settleDown(tester);
   });
 
@@ -433,17 +446,17 @@ void main() {
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'completed');
-      await seedChapter(3, readStatus: 'unread');
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'completed');
+      await seedEntry(3, readStatus: 'unread');
     });
     await openReader(tester, 'c1');
 
     // Two forward taps in quick succession: the second lands while the first
-    // transition is still resolving its question. Both chapters are finished,
+    // transition is still resolving its question. Both entries are finished,
     // so without the guard each would raise its own dialog.
-    final next = find.byTooltip('Next saved chapter');
+    final next = find.byTooltip('Next saved entry');
     await tester.tap(next);
     await tester.pump();
     if (next.evaluate().isNotEmpty) {
@@ -462,18 +475,23 @@ void main() {
       findsNothing,
       reason: 'answering once answers it — no queued duplicate behind it',
     );
-    expect(await prefOf('s1'), SeriesCleanupPref.remove);
+    expect(await prefOf('s1'), CollectionCleanupPreference.remove);
     await settleDown(tester);
   });
 
-  // --- a decided series -----------------------------------------------------
+  // --- a decided collection -----------------------------------------------------
 
-  testWidgets('a series set to remove is never asked again', (tester) async {
+  testWidgets('a collection set to remove is never asked again', (
+    tester,
+  ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
     });
     await openReader(tester, 'c1');
     await tapNext(tester);
@@ -483,40 +501,46 @@ void main() {
     await tester.pump();
 
     expect(find.byType(AlertDialog), findsNothing);
-    final removed = (await db.chapterById('c1'))!;
+    final removed = (await db.entryById('c1'))!;
     expect(removed.contentPath, isNull);
     expect(removed.completedAt, isNotNull, reason: 'history kept');
     await settleDown(tester);
   });
 
-  testWidgets('a series set to keep is never asked and keeps its files', (
+  testWidgets('a collection set to keep is never asked and keeps its files', (
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.keep.name);
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.keep.name,
+      );
     });
     await openReader(tester, 'c1');
     await tapNext(tester);
 
     expect(find.byType(AlertDialog), findsNothing);
-    expect((await db.chapterById('c1'))!.contentPath, isNotNull);
+    expect((await db.entryById('c1'))!.contentPath, isNotNull);
     await settleDown(tester);
   });
 
-  testWidgets('another series is still asked, and keeps its own answer', (
+  testWidgets('another collection is still asked, and keeps its own answer', (
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedSeries(id: 's2', title: 'Bar');
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
-      await seedChapter(1, readStatus: 'completed', seriesId: 's2');
-      await seedChapter(2, readStatus: 'unread', seriesId: 's2');
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
+      await seedCollection();
+      await seedCollection(id: 's2', title: 'Bar');
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
+      await seedEntry(1, readStatus: 'completed', collectionId: 's2');
+      await seedEntry(2, readStatus: 'unread', collectionId: 's2');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
     });
 
     await openReader(tester, 's2c1');
@@ -524,7 +548,7 @@ void main() {
     expect(
       cleanupDialog,
       findsOneWidget,
-      reason: "another series' decision is not this one's",
+      reason: "another collection's decision is not this one's",
     );
     expect(isSelected(removeOption), isTrue);
 
@@ -532,24 +556,29 @@ void main() {
     await tester.pump();
     await saveChoice(tester);
 
-    expect(await prefOf('s2'), SeriesCleanupPref.keep);
+    expect(await prefOf('s2'), CollectionCleanupPreference.keep);
     expect(
       await prefOf('s1'),
-      SeriesCleanupPref.remove,
-      reason: 'deciding one series leaves the other exactly as it was',
+      CollectionCleanupPreference.remove,
+      reason: 'deciding one collection leaves the other exactly as it was',
     );
-    expect((await db.chapterById('s2c1'))!.contentPath, isNotNull);
+    expect((await db.entryById('s2c1'))!.contentPath, isNotNull);
     await settleDown(tester);
   });
 
-  testWidgets('a reset series asks again, preselecting Remove', (tester) async {
+  testWidgets('a reset collection asks again, preselecting Remove', (
+    tester,
+  ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
-      // Decided as keep, then reset from the series settings.
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.keep.name);
-      await db.setSeriesFinishedCleanup('s1', null);
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
+      // Decided as keep, then reset from the collection settings.
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.keep.name,
+      );
+      await db.setCollectionCleanupPreference('s1', null);
     });
     await openReader(tester, 'c1');
     await tapNext(tester);
@@ -567,9 +596,9 @@ void main() {
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
       // The obsolete key, written by an old build that auto-removed.
       await db.setSetting('storage.afterFinished', 'remove');
     });
@@ -579,9 +608,9 @@ void main() {
     expect(
       cleanupDialog,
       findsOneWidget,
-      reason: 'the series has not been asked; a stale row is not an answer',
+      reason: 'the collection has not been asked; a stale row is not an answer',
     );
-    expect((await db.chapterById('c1'))!.contentPath, isNotNull);
+    expect((await db.entryById('c1'))!.contentPath, isNotNull);
     await settleDown(tester);
   });
 
@@ -589,7 +618,7 @@ void main() {
   //
   // It is a moment on the reader, not a message in a queue: it says one thing,
   // it offers the undo it can honour, and it ends — on its own, on a tap, on a
-  // chapter change, or on leaving the app. Nothing about it is persisted, so
+  // entry change, or on leaving the app. Nothing about it is persisted, so
   // there is nothing for a later screen or a later launch to restore.
 
   testWidgets('says what happened, offers Undo, and never quotes bytes', (
@@ -665,15 +694,18 @@ void main() {
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'completed');
-      await seedChapter(3, readStatus: 'unread');
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'completed');
+      await seedEntry(3, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
     });
     await openReader(tester, 'c1');
 
-    await tester.tap(find.byTooltip('Next saved chapter'));
+    await tester.tap(find.byTooltip('Next saved entry'));
     await pumpUntil(
       tester,
       () async => noticeText.evaluate().isNotEmpty,
@@ -682,14 +714,14 @@ void main() {
 
     await pumpUntil(
       tester,
-      () async => find.byTooltip('Next saved chapter').evaluate().isNotEmpty,
-      reason: 'the next chapter never finished loading',
+      () async => find.byTooltip('Next saved entry').evaluate().isNotEmpty,
+      reason: 'the next entry never finished loading',
     );
-    await tester.tap(find.byTooltip('Next saved chapter'));
+    await tester.tap(find.byTooltip('Next saved entry'));
     await pumpUntil(
       tester,
-      () async => (await db.chapterById('c2'))?.contentPath == null,
-      reason: 'the second chapter was never removed',
+      () async => (await db.entryById('c2'))?.contentPath == null,
+      reason: 'the second entry was never removed',
     );
 
     expect(
@@ -700,18 +732,21 @@ void main() {
     await settleDown(tester);
   });
 
-  testWidgets('a chapter change with nothing removed clears the notice', (
+  testWidgets('an entry change with nothing removed clears the notice', (
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
-      await seedChapter(3, readStatus: 'unread');
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
+      await seedEntry(3, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
     });
     await openReader(tester, 'c1');
-    await tester.tap(find.byTooltip('Next saved chapter'));
+    await tester.tap(find.byTooltip('Next saved entry'));
     await pumpUntil(
       tester,
       () async => noticeText.evaluate().isNotEmpty,
@@ -722,10 +757,10 @@ void main() {
     // about c1 has no business surviving onto c3.
     await pumpUntil(
       tester,
-      () async => find.byTooltip('Next saved chapter').evaluate().isNotEmpty,
-      reason: 'the next chapter never finished loading',
+      () async => find.byTooltip('Next saved entry').evaluate().isNotEmpty,
+      reason: 'the next entry never finished loading',
     );
-    await tester.tap(find.byTooltip('Next saved chapter'));
+    await tester.tap(find.byTooltip('Next saved entry'));
     await tester.pump();
     expect(noticeText, findsNothing);
     await settleDown(tester);
@@ -733,15 +768,18 @@ void main() {
 
   testWidgets('Undo puts the files back and says so', (tester) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
-      await seedChapter(2, readStatus: 'unread');
-      await db.setSeriesFinishedCleanup('s1', SeriesCleanupPref.remove.name);
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
     });
     // Undo() cancels the finalize timer, so a real window leaves nothing
     // pending at teardown.
     await openReader(tester, 'c1', undoWindow: const Duration(seconds: 10));
-    await tester.tap(find.byTooltip('Next saved chapter'));
+    await tester.tap(find.byTooltip('Next saved entry'));
     await pumpUntil(
       tester,
       () async => noticeText.evaluate().isNotEmpty,
@@ -751,25 +789,69 @@ void main() {
     await tester.tap(find.text('Undo'));
     await pumpUntil(
       tester,
-      () async => find.text('Chapter restored').evaluate().isNotEmpty,
+      () async => restoredText.evaluate().isNotEmpty,
       reason: 'the restore confirmation never appeared',
     );
 
-    final restored = (await db.chapterById('c1'))!;
+    final restored = (await db.entryById('c1'))!;
     expect(restored.contentPath, isNotNull);
     expect(restored.byteSize, 1500);
-    expect(store.chapterExists(restored.contentPath!), isTrue);
+    expect(store.entryExists(restored.contentPath!), isTrue);
     expect(noticeText, findsNothing, reason: 'replaced, not stacked');
     expect(find.text('Undo'), findsNothing);
     await settleDown(tester);
   });
 
-  testWidgets('a removed chapter reads as not-downloaded, not an error', (
+  testWidgets('Undo is still live in the notice\'s last moments', (
     tester,
   ) async {
     await tester.runAsync(() async {
-      await seedSeries();
-      await seedChapter(1, readStatus: 'completed');
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
+    });
+    await openReader(tester, 'c1', undoWindow: const Duration(seconds: 10));
+    await tester.tap(find.byTooltip('Next saved entry'));
+    await pumpUntil(
+      tester,
+      () async => noticeText.evaluate().isNotEmpty,
+      reason: 'the removal notice never appeared',
+    );
+
+    // A frame short of the timeout — the notice is fading out but has not
+    // dismissed, so what it still offers must still work. A shorter notice than
+    // the undo window is fine; a notice that outlives what it can honour is not.
+    await tester.pump(kReaderNoticeDuration - const Duration(milliseconds: 16));
+    expect(find.text('Undo'), findsOneWidget);
+
+    await tester.tap(find.text('Undo'));
+    await pumpUntil(
+      tester,
+      () async => restoredText.evaluate().isNotEmpty,
+      reason: 'a notice fading out still took the Undo, but never confirmed it',
+    );
+    expect((await db.entryById('c1'))!.contentPath, isNotNull);
+    await settleDown(tester);
+  });
+
+  test('the notice never outlasts the undo it offers', () {
+    expect(
+      kReaderNoticeDuration,
+      lessThanOrEqualTo(CleanupService(db: db, fileStore: store).undoWindow),
+      reason: 'past that window Undo is a dead button',
+    );
+  });
+
+  testWidgets('a removed entry reads as not-downloaded, not an error', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
       final cleanup = CleanupService(db: db, fileStore: store);
       await cleanup.removeOffline(['c1']);
     });
@@ -777,11 +859,11 @@ void main() {
 
     expect(find.text('Not available offline'), findsOneWidget);
     expect(
-      find.textContaining('files for this chapter are gone'),
+      find.textContaining('files for this entry are gone'),
       findsNothing,
       reason: 'the user did this on purpose; do not alarm them',
     );
-    expect(find.textContaining('capture it again'), findsOneWidget);
+    expect(find.textContaining('save it again'), findsOneWidget);
     await settleDown(tester);
   });
 }

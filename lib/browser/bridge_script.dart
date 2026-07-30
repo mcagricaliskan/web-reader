@@ -1,4 +1,4 @@
-/// The injected JavaScript half of the capture engine.
+/// The injected JavaScript half of the save engine.
 ///
 /// Design note (deliberate simplification for the PoC): rather than relying on
 /// a persistent document-start injection surviving every navigation, every
@@ -77,7 +77,7 @@ window.__wr = window.__wr || (function () {
     while (p && depth < 10) {
       if (p.tagName === 'NAV') { inNav = true; break; }
       var cls = (typeof p.className === 'string' ? p.className : '').toLowerCase();
-      if (/(^|[-_ ])(nav|pager|pagination|chapter-?nav)([-_ ]|$)/.test(cls)) {
+      if (/(^|[-_ ])(nav|pager|pagination|entry-?nav)([-_ ]|$)/.test(cls)) {
         inNav = true; break;
       }
       p = p.parentElement; depth++;
@@ -148,10 +148,10 @@ window.__wr = window.__wr || (function () {
     } catch (e) { return null; }
   }
 
-  // Signals about which *series* this chapter belongs to. The most useful is
-  // a same-host link pointing "up" from the chapter to its series index: its
-  // path is the series and its text is the series name as the site writes it.
-  function seriesHints() {
+  // Signals about which *collection* this entry belongs to. The most useful is
+  // a same-host link pointing "up" from the entry to its collection index: its
+  // path is the collection and its text is the collection name as the site writes it.
+  function pageHints() {
     var here = location.pathname.replace(/\/+$/, '') || '/';
     var seen = {};
     var prefixLinks = [];
@@ -173,7 +173,7 @@ window.__wr = window.__wr || (function () {
         text: (a.textContent || '').trim().slice(0, 120)
       });
     }
-    // Deepest first: the series index sits closer to the chapter than the
+    // Deepest first: the collection index sits closer to the entry than the
     // section or site root does.
     prefixLinks.sort(function (x, y) { return y.path.length - x.path.length; });
 
@@ -207,8 +207,153 @@ window.__wr = window.__wr || (function () {
     return l ? abs(l.getAttribute('href')) : null;
   }
 
+
+  // --- content and access signals ------------------------------------------
+  // Everything below is generic and structural. There is no hostname test and
+  // no site-specific selector anywhere in this file: the signals are standard
+  // HTML semantics (rel, <article>, <time>, aria roles, form input types) plus
+  // measurements a browser can always make. That is what lets the same code
+  // read a blog, a documentation page and an image gallery.
+
+  function visibleText(root) {
+    var el = root || document.body;
+    if (!el) return '';
+    var clone = el.cloneNode(true);
+    var drop = clone.querySelectorAll('script,style,noscript,template,nav,header,footer,aside');
+    for (var i = 0; i < drop.length; i++) {
+      if (drop[i].parentNode) drop[i].parentNode.removeChild(drop[i]);
+    }
+    return (clone.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  /// Structural description of the document. No subject matter, no genre.
+  function contentSignals() {
+    var text = visibleText(document.querySelector('article, main, [role=main]') || document.body);
+    var paragraphs = document.querySelectorAll('article p, main p, [role=main] p, p');
+    var pixels = 0, imageCount = 0;
+    var imgs = document.images || [];
+    for (var i = 0; i < imgs.length; i++) {
+      var im = imgs[i];
+      var w = im.naturalWidth || im.width || 0;
+      var h = im.naturalHeight || im.height || 0;
+      if (w < 200 || h < 200) continue;         // icons and chrome
+      if (inChrome(im)) continue;
+      pixels += w * h;
+      imageCount++;
+    }
+
+    // Publication date: <time datetime>, then the standard metadata names.
+    var published = null;
+    var t = document.querySelector('article time[datetime], time[datetime][pubdate], time[datetime]');
+    if (t) published = t.getAttribute('datetime');
+    if (!published) {
+      var metaNames = ['article:published_time', 'datePublished', 'publish-date', 'date'];
+      for (var mi = 0; mi < metaNames.length; mi++) {
+        var mt = document.querySelector('meta[property="' + metaNames[mi] + '"], meta[name="' + metaNames[mi] + '"]');
+        if (mt && mt.content) { published = mt.content; break; }
+      }
+    }
+    if (!published) {
+      // JSON-LD is the other standard place a date lives.
+      var lds = document.querySelectorAll('script[type="application/ld+json"]');
+      for (var li = 0; li < lds.length && !published; li++) {
+        try {
+          var parsed = JSON.parse(lds[li].textContent || '{}');
+          var nodes = Array.isArray(parsed) ? parsed : [parsed];
+          for (var ni = 0; ni < nodes.length; ni++) {
+            if (nodes[ni] && nodes[ni].datePublished) { published = nodes[ni].datePublished; break; }
+          }
+        } catch (e) { /* a malformed block is not an error here */ }
+      }
+    }
+
+    // Real pagination: a control set that states a range.
+    var pager = document.querySelector('nav[aria-label*="pag" i], [role=navigation][aria-label*="pag" i], .pagination, [class*="pagination" i]');
+    var pageNumbers = [];
+    if (pager) {
+      var pageLinks = pager.querySelectorAll('a,button,span');
+      for (var pi = 0; pi < pageLinks.length; pi++) {
+        var n = parseInt((pageLinks[pi].textContent || '').trim(), 10);
+        if (!isNaN(n) && n > 0 && n < 100000) pageNumbers.push(n);
+      }
+    }
+
+    // Dated list: several sibling items that each carry a date.
+    var datedItems = document.querySelectorAll('article time[datetime], li time[datetime], .post time[datetime]');
+    var dates = [];
+    for (var di = 0; di < datedItems.length && di < 60; di++) {
+      var dv = datedItems[di].getAttribute('datetime');
+      if (dv) dates.push(dv);
+    }
+
+    return {
+      textLength: text.length,
+      paragraphCount: paragraphs.length,
+      contentImageCount: imageCount,
+      contentImagePixels: pixels,
+      hasArticleElement: !!document.querySelector('article'),
+      hasMainElement: !!document.querySelector('main, [role=main]'),
+      publishedAt: published,
+      hasRelPrev: !!document.querySelector('link[rel=prev], a[rel=prev]'),
+      pagerNumbers: pageNumbers,
+      listedDates: dates,
+      headingText: (document.querySelector('h1') || {}).textContent || ''
+    };
+  }
+
+  /// Media the store-ready app deliberately does not save.
+  ///
+  /// Reported, not fetched: the offline copy holds a placeholder and a link to
+  /// the original page. Nothing here reads a media URL.
+  function mediaSignals() {
+    var videos = document.querySelectorAll('video, iframe[src*="youtube" i], iframe[src*="vimeo" i], iframe[allow*="fullscreen" i]');
+    var audios = document.querySelectorAll('audio');
+    return { videoCount: videos.length, audioCount: audios.length };
+  }
+
+  /// Signals that further automatic navigation must stop.
+  ///
+  /// Detection only. Nothing here attempts, works around, or retries past any
+  /// of these — the run stops and tells the user which one it hit.
+  function accessSignals() {
+    var text = (visibleText(document.body) || '').toLowerCase();
+    var head = text.slice(0, 4000);
+
+    var passwordFields = document.querySelectorAll('input[type=password]');
+    var loginForm = document.querySelector('form[action*="login" i], form[action*="signin" i], form[id*="login" i]');
+
+    // CAPTCHA / bot-check widgets advertise themselves with standard attributes.
+    var captcha = document.querySelector(
+      'iframe[src*="recaptcha" i], iframe[title*="captcha" i], iframe[src*="hcaptcha" i], iframe[src*="turnstile" i], [class*="g-recaptcha" i], [data-sitekey]'
+    );
+
+    // A paywall marks itself in schema.org metadata when it is honest about it.
+    var paywallMeta = document.querySelector('[isaccessibleforfree="False" i], [data-paywall], meta[name="article:content_tier"][content="locked"]');
+
+    function mentions(list) {
+      for (var i = 0; i < list.length; i++) {
+        if (head.indexOf(list[i]) >= 0) return list[i];
+      }
+      return null;
+    }
+
+    return {
+      hasPasswordField: passwordFields.length > 0,
+      hasLoginForm: !!loginForm,
+      hasCaptchaWidget: !!captcha,
+      hasPaywallMarker: !!paywallMeta,
+      // Phrase hints are the weakest signal and are used only to *corroborate*
+      // a structural one, never on their own — see save/stop_conditions.dart.
+      deniedPhrase: mentions(['access denied', 'forbidden', '403 forbidden', 'not authorized', 'unauthorized']),
+      ratePhrase: mentions(['too many requests', 'rate limit', 'rate-limited', 'slow down', '429']),
+      paywallPhrase: mentions(['subscribe to continue', 'subscribers only', 'this article is for subscribers', 'become a member to read']),
+      authPhrase: mentions(['sign in to continue', 'log in to continue', 'please sign in', 'please log in', 'members only']),
+      isEmptyDocument: text.length < 40
+    };
+  }
+
   return {
-    version: 1,
+    version: 2,
 
     probe: function (opts) {
       opts = opts || {};
@@ -230,10 +375,15 @@ window.__wr = window.__wr || (function () {
         imagesTruncated: allImgs.length > IMG_CAP,
         images: imgs.map(imgInfo)
       };
+      if (opts.withSignals !== false) {
+        out.content = contentSignals();
+        out.media = mediaSignals();
+        out.access = accessSignals();
+      }
       if (opts.withLinks) {
         var as = Array.prototype.slice.call(document.querySelectorAll('a[href]'));
         out.links = as.slice(0, 500).map(linkInfo);
-        out.seriesHints = seriesHints();
+        out.pageHints = pageHints();
       }
       return out;
     },
@@ -262,7 +412,7 @@ window.__wr = window.__wr || (function () {
 
     // --- user-assisted selection -----------------------------------------
     // The user points at the real control when automatic detection is not
-    // confident. Clicks are swallowed in capture phase so the page cannot
+    // confident. Clicks are swallowed in save phase so the page cannot
     // navigate out from under the picker.
 
     startSelection: function (mode) {
@@ -564,7 +714,7 @@ const String kCallApplyReaderRule = 'return window.__wr.applyReaderRule(rule);';
 /// The page's own declared icon, absolutised against the document.
 ///
 /// Standalone rather than part of `__wr`: it is read once per completed load
-/// for decoration, has nothing to do with capture, and must keep working on
+/// for decoration, has nothing to do with save, and must keep working on
 /// pages where the preamble was blocked by CSP.
 const String kCallPageIcon = r'''
 var sel = ['link[rel~="icon"]', 'link[rel="shortcut icon"]',

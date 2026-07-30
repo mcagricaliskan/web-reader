@@ -392,7 +392,7 @@ class _SavedSiteTile extends StatelessWidget {
               key: ValueKey('savedSite-${site.id}'),
               onTap: reordering ? null : onOpen,
               // Long press explains and edits — the same grammar as the
-              // episode list (D44).
+              // entry list (D44).
               onLongPress: reordering ? null : onEdit,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(10, 12, 10, 11),

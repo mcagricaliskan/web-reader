@@ -4,7 +4,7 @@
 /// The steps themselves are the ones `main()` has always run — recovery,
 /// backfills, repairs, history pruning, queue restore. What is new is that they
 /// are *named and observable*: a boot that takes two seconds because a thousand
-/// chapters are being reconciled now says so, instead of showing a blank window.
+/// entries are being reconciled now says so, instead of showing a blank window.
 ///
 /// Only the first step is [StartupStep.critical]: without a database and a file
 /// store there is no app. Everything after it is maintenance — it logs, records

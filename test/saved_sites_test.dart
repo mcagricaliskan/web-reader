@@ -18,60 +18,28 @@ void main() {
 
   tearDown(() => db.close());
 
-  group('the default Google entry', () {
-    test('is seeded on a clean install', () async {
-      await repo.seedDefaultIfNeeded();
-      final sites = await repo.all();
-      expect(sites, hasLength(1));
-      expect(sites.single.title, 'Google');
-      expect(sites.single.url, kDefaultSavedSiteUrl);
-      expect(sites.single.isDefault, isTrue);
-    });
-
-    test('is seeded exactly once, however often boot runs', () async {
-      await repo.seedDefaultIfNeeded();
-      await repo.seedDefaultIfNeeded();
-      await repo.seedDefaultIfNeeded();
-      expect(await repo.all(), hasLength(1));
-    });
-
-    test('is not added when an equivalent entry already exists', () async {
-      // A development database that saved Google by hand before the seed
-      // existed must not end up with two.
-      await repo.save(url: 'https://www.google.com/', title: 'My Google');
-      await repo.seedDefaultIfNeeded();
-      final sites = await repo.all();
-      expect(sites, hasLength(1));
-      expect(sites.single.title, 'My Google');
-    });
-
-    test('stays removed once the user removes it', () async {
-      await repo.seedDefaultIfNeeded();
-      final google = (await repo.all()).single;
-      await repo.remove(google.id);
-      expect(await repo.all(), isEmpty);
-
-      // Boot again — this is the case that must not resurrect it.
-      await repo.seedDefaultIfNeeded();
+  group('nothing is seeded', () {
+    test('a clean install has an empty saved-sites list', () async {
+      // The app ships no starting point. A pre-seeded site is a recommendation
+      // it is not entitled to make, and a "supported starting point" is how a
+      // neutral reading tool acquires a provider catalogue by accident.
       expect(await repo.all(), isEmpty);
     });
 
-    test('can be renamed, re-pointed and reordered like any other', () async {
-      await repo.seedDefaultIfNeeded();
-      final google = (await repo.all()).single;
+    test('the list only ever holds what the user put in it', () async {
+      await repo.save(url: 'https://example.test/', title: 'Example');
+      final sites = await repo.all();
+      expect(sites, hasLength(1));
+      expect(sites.single.title, 'Example');
+    });
 
-      await repo.rename(google.id, 'Search');
-      expect(savedSiteDisplayTitle((await repo.all()).single), 'Search');
-
-      await repo.save(
-        url: 'https://duckduckgo.com/',
-        title: 'Search',
-        editingId: google.id,
+    test('a removed site stays removed', () async {
+      final saved = await repo.save(
+        url: 'https://example.test/',
+        title: 'Example',
       );
-      final moved = (await repo.all()).single;
-      expect(moved.url, 'https://duckduckgo.com/');
-      expect(moved.host, 'duckduckgo.com');
-      expect(moved.id, google.id, reason: 'same row, edited');
+      await repo.remove(saved.site.id);
+      expect(await repo.all(), isEmpty);
     });
   });
 
@@ -213,16 +181,20 @@ void main() {
   });
 
   group('persistence', () {
-    test('saved sites survive a repository rebuild', () async {
-      await repo.seedDefaultIfNeeded();
+    test('saved sites and their order survive a repository rebuild', () async {
       await repo.save(url: 'https://a.example/', title: 'A');
+      await repo.save(url: 'https://b.example/', title: 'B');
+      // Hand order is the point of this list, so the reordering has to survive
+      // too — not just the rows.
       await repo.move((await repo.all()).last.id, up: true);
+      expect((await repo.all()).map((s) => s.title), ['B', 'A']);
 
       // Same database, new repository — what a restart looks like to this
       // layer.
       final reborn = SavedSitesRepository(db);
-      expect((await reborn.all()).map((s) => s.title), ['A', 'Google']);
+      expect((await reborn.all()).map((s) => s.title), ['B', 'A']);
       expect(await reborn.isSaved('https://a.example/'), isTrue);
+      expect(await reborn.isSaved('https://b.example/'), isTrue);
     });
 
     test('lookup is by normalised URL, not raw text', () async {

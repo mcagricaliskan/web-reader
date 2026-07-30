@@ -1,12 +1,12 @@
-/// Where the reader is inside a chapter, and how that survives the chapter
+/// Where the reader is inside an entry, and how that survives the entry
 /// changing underneath it.
 ///
 /// Pure Dart: the restore maths is the part most likely to be subtly wrong,
 /// so it is tested directly rather than only through a running reader.
 library;
 
-/// Whether the reader has finished a chapter. Separate from capture state —
-/// a chapter can be re-downloaded and stay completed.
+/// Whether the reader has finished an entry. Separate from save state —
+/// an entry can be re-downloaded and stay completed.
 enum ReadStatus { unread, inProgress, completed }
 
 ReadStatus readStatusFromName(String? name) => ReadStatus.values.firstWhere(
@@ -14,15 +14,15 @@ ReadStatus readStatusFromName(String? name) => ReadStatus.values.firstWhere(
   orElse: () => ReadStatus.unread,
 );
 
-/// The one rule for what "how far through" means: **a completed chapter is
+/// The one rule for what "how far through" means: **a completed entry is
 /// 100%, always.**
 ///
-/// Reading a finished chapter again scrolls its stored fraction back down —
+/// Reading a finished entry again scrolls its stored fraction back down —
 /// the scroll position is genuinely where the reader is — but "finished" is a
-/// statement about the chapter, not about the current scroll. Without this,
-/// re-opening a finished chapter and scrolling up makes it report 40% read.
+/// statement about the entry, not about the current scroll. Without this,
+/// re-opening a finished entry and scrolling up makes it report 40% read.
 ///
-/// Applied on both sides: writes store 1.0 for a completed chapter, and every
+/// Applied on both sides: writes store 1.0 for a completed entry, and every
 /// display goes through here so rows written before this rule existed read
 /// correctly too.
 double readProgressFor({required String? readStatus, required double stored}) =>
@@ -33,7 +33,7 @@ double readProgressFor({required String? readStatus, required double stored}) =>
 /// A hybrid position: an anchor for precision, a fraction for durability.
 ///
 /// The anchor (`imageIndex` + `offsetInImage`) restores the exact spot but goes
-/// stale when a chapter is re-downloaded with a different panel count. The
+/// stale when an entry is re-downloaded with a different panel count. The
 /// fraction is approximate but content-independent, so it always means
 /// something. Both are stored; restore prefers the anchor and falls back.
 class ReadingPosition {
@@ -43,7 +43,7 @@ class ReadingPosition {
     this.offsetInImage = 0,
   });
 
-  /// 0..1 through the whole chapter. Drives the progress bar and completion.
+  /// 0..1 through the whole entry. Drives the progress bar and completion.
   final double fraction;
 
   /// Zero-based index of the panel at the top of the viewport.
@@ -59,18 +59,18 @@ class ReadingPosition {
   @override
   String toString() =>
       'panel $imageIndex +${(offsetInImage * 100).round()}% '
-      '(${(fraction * 100).round()}% of chapter)';
+      '(${(fraction * 100).round()}% of entry)';
 }
 
-/// Geometry of a chapter laid out at a given width.
+/// Geometry of an entry laid out at a given width.
 ///
 /// Panel heights come from the manifest's stored dimensions, so the list's
 /// geometry is known before a single image decodes. That is what lets the
 /// reader open *at* the saved position instead of jumping there after layout.
-class ChapterLayout {
-  ChapterLayout._(this.viewportWidth, this.heights, this._offsets, this.total);
+class EntryLayout {
+  EntryLayout._(this.viewportWidth, this.heights, this._offsets, this.total);
 
-  factory ChapterLayout({
+  factory EntryLayout({
     required double viewportWidth,
     required List<({int? width, int? height})> panels,
     double fallbackAspectRatio = kFallbackAspectRatio,
@@ -89,11 +89,11 @@ class ChapterLayout {
       heights.add(height);
       running += height;
     }
-    return ChapterLayout._(viewportWidth, heights, offsets, running);
+    return EntryLayout._(viewportWidth, heights, offsets, running);
   }
 
   /// Height/width used when the manifest recorded no dimensions. Tall rather
-  /// than square: a webtoon panel is far more often long than wide, and
+  /// than square: a tall content page is far more often long than wide, and
   /// guessing short makes the restore land past the intended spot.
   static const double kFallbackAspectRatio = 1.5;
 
@@ -162,7 +162,7 @@ class ChapterLayout {
   }
 }
 
-/// Rules for when a chapter counts as finished.
+/// Rules for when an entry counts as finished.
 class CompletionPolicy {
   const CompletionPolicy({
     this.threshold = 0.97,
@@ -170,12 +170,12 @@ class CompletionPolicy {
   });
 
   /// How far through counts as the end. Not 1.0: a trailing comments section
-  /// or a last panel taller than the viewport would otherwise make a chapter
+  /// or a last panel taller than the viewport would otherwise make an entry
   /// impossible to finish.
   final double threshold;
 
   /// How long the reader must stay past the threshold. Stops a fast fling to
-  /// the bottom from silently marking a chapter read.
+  /// the bottom from silently marking an entry read.
   final Duration dwell;
 
   bool reachedEnd(double fraction) => fraction >= threshold;

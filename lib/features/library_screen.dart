@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../capture/capture_state.dart';
+import '../save/save_state.dart';
 import '../library/library_sort.dart';
-import '../library/series_repository.dart';
+import '../library/content_shape.dart';
+import '../library/entry_labels.dart';
+import '../library/collection_repository.dart';
 import '../app.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
@@ -12,23 +14,23 @@ import '../reading/reading_position.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
-import 'capture_queue_ui.dart';
-import 'continue_entry.dart';
-import 'series_detail_screen.dart' show sortChaptersForReading;
+import 'save_queue_ui.dart';
+import 'resume_point.dart';
+import 'collection_detail_screen.dart' show sortEntriesForReading;
 import 'storage_screen.dart' show StoragePill;
 import '../storage/database.dart';
 
-/// The library, grouped by series.
+/// The library, grouped by collection.
 ///
-/// One row per series, not one row per chapter: chapters of the same series
-/// belong together, and two series on the same host stay apart.
+/// One row per collection, not one row per entry: entries of the same collection
+/// belong together, and two collection on the same host stay apart.
 class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final groups = ref.watch(seriesGroupsProvider);
-    final resumable = ref.watch(resumableJobProvider);
+    final groups = ref.watch(libraryCollectionsProvider);
+    final resumable = ref.watch(resumableRunProvider);
 
     return Scaffold(
       body: SafeArea(
@@ -43,20 +45,23 @@ class LibraryScreen extends ConsumerWidget {
                 data: (list) {
                   final continueEntries =
                       ref.watch(continueReadingProvider).value ?? const [];
-                  final resumeJob = resumable.value;
+                  final resumeRun = resumable.value;
 
                   return ListView(
                     padding: const EdgeInsets.only(bottom: 24),
                     children: [
                       const _ActivityStrip(),
-                      if (resumeJob != null) _ResumeCard(job: resumeJob),
+                      if (resumeRun != null) _ResumeCard(run: resumeRun),
                       const SectionLabel(
                         'CONTINUE READING',
                         padding: EdgeInsets.fromLTRB(20, 14, 20, 8),
                       ),
-                      _ContinueRow(entries: continueEntries, allSeries: list),
+                      _ContinueRow(
+                        entries: continueEntries,
+                        allCollection: list,
+                      ),
                       SectionLabel(
-                        'ALL SERIES · ${list.length}',
+                        'YOUR LIBRARY · ${list.length}',
                         trailing: const _SortControl(),
                       ),
                       if (list.isEmpty)
@@ -64,7 +69,7 @@ class LibraryScreen extends ConsumerWidget {
                       else ...[
                         const Divider(),
                         for (final group in list) ...[
-                          _SeriesRow(group: group),
+                          _CollectionRow(group: group),
                           const Divider(),
                         ],
                       ],
@@ -106,7 +111,7 @@ class _LibraryHeader extends ConsumerWidget {
         ),
         HeaderIconButton(
           icon: Icons.sync,
-          tooltip: 'Check all series',
+          tooltip: 'Check all collection',
           onPressed: () => _checkAll(context, ref),
         ),
         const StoragePill(),
@@ -131,8 +136,8 @@ class _LibraryHeader extends ConsumerWidget {
       SnackBar(
         content: Text(
           ids.isEmpty
-              ? 'Nothing to check yet — capture a series first.'
-              : 'Checking ${ids.length} series, one at a time — metadata '
+              ? 'Nothing to check yet — save a collection first.'
+              : 'Checking ${ids.length} collection, one at a time — metadata '
                     'only. Progress is in Activity.',
         ),
       ),
@@ -142,13 +147,13 @@ class _LibraryHeader extends ConsumerWidget {
 
 /// A live band above the library when the queue has anything to say. It is a
 /// summary, not a control surface — the controls live on the activity screen.
-/// "Capture queue · 6 waiting" — quiet, and honest that nothing is running.
+/// "Save queue · 6 waiting" — quiet, and honest that nothing is running.
 ///
 /// Deliberately not the busy blue of an active run: this is a plan, not
 /// progress, and dressing it up as progress is how a user ends up believing
 /// downloads are happening when they are not.
-class _CaptureQueueStrip extends ConsumerWidget {
-  const _CaptureQueueStrip({required this.count});
+class _SaveQueueStrip extends ConsumerWidget {
+  const _SaveQueueStrip({required this.count});
 
   final int count;
 
@@ -162,7 +167,7 @@ class _CaptureQueueStrip extends ConsumerWidget {
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          key: const ValueKey('captureQueueStrip'),
+          key: const ValueKey('saveQueueStrip'),
           onTap: () => LeaveBrowserGuard.push(context, '/activity'),
           child: Container(
             decoration: BoxDecoration(
@@ -183,7 +188,7 @@ class _CaptureQueueStrip extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Capture queue · $count waiting',
+                        'Save queue · $count waiting',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -206,8 +211,8 @@ class _CaptureQueueStrip extends ConsumerWidget {
                 ),
                 const SizedBox(width: 8),
                 FilledButton(
-                  key: const ValueKey('startCaptureButton'),
-                  onPressed: () => confirmAndStartCaptures(context, ref),
+                  key: const ValueKey('startSaveButton'),
+                  onPressed: () => confirmAndStartSaves(context, ref),
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,
@@ -241,26 +246,26 @@ class _ActivityStrip extends ConsumerWidget {
     final failed = tasks
         .where((t) => t.state == QueueTaskState.failed.name)
         .length;
-    final controller = ref.watch(captureJobProvider);
+    final controller = ref.watch(saveRunProvider);
     final active = running.firstOrNull;
 
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
-        // Visible when the queue has anything to say — or when a capture
+        // Visible when the queue has anything to say — or when a save
         // (queued or direct) is holding for the Browser: that banner must
         // reach the user wherever they are.
         final waiting =
-            controller.progress.state == CaptureState.waitingForBrowser;
+            controller.progress.state == SaveState.waitingForBrowser;
         if (running.isEmpty && queued == 0 && failed == 0 && !waiting) {
           return const SizedBox.shrink();
         }
-        // Queued captures that have not been started are their own state:
+        // Queued saves that have not been started are their own state:
         // nothing is happening, and the only thing that matters is the
         // button that would make it happen (D46).
         final summary = QueueSummary.of(tasks);
-        if (running.isEmpty && !waiting && summary.hasQueuedCaptures) {
-          return _CaptureQueueStrip(count: summary.queuedCaptures);
+        if (running.isEmpty && !waiting && summary.hasQueuedSaves) {
+          return _SaveQueueStrip(count: summary.queuedSaves);
         }
         return _stripBody(context, controller.progress, active, queued, failed);
       },
@@ -269,21 +274,21 @@ class _ActivityStrip extends ConsumerWidget {
 
   Widget _stripBody(
     BuildContext context,
-    CaptureProgress job,
+    SaveProgress run,
     QueueTask? active,
     int queued,
     int failed,
   ) {
-    final phase = active == null ? 'QUEUED' : job.state.name.toUpperCase();
-    final pct = job.detectedImages > 0
-        ? (job.storedImages / job.detectedImages).clamp(0.0, 1.0)
+    final phase = active == null ? 'QUEUED' : run.state.name.toUpperCase();
+    final pct = run.detectedImages > 0
+        ? (run.storedImages / run.detectedImages).clamp(0.0, 1.0)
         : 0.0;
 
-    // A capture holding on a hidden WebView needs the user, not a percent:
+    // A save holding on a hidden WebView needs the user, not a percent:
     // the strip becomes the banner, and its action opens the Browser.
     final palette = AppPalette.of(context);
 
-    if (job.state == CaptureState.waitingForBrowser) {
+    if (run.state == SaveState.waitingForBrowser) {
       return Consumer(
         builder: (context, ref, _) => Container(
           margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -299,7 +304,7 @@ class _ActivityStrip extends ConsumerWidget {
               const SizedBox(width: 11),
               Expanded(
                 child: Text(
-                  'Capture is waiting — open the Browser to continue.',
+                  'Save is waiting — open the Browser to continue.',
                   style: TextStyle(
                     fontSize: 13,
                     height: 1.4,
@@ -352,9 +357,9 @@ class _ActivityStrip extends ConsumerWidget {
                           Text(
                             active == null
                                 ? '$queued waiting'
-                                : (job.chapterTitle.isEmpty
+                                : (run.entryTitle.isEmpty
                                       ? 'Working'
-                                      : job.chapterTitle),
+                                      : run.entryTitle),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -451,35 +456,35 @@ class _SortControl extends ConsumerWidget {
 }
 
 /// Horizontally scrolling continue cards. Empty states say *why* they are
-/// empty — "nothing captured", "nothing opened yet" and "you finished
+/// empty — "nothing saved", "nothing opened yet" and "you finished
 /// everything" are three different situations and only one is a problem.
 class _ContinueRow extends StatelessWidget {
-  const _ContinueRow({required this.entries, required this.allSeries});
+  const _ContinueRow({required this.entries, required this.allCollection});
 
-  final List<ContinueEntry> entries;
-  final List<SeriesGroup> allSeries;
+  final List<ResumePoint> entries;
+  final List<LibraryCollection> allCollection;
 
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     if (entries.isEmpty) {
-      final anyReadable = allSeries.any((g) => g.offlineCount > 0);
-      final anyOpened = allSeries.any((g) => g.item.lastReadAt != null);
+      final anyReadable = allCollection.any((g) => g.offlineCount > 0);
+      final anyOpened = allCollection.any((g) => g.lastReadAt != null);
       final (title, body) = !anyReadable
           ? (
               'Nothing readable yet',
-              'Captures that failed or lost their files cannot be read. '
-                  'Capture a chapter to start.',
+              'Saves that failed or lost their files cannot be read. '
+                  'Save an entry to start.',
             )
           : anyOpened
           ? (
               "You're up to date",
-              'You have finished every chapter you have saved. Capture more '
+              'You have finished every entry you have saved. Save more '
                   'to keep going.',
             )
           : (
               'Nothing opened yet',
-              'Chapters you start show up here with your exact position.',
+              'Entries you start show up here with your exact position.',
             );
 
       return Container(
@@ -517,7 +522,10 @@ class _ContinueRow extends StatelessWidget {
     }
 
     return SizedBox(
-      height: 134,
+      // Two blocks tall — identity row, then the progress line — with the
+      // same slack over the content the taller card had, so a scaled-up
+      // text size still fits.
+      height: 111,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
@@ -529,11 +537,11 @@ class _ContinueRow extends StatelessWidget {
   }
 }
 
-/// One Continue card: which chapter, how far in, and how that reads as panels.
+/// One Continue card: which entry, how far in, and how that reads as panels.
 class _ContinueCard extends StatelessWidget {
   const _ContinueCard({required this.entry});
 
-  final ContinueEntry entry;
+  final ResumePoint entry;
 
   @override
   Widget build(BuildContext context) {
@@ -541,8 +549,8 @@ class _ContinueCard extends StatelessWidget {
     final pct = (entry.progress * 100).clamp(0, 100).round();
 
     return SizedBox(
-      key: ValueKey('continueCard-${entry.chapter.id}'),
-      // Wide enough that the progress line ("68% • 12 chapters remaining")
+      key: ValueKey('continueCard-${entry.entry.id}'),
+      // Wide enough that the progress line ("68% • 12 entries remaining")
       // renders at full size; the FittedBox below covers what is left.
       width: 240,
       child: Material(
@@ -550,7 +558,7 @@ class _ContinueCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => context.push('/reader/${entry.chapter.id}'),
+          onTap: () => context.push('/reader/${entry.entry.id}'),
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
@@ -563,7 +571,7 @@ class _ContinueCard extends StatelessWidget {
                 Row(
                   children: [
                     MonogramTile(
-                      id: entry.chapter.libraryItemId,
+                      id: entry.group.id,
                       title: entry.displayName,
                       size: 34,
                       radius: 10,
@@ -588,7 +596,7 @@ class _ContinueCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            entry.chapterLabel,
+                            entry.sourceMarker,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: monoStyle(color: palette.inkMuted),
@@ -601,16 +609,16 @@ class _ContinueCard extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    // The same component the episode list uses, so a card and
+                    // The same component the entry list uses, so a card and
                     // a row cannot draw the same fraction two ways.
-                    ChapterProgressRing(
-                      key: ValueKey('continueRing-${entry.chapter.id}'),
+                    EntryProgressRing(
+                      key: ValueKey('continueRing-${entry.entry.id}'),
                       fraction: entry.progress,
                       completed: entry.isCompleted,
                     ),
                     const SizedBox(width: 8),
                     // One line, and it stays one line: an ellipsised
-                    // "12 chapters remain…" is worse than a line a few
+                    // "12 entries remain…" is worse than a line a few
                     // percent smaller, so it scales down instead of
                     // truncating when the text is long or scaled up.
                     Expanded(
@@ -625,7 +633,7 @@ class _ContinueCard extends StatelessWidget {
                                 style: monoStyle(color: palette.primary),
                               ),
                               TextSpan(
-                                text: ' • ${entry.laterChaptersLabel}',
+                                text: ' • ${entry.laterEntriesLabel}',
                                 style: monoStyle(color: palette.inkMuted),
                               ),
                             ],
@@ -636,18 +644,6 @@ class _ContinueCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 9),
-                Text(
-                  entry.isPartialCapture
-                      ? 'partial capture'
-                      : (pct == 0 ? 'not started' : 'offline'),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: entry.isPartialCapture
-                        ? palette.warn
-                        : palette.inkMuted,
-                  ),
-                ),
               ],
             ),
           ),
@@ -657,12 +653,12 @@ class _ContinueCard extends StatelessWidget {
   }
 }
 
-/// One series row: monogram, name, update-check chip, host, counts, and — only
+/// One collection row: monogram, name, update-check chip, host, counts, and — only
 /// when there is one — a warning line.
-class _SeriesRow extends ConsumerWidget {
-  const _SeriesRow({required this.group});
+class _CollectionRow extends ConsumerWidget {
+  const _CollectionRow({required this.group});
 
-  final SeriesGroup group;
+  final LibraryCollection group;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -672,7 +668,7 @@ class _SeriesRow extends ConsumerWidget {
       builder: (context, _) => _row(
         context,
         ref,
-        checking: checker.isRunning && checker.activeItemId == group.item.id,
+        checking: checker.isRunning && checker.activeItemId == group.id,
       ),
     );
   }
@@ -690,16 +686,16 @@ class _SeriesRow extends ConsumerWidget {
     final warning = group.warningLine(palette);
 
     return Stack(
-      key: ValueKey('seriesRow-${group.item.id}'),
+      key: ValueKey('collectionRow-${group.id}'),
       children: [
         InkWell(
-          onTap: () => context.push('/series/${group.item.id}'),
+          onTap: () => context.push('/collection/${group.id}'),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 13, 48, 14),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                MonogramTile(id: group.item.id, title: group.displayName),
+                MonogramTile(id: group.id, title: group.displayName),
                 const SizedBox(width: 13),
                 Expanded(
                   child: Column(
@@ -734,7 +730,7 @@ class _SeriesRow extends ConsumerWidget {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        group.item.host,
+                        group.host,
                         style: monoStyle(color: palette.inkFaint),
                       ),
                       const SizedBox(height: 6),
@@ -766,9 +762,9 @@ class _SeriesRow extends ConsumerWidget {
                           const SizedBox(width: 10),
                           Flexible(
                             child: Text(
-                              group.item.lastReadAt == null
+                              group.lastReadAt == null
                                   ? 'never opened'
-                                  : formatRelative(group.item.lastReadAt),
+                                  : formatRelative(group.lastReadAt),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -812,10 +808,10 @@ class _SeriesRow extends ConsumerWidget {
           right: 4,
           child: Center(
             child: IconButton(
-              tooltip: 'Series actions',
+              tooltip: 'Collection actions',
               icon: const Icon(Icons.more_vert, size: 20),
               color: palette.inkFaint,
-              onPressed: () => showSeriesMenu(context, ref, group),
+              onPressed: () => showCollectionMenu(context, ref, group),
             ),
           ),
         ),
@@ -824,12 +820,12 @@ class _SeriesRow extends ConsumerWidget {
   }
 }
 
-/// The per-series overflow sheet. Check and rules are wired; rename lives on
-/// the series detail screen, and archive arrives with the lifecycle column.
-Future<void> showSeriesMenu(
+/// The per-collection overflow sheet. Check and rules are wired; rename lives on
+/// the collection detail screen, and archive arrives with the lifecycle column.
+Future<void> showCollectionMenu(
   BuildContext context,
   WidgetRef ref,
-  SeriesGroup group,
+  LibraryCollection group,
 ) {
   // Read once, before the sheet: the sheet outlives this build's `ref`.
   final queue = ref.read(taskQueueProvider);
@@ -855,10 +851,10 @@ Future<void> showSeriesMenu(
             subtitle: const Text('Metadata only'),
             onTap: () {
               Navigator.of(sheetContext).pop();
-              // The M8 per-series check, on the queue (M14): runs now if the
+              // The M8 per-collection check, on the queue (M14): runs now if the
               // browser is free, waits its turn otherwise. State lands on the
               // row chip either way.
-              queue.enqueueSeriesCheck(group.item.id);
+              queue.enqueueCollectionCheck(group.id);
             },
           ),
           ListTile(
@@ -867,13 +863,13 @@ Future<void> showSeriesMenu(
             subtitle: const Text('Hidden from library · reversible'),
             onTap: () {
               Navigator.of(sheetContext).pop();
-              confirmArchiveSeries(context, ref, group);
+              confirmArchiveCollection(context, ref, group);
             },
           ),
           ListTile(
             leading: const Icon(Icons.ads_click),
             title: const Text('Element rules'),
-            subtitle: Text(group.item.host),
+            subtitle: Text(group.host),
             onTap: () {
               Navigator.of(sheetContext).pop();
               context.push('/rules');
@@ -887,18 +883,16 @@ Future<void> showSeriesMenu(
 }
 
 /// The archive confirm dialog (M16, Q25). States exactly what happens: the
-/// series leaves the library and stops being checked; pending queue tasks are
+/// collection leaves the library and stops being checked; pending queue tasks are
 /// cancelled and the dialog says how many; nothing on disk is touched.
-Future<bool> confirmArchiveSeries(
+Future<bool> confirmArchiveCollection(
   BuildContext context,
   WidgetRef ref,
-  SeriesGroup group,
+  LibraryCollection group,
 ) async {
   final queue = ref.read(taskQueueProvider);
-  final repo = ref.read(seriesRepositoryProvider);
-  final pendingCount = (await queue.pendingTasksForSeries(
-    group.item.id,
-  )).length;
+  final repo = ref.read(collectionRepositoryProvider);
+  final pendingCount = (await queue.pendingTasksForCollection(group.id)).length;
   if (!context.mounted) return false;
 
   final confirmed = await showDialog<bool>(
@@ -907,7 +901,7 @@ Future<bool> confirmArchiveSeries(
       final palette = AppPalette.of(context);
       return AlertDialog(
         icon: Icon(Icons.inventory_2, size: 26, color: palette.primary),
-        title: const Text('Archive this series?'),
+        title: const Text('Archive this collection?'),
         content: Text.rich(
           TextSpan(
             style: TextStyle(
@@ -954,8 +948,8 @@ Future<bool> confirmArchiveSeries(
   );
   if (confirmed != true) return false;
 
-  await queue.cancelTasksForSeries(group.item.id);
-  await repo.archive(group.item.id);
+  await queue.cancelTasksForCollection(group.id);
+  await repo.archive(group.id);
   if (context.mounted) {
     ScaffoldMessenger.of(
       context,
@@ -993,8 +987,8 @@ class _EmptyLibrary extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Open a chapter in the browser and tap Capture. The app scrolls '
-            'the page, saves every panel, and the chapter shows up here — '
+            'Open an entry in the browser and tap Save. The app scrolls '
+            'the page, saves what it finds, and the entry shows up here — '
             'readable offline.',
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -1096,7 +1090,7 @@ class _LibraryError extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                'The library database did not open. Your downloaded chapters '
+                'The library database did not open. Your downloaded entries '
                 'are still on the device — nothing was deleted.',
                 style: TextStyle(
                   fontSize: 13,
@@ -1120,13 +1114,13 @@ class _LibraryError extends StatelessWidget {
 }
 
 class _ResumeCard extends ConsumerWidget {
-  const _ResumeCard({required this.job});
-  final CaptureJob job;
+  const _ResumeCard({required this.run});
+  final SaveRun run;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final palette = AppPalette.of(context);
-    final controller = ref.read(captureJobProvider);
+    final controller = ref.read(saveRunProvider);
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       padding: const EdgeInsets.all(13),
@@ -1139,7 +1133,7 @@ class _ResumeCard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Unfinished capture',
+            'Unfinished save',
             style: TextStyle(
               fontSize: 13,
               fontVariations: wght(600),
@@ -1149,8 +1143,8 @@ class _ResumeCard extends ConsumerWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            '${job.completedChapters} of ${job.requestedChapters} chapters '
-            'captured before the app closed.',
+            '${run.completedEntries} of ${run.requestedEntries} entries '
+            'saved before the app closed.',
             style: TextStyle(
               fontSize: 12,
               height: 1.5,
@@ -1158,7 +1152,7 @@ class _ResumeCard extends ConsumerWidget {
             ),
           ),
           Text(
-            job.currentUrl ?? job.startUrl,
+            run.currentUrl ?? run.startUrl,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: monoStyle(color: palette.warn),
@@ -1169,14 +1163,14 @@ class _ResumeCard extends ConsumerWidget {
               FilledButton(
                 // Through the queue, which brings the Browser forward first
                 // (D47) and records the outcome — but as a *direct* run: a
-                // resumed capture never becomes a pending queue task (D58).
+                // resumed save never becomes a pending queue task (D58).
                 onPressed: () =>
-                    ref.read(taskQueueProvider).resumeInterruptedCapture(job),
+                    ref.read(taskQueueProvider).resumeInterruptedSave(run),
                 child: const Text('Resume'),
               ),
               const SizedBox(width: 8),
               TextButton(
-                onPressed: () => controller.discardJob(job),
+                onPressed: () => controller.discardRun(run),
                 child: const Text('Discard'),
               ),
             ],
@@ -1187,65 +1181,135 @@ class _ResumeCard extends ConsumerWidget {
   }
 }
 
-/// The one warning a series row is allowed to show, most serious first.
-class SeriesWarning {
-  const SeriesWarning(this.icon, this.label, this.color);
+/// The one warning a collection row is allowed to show, most serious first.
+class CollectionWarning {
+  const CollectionWarning(this.icon, this.label, this.color);
   final IconData icon;
   final String label;
   final Color color;
 }
 
-/// A series plus the numbers its library row shows.
-class SeriesGroup {
-  const SeriesGroup({required this.item, required this.chapters});
+/// A collection plus the numbers its library row shows.
+/// One row on the library shelf: a [Collection] with its entries, **or** a
+/// standalone entry that belongs to no collection.
+///
+/// A union rather than "wrap the standalone entry in a collection of one". The
+/// database has no such row and must not gain one: a phantom group in the
+/// library is something the user never made, cannot meaningfully open, and would
+/// make "3 collections" mean "3 unrelated articles". [collection] is null for a
+/// standalone entry, and [isStandalone] is what screens branch on.
+///
+/// Known limitation: archiving is a collection-level state, so a standalone
+/// entry always reads as `active`. Removing its offline files and re-saving it
+/// work exactly as they do for an entry inside a collection.
+class LibraryCollection {
+  const LibraryCollection({this.collection, required this.entries});
 
-  final LibraryItem item;
-  final List<Chapter> chapters;
+  /// Null when this shelf item *is* a single entry.
+  final Collection? collection;
+  final List<Entry> entries;
 
-  String get displayName => displayNameFor(item);
+  bool get isStandalone => collection == null;
 
-  /// Chapters a capture has at least been attempted for. Discovered-but-not-
-  /// captured chapters are counted separately — "12 chapters" must not
+  /// The one entry, for a standalone shelf item.
+  Entry? get standaloneEntry => isStandalone ? entries.firstOrNull : null;
+
+  /// Stable identity for list keys and routes.
+  String get id => collection?.id ?? (entries.firstOrNull?.id ?? '');
+
+  String get host => collection?.host ?? (entries.firstOrNull?.host ?? '');
+
+  /// Standalone entries have no archive state of their own.
+  String get lifecycle => collection?.lifecycle ?? 'active';
+
+  /// The detected title, and the user's override. Both null for a standalone
+  /// entry, whose name is the entry's own title — see [displayName].
+  String? get title => collection?.title;
+  String? get userTitle => collection?.userTitle;
+
+  /// The finished-entry cleanup decision. Always null for a standalone entry:
+  /// the preference is per collection, and there is no forward transition to
+  /// apply it to.
+  String? get cleanupPreference => collection?.cleanupPreference;
+  DateTime? get archivedAt => collection?.archivedAt;
+  DateTime? get createdAt =>
+      collection?.createdAt ?? entries.firstOrNull?.savedAt;
+  DateTime? get lastReadAt =>
+      collection?.lastReadAt ?? entries.firstOrNull?.lastReadAt;
+
+  /// The vocabulary this shelf item uses for its entries, from the stored
+  /// shape — never a noun typed into a screen.
+  EntryLabels get labels => collection == null
+      ? labelsFor(
+          kind: ContentKind.fromName(entries.firstOrNull?.contentKind),
+          confidence: ShapeConfidence.fromName(
+            entries.firstOrNull?.contentKindConfidence,
+          ),
+        )
+      : labelsFor(
+          kind: ContentKind.fromName(collection!.contentKind),
+          sequence: SequenceKind.fromName(collection!.sequenceKind),
+          confidence: ShapeConfidence.fromName(collection!.shapeConfidence),
+        );
+
+  /// Total the source published, when it published one. Null is the normal
+  /// answer and must never be rendered as a number.
+  int? get knownEntryTotal => collection?.knownEntryTotal;
+
+  bool get isOpenEnded =>
+      SequenceKind.fromName(collection?.sequenceKind).isOpenEnded;
+
+  String get displayName {
+    final c = collection;
+    if (c != null) return displayNameFor(c);
+    final entry = entries.firstOrNull;
+    final title = entry?.title.trim() ?? '';
+    if (title.isNotEmpty) return title;
+    return entry?.host.isNotEmpty == true ? entry!.host : 'Saved page';
+  }
+
+  /// Entries a save has at least been attempted for. Discovered-but-not-
+  /// saved entries are counted separately — "12 entries" must not
   /// quietly include ones the device does not hold.
-  List<Chapter> get capturedChapters =>
-      chapters.where((c) => c.captureStatus != 'knownRemote').toList();
+  List<Entry> get savedEntries =>
+      entries.where((c) => c.saveStatus != 'knownRemote').toList();
 
-  /// Known to exist on the source, not yet captured (from an update check).
-  List<Chapter> get knownRemoteChapters =>
-      chapters.where((c) => c.captureStatus == 'knownRemote').toList();
+  /// Known to exist on the source, not yet saved (from an update check).
+  List<Entry> get knownRemoteEntries =>
+      entries.where((c) => c.saveStatus == 'knownRemote').toList();
 
-  int get chapterCount => capturedChapters.length;
-  int get knownRemoteCount => knownRemoteChapters.length;
+  int get entryCount => savedEntries.length;
+  int get knownRemoteCount => knownRemoteEntries.length;
 
-  /// The newest chapter the source is known to have, captured or not.
+  /// The newest entry the source is known to have, saved or not.
   String? get latestKnownLabel {
-    final all = sortChaptersForReading(chapters);
+    final all = sortEntriesForReading(entries);
     if (all.isEmpty) return null;
     final last = all.last;
-    final label = last.chapterLabel;
+    final label = last.sourceMarker;
     return (label != null && label.isNotEmpty) ? label : last.title;
   }
 
-  int get offlineCount => chapters
-      .where((c) => c.contentPath != null && c.captureStatus != 'failed')
+  int get offlineCount => entries
+      .where((c) => c.contentPath != null && c.saveStatus != 'failed')
       .length;
 
-  /// Locally readable chapters the user has not finished. This is the number
+  /// Locally readable entries the user has not finished. This is the number
   /// a reader actually wants on the shelf: "how much is waiting for me here".
-  int get unreadOfflineCount => chapters
+  int get unreadOfflineCount => entries
       .where(
         (c) =>
             c.contentPath != null &&
-            (c.captureStatus == 'complete' || c.captureStatus == 'partial') &&
+            (c.saveStatus == 'complete' || c.saveStatus == 'partial') &&
             c.readStatus != ReadStatus.completed.name,
       )
       .length;
 
-  int get partialChapters =>
-      chapters.where((c) => c.captureStatus == 'partial').length;
-  int get failedChapters =>
-      chapters.where((c) => c.captureStatus == 'failed').length;
-  int get problemChapters => partialChapters + failedChapters;
+  int get partialEntries =>
+      entries.where((c) => c.saveStatus == 'partial').length;
+  int get failedEntries =>
+      entries.where((c) => c.saveStatus == 'failed').length;
+  int get problemEntries => partialEntries + failedEntries;
 
   /// One line, worst first. Nothing wrong means no line at all — a row without
   /// a warning is the normal case and must not carry an empty slot.
@@ -1253,18 +1317,18 @@ class SeriesGroup {
   /// Takes the palette rather than baking a colour in: this is view data, and
   /// a model that names `0xFF8E3B31` decides what the dark theme looks like
   /// from inside a getter nobody thinks of as presentation.
-  SeriesWarning? warningLine(AppPalette palette) {
-    if (failedChapters > 0) {
-      return SeriesWarning(
+  CollectionWarning? warningLine(AppPalette palette) {
+    if (failedEntries > 0) {
+      return CollectionWarning(
         Icons.error,
-        '$failedChapters capture${failedChapters == 1 ? '' : 's'} failed',
+        '$failedEntries save${failedEntries == 1 ? '' : 's'} failed',
         palette.danger,
       );
     }
-    if (partialChapters > 0) {
-      return SeriesWarning(
+    if (partialEntries > 0) {
+      return CollectionWarning(
         Icons.arrow_circle_down,
-        '$partialChapters chapter${partialChapters == 1 ? '' : 's'} partial',
+        '${labels.count(partialEntries)} partial',
         palette.warn,
       );
     }
@@ -1272,40 +1336,39 @@ class SeriesGroup {
   }
 
   /// Update-check state for the row. `null` means **never checked** — which
-  /// the UI must render as "not checked yet", never as zero new chapters.
-  DateTime? get lastCheckedAt => item.lastCheckSuccessAt;
-  bool get lastCheckFailed => item.lastCheckError != null;
+  /// the UI must render as "not checked yet", never as zero new entries.
+  DateTime? get lastCheckedAt => collection?.lastCheckSuccessAt;
+  bool get lastCheckFailed => collection?.lastCheckError != null;
 
-  DateTime? get lastCapturedAt {
-    DateTime? latest = item.lastCapturedAt;
-    for (final c in chapters) {
-      final at = c.capturedAt;
+  DateTime? get lastSavedAt {
+    DateTime? latest = collection?.lastSavedAt;
+    for (final c in entries) {
+      final at = c.savedAt;
       if (at == null) continue;
       if (latest == null || at.isAfter(latest)) latest = at;
     }
     return latest;
   }
 
-  /// The most recently captured chapter, which is what a reader coming back is
+  /// The most recently saved entry, which is what a reader coming back is
   /// most likely looking for.
-  String? get latestChapterLabel {
-    Chapter? newest;
-    for (final c in chapters) {
-      if (c.capturedAt == null) continue;
-      if (newest?.capturedAt == null ||
-          c.capturedAt!.isAfter(newest!.capturedAt!)) {
+  String? get latestEntryLabel {
+    Entry? newest;
+    for (final c in entries) {
+      if (c.savedAt == null) continue;
+      if (newest?.savedAt == null || c.savedAt!.isAfter(newest!.savedAt!)) {
         newest = c;
       }
     }
-    newest ??= chapters.isEmpty ? null : chapters.last;
+    newest ??= entries.isEmpty ? null : entries.last;
     if (newest == null) return null;
-    final label = newest.chapterLabel;
+    final label = newest.sourceMarker;
     return (label != null && label.isNotEmpty) ? label : newest.title;
   }
 }
 
 String formatRelative(DateTime? t) {
-  if (t == null) return 'not captured';
+  if (t == null) return 'not saved';
   final diff = DateTime.now().difference(t);
   if (diff.inMinutes < 1) return 'just now';
   if (diff.inHours < 1) return '${diff.inMinutes}m ago';

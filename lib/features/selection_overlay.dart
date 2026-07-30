@@ -3,14 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../browser/browser_controller.dart';
-import '../capture/next_page.dart';
-import '../capture/selection_request.dart';
-import '../capture/site_rule.dart';
+import '../save/next_page.dart';
+import '../save/selection_request.dart';
+import '../save/page_hint.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 
-/// Shown when a capture job or an update check is holding for the user to
+/// Shown when a save run or an update check is holding for the user to
 /// point at a control.
 ///
 /// Follows the design's element-picker sheet: what the app found, what the
@@ -19,11 +19,11 @@ import '../ui/theme.dart';
 class RuleSelectionOverlay extends StatefulWidget {
   const RuleSelectionOverlay({
     super.key,
-    required this.job,
+    required this.run,
     required this.request,
   });
 
-  final SelectionHost job;
+  final SelectionHost run;
   final SelectionRequest request;
 
   @override
@@ -32,13 +32,13 @@ class RuleSelectionOverlay extends StatefulWidget {
 
 class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
   SelectedElement? _picked;
-  RuleScope _scope = RuleScope.series;
+  HintScope _scope = HintScope.collection;
   StreamSubscription<SelectedElement>? _sub;
 
   @override
   void initState() {
     super.initState();
-    _sub = widget.job.browser.selections.listen((element) {
+    _sub = widget.run.browser.selections.listen((element) {
       if (mounted) setState(() => _picked = element);
     });
   }
@@ -49,7 +49,7 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
     super.dispose();
   }
 
-  bool get _isLink => widget.request.kind == RuleKind.nextLink;
+  bool get _isLink => widget.request.kind == HintKind.nextLink;
 
   @override
   Widget build(BuildContext context) {
@@ -82,15 +82,15 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
               ),
               Text(
                 _isLink
-                    ? 'Show the app the next-chapter control'
-                    : 'Show the app where the panels are',
+                    ? 'Show the app the next-entry control'
+                    : 'Show the app where the content is',
                 style: serifStyle(size: 20),
               ),
               const SizedBox(height: 6),
               Text(
-                '${request.isRuleFailure ? 'A saved rule stopped working' : 'Automatic detection was not confident'}'
+                '${request.isHintFailure ? 'A saved rule stopped working' : 'Automatic detection was not confident'}'
                 ': ${request.reason}. '
-                '${_isLink ? 'Tap the control that opens the next chapter — taps will not navigate while you are choosing.' : 'Tap the area that contains the chapter images — the app remembers it.'}',
+                '${_isLink ? 'Tap the control that opens the next entry — taps will not navigate while you are choosing.' : 'Tap the area that contains the entry images — the app remembers it.'}',
                 style: TextStyle(
                   fontSize: 13,
                   height: 1.55,
@@ -238,19 +238,19 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
               const SizedBox(height: 8),
               for (final option in const [
                 (
-                  RuleScope.series,
+                  HintScope.collection,
                   Icons.menu_book,
-                  'This series on this host',
+                  'This collection on this host',
                   'Recommended — safest scope',
                 ),
                 (
-                  RuleScope.pathPattern,
+                  HintScope.pathPattern,
                   Icons.bookmark,
-                  'Series with this URL shape',
+                  'Collection with this URL shape',
                   'Same path pattern on this site',
                 ),
                 (
-                  RuleScope.host,
+                  HintScope.host,
                   Icons.language,
                   'Everything on this site',
                   'Widest, may break on other layouts',
@@ -273,7 +273,7 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                     child: FilledButton(
                       onPressed: _picked == null
                           ? null
-                          : () => widget.job.submitSelection(
+                          : () => widget.run.submitSelection(
                               _picked!,
                               scope: _scope,
                             ),
@@ -290,7 +290,7 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton(
-                    onPressed: widget.job.retryAutomaticDetection,
+                    onPressed: widget.run.retryAutomaticDetection,
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 15,
@@ -306,11 +306,11 @@ class _RuleSelectionOverlayState extends State<RuleSelectionOverlay> {
               ),
               Center(
                 child: TextButton(
-                  onPressed: widget.job.cancelSelection,
+                  onPressed: widget.run.cancelSelection,
                   style: TextButton.styleFrom(
                     foregroundColor: palette.inkMuted,
                   ),
-                  child: const Text('Cancel job'),
+                  child: const Text('Cancel run'),
                 ),
               ),
             ],

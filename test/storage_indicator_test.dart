@@ -290,9 +290,7 @@ void main() {
       await drain(tester);
     });
 
-    testWidgets('a refresh after cleanup or capture re-reads it', (
-      tester,
-    ) async {
+    testWidgets('a refresh after cleanup or save re-reads it', (tester) async {
       await show(tester);
       expect(device.calls, 1);
 
@@ -304,8 +302,8 @@ void main() {
         freeBytes: 55 * _gb,
       );
 
-      // Throttled by default: a chapter-by-chapter capture must not fire a
-      // platform call per chapter.
+      // Throttled by default: an entry-by-entry save must not fire a
+      // platform call per entry.
       await container.read(deviceCapacityProvider.notifier).refresh();
       await tester.pump();
       expect(device.calls, 1);

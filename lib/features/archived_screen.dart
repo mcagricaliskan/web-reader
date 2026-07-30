@@ -6,9 +6,10 @@ import '../providers.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
-import 'library_screen.dart' show SeriesGroup, formatBytes, formatRelative;
+import 'library_screen.dart'
+    show LibraryCollection, formatBytes, formatRelative;
 
-/// Series the user has tucked away. Everything is still on the device; the
+/// Collection the user has tucked away. Everything is still on the device; the
 /// only thing archiving changed is visibility and update checking — and this
 /// screen exists to say that plainly and to undo it in one tap.
 class ArchivedScreen extends ConsumerWidget {
@@ -47,8 +48,8 @@ class ArchivedScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Archiving hides a finished series from the library '
-                      'without deleting anything. Find it in a series’ '
+                      'Archiving hides a finished collection from the library '
+                      'without deleting anything. Find it in a collection’ '
                       'menu.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
@@ -73,7 +74,7 @@ class ArchivedScreen extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                 child: Text(
-                  'Archiving never deletes anything. Restored series return '
+                  'Archiving never deletes anything. Restored collection return '
                   'to the library exactly as they were.',
                   style: TextStyle(
                     fontSize: 12,
@@ -93,26 +94,26 @@ class ArchivedScreen extends ConsumerWidget {
 class _ArchivedRow extends ConsumerWidget {
   const _ArchivedRow({required this.group});
 
-  final SeriesGroup group;
+  final LibraryCollection group;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bytes = group.chapters.fold<int>(0, (sum, c) => sum + c.byteSize);
+    final bytes = group.entries.fold<int>(0, (sum, c) => sum + c.byteSize);
     final meta = [
-      '${group.offlineCount} chapter${group.offlineCount == 1 ? '' : 's'} offline',
+      '${group.labels.count(group.offlineCount)} offline',
       if (bytes > 0) formatBytes(bytes),
-      if (group.item.archivedAt != null)
-        'archived ${formatRelative(group.item.archivedAt)}',
+      if (group.archivedAt != null)
+        'archived ${formatRelative(group.archivedAt)}',
     ].join(' · ');
 
     return InkWell(
-      key: ValueKey('archivedRow-${group.item.id}'),
-      onTap: () => context.push('/series/${group.item.id}'),
+      key: ValueKey('archivedRow-${group.id}'),
+      onTap: () => context.push('/collection/${group.id}'),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
         child: Row(
           children: [
-            MonogramTile(id: group.item.id, title: group.displayName),
+            MonogramTile(id: group.id, title: group.displayName),
             const SizedBox(width: 13),
             Expanded(
               child: Column(
@@ -144,7 +145,7 @@ class _ArchivedRow extends ConsumerWidget {
             const SizedBox(width: 8),
             OutlinedButton(
               onPressed: () =>
-                  ref.read(seriesRepositoryProvider).restore(group.item.id),
+                  ref.read(collectionRepositoryProvider).restore(group.id),
               child: const Text('Restore'),
             ),
           ],

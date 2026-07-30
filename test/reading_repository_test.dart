@@ -15,76 +15,84 @@ void main() {
   });
   tearDown(() => db.close());
 
-  Future<void> seed({int chapters = 3, String status = 'complete'}) async {
-    await db.upsertLibraryItem(
-      LibraryItem(
+  Future<void> seed({int entries = 3, String status = 'complete'}) async {
+    await db.upsertCollection(
+      Collection(
+        contentKind: 'unknownWebContent',
+        sequenceKind: 'none',
+        orderingBasis: 'discoveryOrder',
+        shapeConfidence: 'low',
         lifecycle: 'active',
-        id: 'series-1',
-        title: 'Fixture Series',
-        sourceUrl: 'https://x.example/manga/foo',
+        id: 'collection-1',
+        title: 'Fixture Collection',
+        sourceUrl: 'https://x.example/guide/foo',
         host: 'x.example',
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         createdAt: DateTime(2026, 7, 1),
       ),
     );
-    for (var n = 1; n <= chapters; n++) {
-      await db.upsertChapter(
-        Chapter(
+    for (var n = 1; n <= entries; n++) {
+      await db.upsertEntry(
+        Entry(
+          host: '',
+          contentKind: 'unknownWebContent',
+          contentKindConfidence: 'low',
+          contentKindIsUserSet: false,
           id: 'c$n',
-          libraryItemId: 'series-1',
-          title: 'Fixture Series Chapter $n',
-          sourceUrl: 'https://x.example/manga/foo/$n',
-          urlKey: 'https://x.example/manga/foo/$n',
-          captureStatus: status,
-          contentPath: 'library/series-1/chapters/c$n',
-          capturedAt: DateTime(2026, 7, 20),
-          detectedImageCount: 6,
-          storedImageCount: 6,
-          sequence: n,
+          collectionId: 'collection-1',
+          title: 'Fixture Collection Entry $n',
+          sourceUrl: 'https://x.example/guide/foo/$n',
+          urlKey: 'https://x.example/guide/foo/$n',
+          saveStatus: status,
+          contentPath: 'library/collection-1/entries/c$n',
+          savedAt: DateTime(2026, 7, 20),
+          detectedAssetCount: 6,
+          storedAssetCount: 6,
+          entryOrder: n,
           byteSize: 1024,
-          chapterNumber: n.toDouble(),
-          chapterLabel: 'Chapter $n',
+          entryNumber: n.toDouble(),
+          sourceMarker: 'Entry $n',
           readStatus: 'unread',
           progressFraction: 0,
-          progressImageIndex: 0,
-          progressOffsetInImage: 0,
+          progressPageIndex: 0,
+          progressOffsetInPage: 0,
         ),
       );
     }
   }
 
-  group('opening a chapter', () {
+  group('opening an entry', () {
     test('records that it was opened but does not mark it read', () async {
       await seed();
       await reading.markOpened('c1');
 
-      final chapter = await db.chapterById('c1');
-      expect(chapter!.readStatus, ReadStatus.inProgress.name);
-      expect(chapter.firstOpenedAt, isNotNull);
-      expect(chapter.lastReadAt, isNotNull);
+      final entry = await db.entryById('c1');
+      expect(entry!.readStatus, ReadStatus.inProgress.name);
+      expect(entry.firstOpenedAt, isNotNull);
+      expect(entry.lastReadAt, isNotNull);
       expect(
-        chapter.completedAt,
+        entry.completedAt,
         isNull,
-        reason: 'glancing at a chapter is not finishing it',
+        reason: 'glancing at an entry is not finishing it',
       );
     });
 
-    test('reopening a completed chapter leaves it completed', () async {
+    test('reopening a completed entry leaves it completed', () async {
       await seed();
       await reading.markRead('c1');
       await reading.markOpened('c1');
 
-      final chapter = await db.chapterById('c1');
-      expect(chapter!.readStatus, ReadStatus.completed.name);
+      final entry = await db.entryById('c1');
+      expect(entry!.readStatus, ReadStatus.completed.name);
     });
 
-    test('updates the series pointers', () async {
+    test('updates the collection pointers', () async {
       await seed();
       await reading.markOpened('c2');
 
-      final series = (await db.libraryItemById('series-1'))!;
-      expect(series.lastOpenedChapterId, 'c2');
-      expect(series.lastReadAt, isNotNull);
+      final collection = (await db.collectionById('collection-1'))!;
+      expect(collection.lastOpenedEntryId, 'c2');
+      expect(collection.lastReadAt, isNotNull);
     });
   });
 
@@ -100,12 +108,12 @@ void main() {
         ),
       );
 
-      final chapter = await db.chapterById('c1');
-      expect(chapter!.progressFraction, closeTo(0.42, 0.001));
-      expect(chapter.progressImageIndex, 3);
-      expect(chapter.progressOffsetInImage, closeTo(0.25, 0.001));
-      expect(chapter.readStatus, ReadStatus.inProgress.name);
-      expect(chapter.progressUpdatedAt, isNotNull);
+      final entry = await db.entryById('c1');
+      expect(entry!.progressFraction, closeTo(0.42, 0.001));
+      expect(entry.progressPageIndex, 3);
+      expect(entry.progressOffsetInPage, closeTo(0.25, 0.001));
+      expect(entry.readStatus, ReadStatus.inProgress.name);
+      expect(entry.progressUpdatedAt, isNotNull);
     });
 
     test('completes when told to, and records when', () async {
@@ -116,35 +124,35 @@ void main() {
         completed: true,
       );
 
-      final chapter = await db.chapterById('c1');
-      expect(chapter!.readStatus, ReadStatus.completed.name);
-      expect(chapter.completedAt, isNotNull);
+      final entry = await db.entryById('c1');
+      expect(entry!.readStatus, ReadStatus.completed.name);
+      expect(entry.completedAt, isNotNull);
     });
 
     test(
-      'a completed chapter keeps its completion when scrolled again',
+      'a completed entry keeps its completion when scrolled again',
       () async {
         await seed();
         await reading.markRead('c1');
-        final firstCompletion = (await db.chapterById('c1'))!.completedAt;
+        final firstCompletion = (await db.entryById('c1'))!.completedAt;
 
         await reading.saveProgress(
           'c1',
           const ReadingPosition(fraction: 0.2, imageIndex: 1),
         );
 
-        final chapter = await db.chapterById('c1');
-        expect(chapter!.readStatus, ReadStatus.completed.name);
-        expect(chapter.completedAt, firstCompletion);
+        final entry = await db.entryById('c1');
+        expect(entry!.readStatus, ReadStatus.completed.name);
+        expect(entry.completedAt, firstCompletion);
         expect(
-          chapter.progressImageIndex,
+          entry.progressPageIndex,
           1,
           reason: 'the anchor still tracks where they actually are',
         );
         expect(
-          chapter.progressFraction,
+          entry.progressFraction,
           1,
-          reason: 'a finished chapter reads 100%, wherever the scroll is',
+          reason: 'a finished entry reads 100%, wherever the scroll is',
         );
       },
     );
@@ -158,7 +166,7 @@ void main() {
 
       // What a restart looks like: a fresh repository over the same rows.
       final reloaded = ReadingRepository(db);
-      final position = reloaded.positionOf((await db.chapterById('c1'))!);
+      final position = reloaded.positionOf((await db.entryById('c1'))!);
 
       expect(position.fraction, closeTo(0.5, 0.001));
       expect(position.imageIndex, 2);
@@ -171,10 +179,10 @@ void main() {
       await seed();
       await reading.markRead('c1');
 
-      final chapter = await db.chapterById('c1');
-      expect(chapter!.readStatus, ReadStatus.completed.name);
-      expect(chapter.progressFraction, 1.0);
-      expect(chapter.completedAt, isNotNull);
+      final entry = await db.entryById('c1');
+      expect(entry!.readStatus, ReadStatus.completed.name);
+      expect(entry.progressFraction, 1.0);
+      expect(entry.completedAt, isNotNull);
     });
 
     test('mark unread keeps the position so it can be resumed', () async {
@@ -186,76 +194,76 @@ void main() {
       );
       await reading.markUnread('c1');
 
-      final chapter = await db.chapterById('c1');
-      expect(chapter!.readStatus, ReadStatus.unread.name);
-      expect(chapter.completedAt, isNull);
+      final entry = await db.entryById('c1');
+      expect(entry!.readStatus, ReadStatus.unread.name);
+      expect(entry.completedAt, isNull);
       expect(
-        chapter.progressImageIndex,
+        entry.progressPageIndex,
         3,
         reason: 'unread means unfinished, not never-visited',
       );
-      expect(chapter.progressOffsetInImage, closeTo(0.4, 0.001));
+      expect(entry.progressOffsetInPage, closeTo(0.4, 0.001));
       expect(
-        chapter.progressFraction,
+        entry.progressFraction,
         0,
         reason:
             'completion had forced the bar to 100%; unread empties it '
-            'again rather than leaving a full bar on an unread chapter',
+            'again rather than leaving a full bar on an unread entry',
       );
     });
 
-    test('marking unread moves the series pointer back', () async {
+    test('marking unread moves the collection pointer back', () async {
       await seed();
       await reading.markRead('c1');
       expect(
-        (await db.libraryItemById('series-1'))!.lastCompletedChapterId,
+        (await db.collectionById('collection-1'))!.lastCompletedEntryId,
         'c1',
       );
 
       await reading.markUnread('c1');
       expect(
-        (await db.libraryItemById('series-1'))!.lastCompletedChapterId,
+        (await db.collectionById('collection-1'))!.lastCompletedEntryId,
         isNull,
       );
     });
   });
 
-  group('series reading state', () {
+  group('collection reading state', () {
     test(
-      'an untouched series has a next chapter but nothing in progress',
+      'an untouched collection has a next entry but nothing in progress',
       () async {
         await seed();
-        final state = computeSeriesReadingState(
-          await db.chaptersForItem('series-1'),
+        final state = computeCollectionReadingState(
+          await db.entriesForCollection('collection-1'),
         );
 
-        expect(state.currentChapter, isNull);
+        expect(state.currentEntry, isNull);
         expect(state.nextUnread!.id, 'c1');
-        expect(state.continueChapter!.id, 'c1');
+        expect(state.continueEntry!.id, 'c1');
         expect(state.everOpened, isFalse);
       },
     );
 
-    test('a partly read chapter is the one to continue', () async {
+    test('a partly read entry is the one to continue', () async {
       await seed();
       await reading.saveProgress('c1', const ReadingPosition(fraction: 0.5));
 
-      final state = computeSeriesReadingState(
-        await db.chaptersForItem('series-1'),
+      final state = computeCollectionReadingState(
+        await db.entriesForCollection('collection-1'),
       );
-      expect(state.currentChapter!.id, 'c1');
-      expect(state.continueChapter!.id, 'c1');
+      expect(state.currentEntry!.id, 'c1');
+      expect(state.continueEntry!.id, 'c1');
     });
 
     test('completing one advances to the next unread', () async {
       await seed();
       await reading.markRead('c1');
 
-      final state = computeSeriesReadingState(
-        await db.chaptersForItem('series-1'),
+      final state = computeCollectionReadingState(
+        await db.entriesForCollection('collection-1'),
       );
-      expect(state.currentChapter, isNull);
-      expect(state.continueChapter!.id, 'c2');
+      expect(state.currentEntry, isNull);
+      expect(state.continueEntry!.id, 'c2');
       expect(state.lastCompleted!.id, 'c1');
     });
 
@@ -265,11 +273,11 @@ void main() {
         await reading.markRead(id);
       }
 
-      final state = computeSeriesReadingState(
-        await db.chaptersForItem('series-1'),
+      final state = computeCollectionReadingState(
+        await db.entriesForCollection('collection-1'),
       );
       expect(state.allCompleted, isTrue);
-      expect(state.continueChapter, isNull);
+      expect(state.continueEntry, isNull);
       expect(state.unreadCount, 0);
       expect(
         state.lastReadAt,
@@ -279,7 +287,7 @@ void main() {
     });
 
     test(
-      'marking an earlier chapter unread makes it continuable again',
+      'marking an earlier entry unread makes it continuable again',
       () async {
         await seed();
         for (final id in ['c1', 'c2', 'c3']) {
@@ -287,58 +295,58 @@ void main() {
         }
         await reading.markUnread('c2');
 
-        final state = computeSeriesReadingState(
-          await db.chaptersForItem('series-1'),
+        final state = computeCollectionReadingState(
+          await db.entriesForCollection('collection-1'),
         );
         expect(state.allCompleted, isFalse);
-        expect(state.continueChapter!.id, 'c2');
+        expect(state.continueEntry!.id, 'c2');
       },
     );
 
-    test('a chapter that is not stored locally is never offered', () async {
-      await seed(chapters: 2, status: 'failed');
-      final state = computeSeriesReadingState(
-        await db.chaptersForItem('series-1'),
+    test('an entry that is not stored locally is never offered', () async {
+      await seed(entries: 2, status: 'failed');
+      final state = computeCollectionReadingState(
+        await db.entriesForCollection('collection-1'),
       );
       expect(
-        state.continueChapter,
+        state.continueEntry,
         isNull,
         reason: 'the reader cannot open something that was never saved',
       );
-      expect(state.chapters, isEmpty);
+      expect(state.entries, isEmpty);
     });
 
-    test('a partial capture is still readable and still counts', () async {
-      await seed(chapters: 1, status: 'partial');
-      final state = computeSeriesReadingState(
-        await db.chaptersForItem('series-1'),
+    test('a partial save is still readable and still counts', () async {
+      await seed(entries: 1, status: 'partial');
+      final state = computeCollectionReadingState(
+        await db.entriesForCollection('collection-1'),
       );
-      expect(state.continueChapter!.id, 'c1');
+      expect(state.continueEntry!.id, 'c1');
     });
   });
 
-  group('capture must not disturb reading', () {
+  group('save must not disturb reading', () {
     test(
-      'repairSeriesReadingState rebuilds pointers from the chapters',
+      'rebuildCollectionPointers rebuilds pointers from the entries',
       () async {
         await seed();
         await reading.markRead('c1');
         await reading.saveProgress('c2', const ReadingPosition(fraction: 0.3));
 
         // Corrupt the denormalised pointers, as a bad migration might.
-        await db.writeSeriesReading(
-          'series-1',
-          const LibraryItemsCompanion(
-            lastOpenedChapterId: Value('nonsense'),
-            lastCompletedChapterId: Value('nonsense'),
+        await db.writeCollectionReading(
+          'collection-1',
+          const CollectionsCompanion(
+            lastOpenedEntryId: Value('nonsense'),
+            lastCompletedEntryId: Value('nonsense'),
           ),
         );
 
-        await reading.repairSeriesReadingState();
+        await reading.rebuildCollectionPointers();
 
-        final series = (await db.libraryItemById('series-1'))!;
-        expect(series.lastCompletedChapterId, 'c1');
-        expect(series.lastOpenedChapterId, 'c2');
+        final collection = (await db.collectionById('collection-1'))!;
+        expect(collection.lastCompletedEntryId, 'c1');
+        expect(collection.lastOpenedEntryId, 'c2');
       },
     );
   });
@@ -366,16 +374,16 @@ void main() {
       );
       await Future.wait([f1, f2]);
 
-      final chapter = (await db.chapterById('c1'))!;
-      expect(chapter.readStatus, 'completed');
-      expect(chapter.completedAt, isNotNull);
+      final entry = (await db.entryById('c1'))!;
+      expect(entry.readStatus, 'completed');
+      expect(entry.completedAt, isNotNull);
       expect(
-        chapter.progressImageIndex,
+        entry.progressPageIndex,
         5,
         reason: 'the later position still wins',
       );
       expect(
-        chapter.progressFraction,
+        entry.progressFraction,
         1,
         reason: 'the completion sticks, and completed means 100%',
       );
@@ -396,20 +404,20 @@ void main() {
       ];
       await Future.wait(futures);
 
-      final chapter = (await db.chapterById('c1'))!;
-      expect(chapter.readStatus, 'inProgress');
-      expect(chapter.completedAt, isNull, reason: 'markUnread cleared it');
-      expect(chapter.progressFraction, closeTo(0.4, 0.001));
-      expect(chapter.progressImageIndex, 2);
+      final entry = (await db.entryById('c1'))!;
+      expect(entry.readStatus, 'inProgress');
+      expect(entry.completedAt, isNull, reason: 'markUnread cleared it');
+      expect(entry.progressFraction, closeTo(0.4, 0.001));
+      expect(entry.progressPageIndex, 2);
     });
 
     test('a failed write does not wedge the queue', () async {
       await seed();
-      // A write against a nonexistent chapter resolves harmlessly…
+      // A write against a nonexistent entry resolves harmlessly…
       await reading.saveProgress('ghost', const ReadingPosition(fraction: 1));
       // …and the queue still processes what follows.
       await reading.markRead('c1');
-      expect((await db.chapterById('c1'))!.readStatus, 'completed');
+      expect((await db.entryById('c1'))!.readStatus, 'completed');
     });
   });
 }

@@ -13,9 +13,9 @@ void main() {
     });
 
     test('a bare host gets https and keeps its path and query', () {
-      final intent = interpretUrlInput('uzaymanga.com/manga/x?lang=tr');
+      final intent = interpretUrlInput('example.com/guide/x?lang=tr');
       expect(intent.kind, UrlIntentKind.navigate);
-      expect(intent.url, 'https://uzaymanga.com/manga/x?lang=tr');
+      expect(intent.url, 'https://example.com/guide/x?lang=tr');
       expect(intent.addedScheme, isTrue);
     });
 
@@ -23,7 +23,7 @@ void main() {
       for (final host in [
         'example.com',
         'sub.example.co.uk',
-        'asurascans.com/comics/x/chapter/137',
+        'example.com/comics/x/entry/137',
         'example.com:8443/x',
       ]) {
         expect(
@@ -35,9 +35,9 @@ void main() {
     });
 
     test('prose becomes a Google search', () {
-      final intent = interpretUrlInput('baekmyeong chapter 234');
+      final intent = interpretUrlInput('baekmyeong entry 234');
       expect(intent.kind, UrlIntentKind.search);
-      expect(intent.query, 'baekmyeong chapter 234');
+      expect(intent.query, 'baekmyeong entry 234');
       expect(intent.url, startsWith('https://www.google.com/search?q='));
       expect(intent.url, contains('baekmyeong'));
     });
@@ -49,7 +49,7 @@ void main() {
     });
 
     test('a single word with no dot is a search', () {
-      expect(interpretUrlInput('manga').kind, UrlIntentKind.search);
+      expect(interpretUrlInput('guide').kind, UrlIntentKind.search);
     });
 
     test('a trailing or leading dot is a typo, not a host', () {
@@ -64,23 +64,17 @@ void main() {
 
     test('localhost is an address in debug and a search otherwise', () {
       expect(
-        interpretUrlInput(
-          'localhost:8099/chapter/1',
-          allowLocalhost: true,
-        ).kind,
+        interpretUrlInput('localhost:8099/entry/1', allowLocalhost: true).kind,
         UrlIntentKind.navigate,
       );
       expect(
-        interpretUrlInput(
-          'localhost:8099/chapter/1',
-          allowLocalhost: false,
-        ).kind,
+        interpretUrlInput('localhost:8099/entry/1', allowLocalhost: false).kind,
         UrlIntentKind.search,
       );
     });
 
     test('a non-web scheme is handed back as-is, never searched', () {
-      final intent = interpretUrlInput('reader://open?chapter=888');
+      final intent = interpretUrlInput('reader://open?entry=888');
       expect(intent.kind, UrlIntentKind.navigate);
       expect(isExternalAppScheme(intent.url), isTrue);
       expect(isExternalAppScheme('mailto:someone@example.com'), isTrue);
@@ -91,7 +85,7 @@ void main() {
       // The colon here is not a scheme separator. Reading it as one sent
       // `example.com:8443` to the platform as an app link.
       expect(isExternalAppScheme('example.com:8443/x'), isFalse);
-      expect(isExternalAppScheme('localhost:8099/chapter/1'), isFalse);
+      expect(isExternalAppScheme('localhost:8099/entry/1'), isFalse);
       final intent = interpretUrlInput('example.com:8443/x');
       expect(intent.kind, UrlIntentKind.navigate);
       expect(intent.url, 'https://example.com:8443/x');
@@ -101,15 +95,15 @@ void main() {
   group('display helpers', () {
     test('displayHost drops www for reading, not for identity', () {
       expect(displayHost('https://www.google.com/'), 'google.com');
-      expect(displayHost('https://uzaymanga.com/x'), 'uzaymanga.com');
+      expect(displayHost('https://example.com/x'), 'example.com');
     });
 
-    test('compactPath elides the middle and keeps the chapter', () {
+    test('compactPath elides the middle and keeps the entry', () {
       final path = compactPath(
-        'https://uzaymanga.com/manga/efsanevi-buyu-imparatoru/885-bolum-oku',
+        'https://example.com/guide/the-long-guide/885-part-oku',
       );
       expect(path, startsWith('/…/'));
-      expect(path, contains('885-bolum-oku'));
+      expect(path, contains('885-part-oku'));
     });
 
     test('compactPath is empty for a bare host', () {
@@ -126,15 +120,17 @@ void main() {
 
     test('faviconInitial is the first letter after www', () {
       expect(faviconInitial('www.google.com'), 'G');
-      expect(faviconInitial('asurascans.com'), 'A');
+      // Without a `www.` to skip, the first letter of the host is the initial.
+      expect(faviconInitial('a.example'), 'A');
+      expect(faviconInitial('www.b.example'), 'B');
     });
   });
 
   group('siteRootFor', () {
     test('derives a root for an ordinary https page', () {
       expect(
-        siteRootFor('https://uzaymanga.com/manga/x/1'),
-        'https://uzaymanga.com/',
+        siteRootFor('https://example.com/guide/x/1'),
+        'https://example.com/',
       );
     });
 

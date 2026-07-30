@@ -1,4 +1,4 @@
-// M2: capture online, then read with the source gone — in one run.
+// M2: save online, then read with the source gone — in one run.
 //
 //   flutter test integration_test/offline_read_test.dart -d <simulator-id>
 //
@@ -8,7 +8,7 @@
 // every panel the reader shows must have come off disk.
 //
 // (`flutter test integration_test/...` uninstalls the app afterwards, wiping
-// the container — which is why the capture and the offline read must happen in
+// the container — which is why the save and the offline read must happen in
 // the same run rather than as two separate invocations.)
 import 'dart:async';
 import 'dart:io';
@@ -18,9 +18,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:web_reader/app.dart';
+import 'package:web_reader/core/config.dart';
 import 'package:web_reader/browser/browser_controller.dart';
-import 'package:web_reader/capture/capture_job.dart';
-import 'package:web_reader/capture/capture_preflight.dart';
+import 'package:web_reader/save/save_run.dart';
+import 'package:web_reader/save/save_preflight.dart';
 import 'package:web_reader/providers.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
@@ -40,7 +41,7 @@ void main() {
   late AppDatabase db;
   late FileStore fileStore;
   late BrowserController browser;
-  late CaptureJobController job;
+  late SaveRunController run;
   HttpServer? server;
   late String baseUrl;
 
@@ -72,7 +73,7 @@ void main() {
   Future<bool> sourceReachable() async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
     try {
-      final req = await client.getUrl(Uri.parse('$baseUrl/chapter/1'));
+      final req = await client.getUrl(Uri.parse('$baseUrl/entry/1'));
       final res = await req.close();
       await res.drain<void>();
       return true;
@@ -97,7 +98,7 @@ void main() {
       folderName: 'webread_it_offline_read_$kRunStamp',
     );
     browser = BrowserController();
-    job = CaptureJobController(browser: browser, db: db, fileStore: fileStore);
+    run = SaveRunController(browser: browser, db: db, fileStore: fileStore);
 
     await tester.pumpWidget(
       ProviderScope(
@@ -107,7 +108,7 @@ void main() {
               db: db,
               fileStore: fileStore,
               browser: browser,
-              captureJob: job,
+              saveRun: run,
             ),
           ),
         ],
@@ -132,20 +133,20 @@ void main() {
     expect(done(), isTrue, reason: 'timed out waiting for the condition');
   }
 
-  /// A series row in the All Series list, regardless of what Continue cards
+  /// A collection row in the All Collection list, regardless of what Continue cards
   /// sit above it. Identified by key rather than widget type — the redesigned
   /// row is a Stack, not a ListTile.
-  Finder seriesCard() => find.byWidgetPredicate(
+  Finder collectionCard() => find.byWidgetPredicate(
     (w) =>
         w.key is ValueKey<String> &&
-        (w.key! as ValueKey<String>).value.startsWith('seriesRow-'),
+        (w.key! as ValueKey<String>).value.startsWith('collectionRow-'),
   );
 
-  /// A saved-chapter row on the series detail screen.
-  Finder chapterRow() => find.byWidgetPredicate(
+  /// A saved-entry row on the collection detail screen.
+  Finder entryRow() => find.byWidgetPredicate(
     (w) =>
         w.key is ValueKey<String> &&
-        (w.key! as ValueKey<String>).value.startsWith('chapterRow-'),
+        (w.key! as ValueKey<String>).value.startsWith('entryRow-'),
   );
 
   /// Switch to the Library tab. "Library" is both the tab label and the
@@ -160,33 +161,33 @@ void main() {
     await db.close();
   });
 
-  testWidgets('M2: capture online, kill the source, read entirely from disk', (
+  testWidgets('M2: save online, kill the source, read entirely from disk', (
     tester,
   ) async {
-    // --- 1. capture, with the source up -------------------------------
+    // --- 1. save, with the source up -------------------------------
     await startFixture();
     expect(await sourceReachable(), isTrue, reason: 'fixture should be up');
 
     await bootApp(tester);
-    await browser.loadAndWait('$baseUrl/chapter/1');
+    await browser.loadAndWait('$baseUrl/entry/1');
     await pumpFor(tester, const Duration(seconds: 1));
 
-    unawaited(job.start(chapterLimit: 3));
+    unawaited(run.start(range: SaveScope.fixedCount, entryLimit: 3));
     await pumpUntil(
       tester,
-      () => job.progress.state.isTerminal && !job.isRunning,
+      () => run.progress.state.isTerminal && !run.isRunning,
     );
-    for (final line in job.log.reversed) {
-      debugPrint('[job] $line');
+    for (final line in run.log.reversed) {
+      debugPrint('[run] $line');
     }
 
-    final chapters = await db.watchAllChapters().first;
-    expect(chapters.length, 3);
+    final entries = await db.watchAllEntries().first;
+    expect(entries.length, 3);
 
     // --- 2. confirm the files are really there -------------------------
     var panelsOnDisk = 0;
-    for (final chapter in chapters) {
-      final relative = chapter.contentPath!;
+    for (final entry in entries) {
+      final relative = entry.contentPath!;
       expect(
         relative,
         isNot(startsWith('/')),
@@ -207,7 +208,7 @@ void main() {
         panelsOnDisk++;
       }
       debugPrint(
-        '[M2] ${chapter.title}: '
+        '[M2] ${entry.title}: '
         '${manifest.storedAssets.length} panels · ${manifest.status.name}',
       );
     }
@@ -225,7 +226,7 @@ void main() {
     await db.close();
     await bootApp(tester);
 
-    final afterRestart = await db.watchAllChapters().first;
+    final afterRestart = await db.watchAllEntries().first;
     expect(afterRestart.length, 3, reason: 'library survived the restart');
 
     // --- 5. read it, through the real UI --------------------------------
@@ -234,23 +235,23 @@ void main() {
 
     await pumpUntil(
       tester,
-      () => seriesCard().evaluate().isNotEmpty,
+      () => collectionCard().evaluate().isNotEmpty,
       timeout: const Duration(seconds: 20),
     );
 
-    // Since M4 the library is grouped: series card → series detail →
-    // chapter tile → reader.
-    await tester.ensureVisible(seriesCard().first);
+    // Since M4 the library is grouped: collection card → collection detail →
+    // entry tile → reader.
+    await tester.ensureVisible(collectionCard().first);
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(seriesCard().first, warnIfMissed: false);
+    await tester.tap(collectionCard().first, warnIfMissed: false);
     await pumpUntil(
       tester,
       () => find.textContaining('images').evaluate().isNotEmpty,
       timeout: const Duration(seconds: 20),
     );
-    await tester.ensureVisible(chapterRow().first);
+    await tester.ensureVisible(entryRow().first);
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(chapterRow().first, warnIfMissed: false);
+    await tester.tap(entryRow().first, warnIfMissed: false);
     await pumpFor(tester, const Duration(seconds: 3));
 
     final images = tester.widgetList<Image>(find.byType(Image)).toList();
@@ -258,7 +259,7 @@ void main() {
     for (final image in images) {
       // `cacheWidth` wraps the provider in a ResizeImage; unwrapping it also
       // confirms the decode-width limit is actually applied, which is what
-      // keeps a 60-panel chapter from becoming hundreds of MB of bitmaps.
+      // keeps a 60-panel entry from becoming hundreds of MB of bitmaps.
       final provider = image.image;
       expect(provider, isA<ResizeImage>());
       final resize = provider as ResizeImage;
@@ -283,33 +284,33 @@ void main() {
     );
   });
 
-  testWidgets('M2: a partial chapter warns instead of pretending to be whole', (
+  testWidgets('M2: a partial entry warns instead of pretending to be whole', (
     tester,
   ) async {
     await startFixture();
     await bootApp(tester);
-    await browser.loadAndWait('$baseUrl/chapter/$kBrokenChapter');
+    await browser.loadAndWait('$baseUrl/entry/$kBrokenEntry');
     await pumpFor(tester, const Duration(seconds: 1));
 
-    unawaited(job.start(chapterLimit: 1));
+    unawaited(run.start(range: SaveScope.fixedCount, entryLimit: 1));
     await pumpUntil(
       tester,
-      () => job.progress.state.isTerminal && !job.isRunning,
+      () => run.progress.state.isTerminal && !run.isRunning,
     );
 
-    final chapters = await db.watchAllChapters().first;
-    final partial = chapters.where((c) => c.captureStatus == 'partial');
+    final entries = await db.watchAllEntries().first;
+    final partial = entries.where((c) => c.saveStatus == 'partial');
     expect(
       partial,
       isNotEmpty,
       reason: 'the 503 panel must produce a partial, never a false complete',
     );
 
-    final chapter = partial.first;
-    expect(chapter.storedImageCount, lessThan(chapter.detectedImageCount));
+    final entry = partial.first;
+    expect(entry.storedAssetCount, lessThan(entry.detectedAssetCount));
 
-    final manifest = await fileStore.readManifest(chapter.contentPath!);
-    expect(manifest!.status, CaptureStatus.partial);
+    final manifest = await fileStore.readManifest(entry.contentPath!);
+    expect(manifest!.status, SaveStatus.partial);
     expect(manifest.statusReason, contains('assetsFailed'));
 
     final failed = manifest.assets
@@ -326,43 +327,43 @@ void main() {
     await stopFixture();
 
     // The reader shows the warning, offline. Grouped library since M4:
-    // series card → series detail → chapter tile → reader. Waits are on
+    // collection card → collection detail → entry tile → reader. Waits are on
     // conditions, not clocks — stream providers emit when they emit.
     await openLibraryTab(tester);
     await pumpUntil(
       tester,
-      () => seriesCard().evaluate().isNotEmpty,
+      () => collectionCard().evaluate().isNotEmpty,
       timeout: const Duration(seconds: 20),
     );
-    // Earlier tests fill the sections above All Series, so the series card
+    // Earlier tests fill the sections above All Collection, so the collection card
     // can sit below the fold — bring it into view, then open THE partial
-    // chapter by its own label rather than whatever tile happens to be first.
-    await tester.ensureVisible(seriesCard().first);
+    // entry by its own label rather than whatever tile happens to be first.
+    await tester.ensureVisible(collectionCard().first);
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(seriesCard().first, warnIfMissed: false);
-    final partialLabel = chapter.chapterLabel ?? chapter.title;
+    await tester.tap(collectionCard().first, warnIfMissed: false);
+    final partialLabel = entry.sourceMarker ?? entry.title;
     await pumpUntil(
       tester,
       () => find
-          .descendant(of: chapterRow(), matching: find.text(partialLabel))
+          .descendant(of: entryRow(), matching: find.text(partialLabel))
           .evaluate()
           .isNotEmpty,
       timeout: const Duration(seconds: 20),
     );
     final partialTile = find.ancestor(
       of: find.text(partialLabel),
-      matching: chapterRow(),
+      matching: entryRow(),
     );
     await tester.ensureVisible(partialTile.first);
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(partialTile.first, warnIfMissed: false);
     await pumpFor(tester, const Duration(seconds: 3));
 
-    expect(find.textContaining('Partial capture'), findsOneWidget);
+    expect(find.textContaining('Partial save'), findsOneWidget);
 
     debugPrint(
-      '[M2] partial chapter "${chapter.title}": '
-      '${chapter.storedImageCount}/${chapter.detectedImageCount} panels, '
+      '[M2] partial entry "${entry.title}": '
+      '${entry.storedAssetCount}/${entry.detectedAssetCount} panels, '
       'reason=${manifest.statusReason}, warning shown offline',
     );
   });
@@ -372,20 +373,26 @@ void main() {
   ) async {
     await startFixture();
     await bootApp(tester);
-    await browser.loadAndWait('$baseUrl/chapter/1');
+    await browser.loadAndWait('$baseUrl/entry/1');
     await pumpFor(tester, const Duration(seconds: 1));
 
-    // replaceAll: earlier tests in this run captured this chapter on a
+    // replaceAll: earlier tests in this run saved this entry on a
     // fixture at a dead port; a skip would chase that stale chain. This test
-    // needs a fresh capture whose files it can then destroy.
-    unawaited(job.start(chapterLimit: 1, policy: DuplicatePolicy.replaceAll));
+    // needs a fresh save whose files it can then destroy.
+    unawaited(
+      run.start(
+        range: SaveScope.fixedCount,
+        entryLimit: 1,
+        policy: DuplicatePolicy.replaceAll,
+      ),
+    );
     await pumpUntil(
       tester,
-      () => job.progress.state.isTerminal && !job.isRunning,
+      () => run.progress.state.isTerminal && !run.isRunning,
     );
 
-    final chapter = (await db.watchAllChapters().first).first;
-    final relative = chapter.contentPath!;
+    final entry = (await db.watchAllEntries().first).first;
+    final relative = entry.contentPath!;
 
     // Simulate the OS or the user reclaiming the space behind our back.
     await stopFixture();
@@ -394,20 +401,20 @@ void main() {
     await openLibraryTab(tester);
     await pumpUntil(
       tester,
-      () => seriesCard().evaluate().isNotEmpty,
+      () => collectionCard().evaluate().isNotEmpty,
       timeout: const Duration(seconds: 20),
     );
-    await tester.ensureVisible(seriesCard().first);
+    await tester.ensureVisible(collectionCard().first);
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(seriesCard().first, warnIfMissed: false);
+    await tester.tap(collectionCard().first, warnIfMissed: false);
 
-    // Open the gutted chapter itself: the database has not yet noticed the
+    // Open the gutted entry itself: the database has not yet noticed the
     // files are gone, so the reader is what discovers it — and must degrade
     // to an explicit message rather than crash.
-    // By key, not by label or position: the episode list is number-first and
+    // By key, not by label or position: the entry list is number-first and
     // newest-first now, so neither the visible text nor the row's index is a
-    // stable way to find one particular chapter.
-    final goneTile = find.byKey(ValueKey('chapterRow-${chapter.id}'));
+    // stable way to find one particular entry.
+    final goneTile = find.byKey(ValueKey('entryRow-${entry.id}'));
     await pumpUntil(
       tester,
       () => goneTile.evaluate().isNotEmpty,
@@ -419,16 +426,16 @@ void main() {
     await pumpFor(tester, const Duration(seconds: 3));
 
     // No crash, an explicit message, and the row survives.
-    expect(find.text('The files for this chapter are gone'), findsOneWidget);
+    expect(find.text('The files for this entry are gone'), findsOneWidget);
 
-    final stillListed = await db.chapterById(chapter.id);
+    final stillListed = await db.entryById(entry.id);
     expect(
       stillListed,
       isNotNull,
       reason: 'deleting files must never delete reading history',
     );
-    expect(stillListed!.title, chapter.title);
+    expect(stillListed!.title, entry.title);
 
-    debugPrint('[M2] "${chapter.title}" lost its files, kept its row');
+    debugPrint('[M2] "${entry.title}" lost its files, kept its row');
   });
 }

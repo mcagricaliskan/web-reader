@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:web_reader/capture/asset_downloader.dart';
-import 'package:web_reader/capture/capture_engine.dart';
+import 'package:web_reader/save/asset_fetcher.dart';
+import 'package:web_reader/save/save_engine.dart';
 import 'package:web_reader/core/config.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
@@ -18,7 +18,7 @@ void main() {
 
   const vp = 800;
 
-  const config = CaptureConfig(
+  const config = SaveConfig(
     scrollDelay: Duration(milliseconds: 5),
     fastScrollDelay: Duration(milliseconds: 1),
     quietPeriod: Duration.zero,
@@ -28,7 +28,7 @@ void main() {
     maxAssetWait: Duration(milliseconds: 600),
     domReadyTimeout: Duration(seconds: 2),
     downloadRetries: 0,
-    cooldownBetweenChapters: Duration.zero,
+    cooldownBetweenEntries: Duration.zero,
   );
 
   setUp(() {
@@ -40,22 +40,21 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  CaptureEngine engine(ScriptedBrowser browser, {CaptureConfig? cfg}) =>
-      CaptureEngine(
-        browser: browser,
-        db: db,
-        fileStore: FileStore(root),
-        downloader: AssetDownloader(browser: browser, config: cfg ?? config),
-        config: cfg ?? config,
-      );
+  SaveEngine engine(ScriptedBrowser browser, {SaveConfig? cfg}) => SaveEngine(
+    browser: browser,
+    db: db,
+    fileStore: FileStore(root),
+    downloader: AssetFetcher(browser: browser, config: cfg ?? config),
+    config: cfg ?? config,
+  );
 
-  Future<void> run(ScriptedBrowser browser, {CaptureConfig? cfg}) async {
-    browser.setUrl('https://x.example/manga/foo/1');
+  Future<void> run(ScriptedBrowser browser, {SaveConfig? cfg}) async {
+    browser.setUrl('https://x.example/guide/foo/1');
     // Downloads fail (no server) — irrelevant: the assertions are about the
     // scroll pacing recorded before the download phase.
-    await engine(browser, cfg: cfg).captureCurrentPage(
-      libraryItemId: 'series-1',
-      sequence: 1,
+    await engine(browser, cfg: cfg).saveCurrentPage(
+      collectionId: 'collection-1',
+      entryOrder: 1,
       visitedNormalized: {},
     );
   }
@@ -154,7 +153,7 @@ void main() {
         extraImages: [avatarImage(1), avatarImage(2)],
       ),
     );
-    const cfg = CaptureConfig(
+    const cfg = SaveConfig(
       scrollDelay: Duration(milliseconds: 5),
       fastScrollDelay: Duration(milliseconds: 1),
       quietPeriod: Duration.zero,

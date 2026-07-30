@@ -7,10 +7,10 @@ import '../providers.dart';
 import '../storage/database.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
-import 'chapter_actions.dart' show connectivityProvider, hasUsableSourceUrl;
+import 'entry_actions.dart' show connectivityProvider, hasUsableSourceUrl;
 
 /// The copy the product uses when a row has nowhere to go.
-const kNoSourcePageMessage = 'This episode does not have a source page.';
+const kNoSourcePageMessage = 'This entry does not have a source page.';
 
 /// The one way anything in this app opens a page in the Browser.
 ///
@@ -23,11 +23,11 @@ const kNoSourcePageMessage = 'This episode does not have a source page.';
 ///
 /// 1. **Validate.** A row with no usable `source_url` must not move the user
 ///    anywhere — least of all to a blank Browser (D42).
-/// 2. **Confirm with a running capture.** A WebView-dependent phase owns the
+/// 2. **Confirm with a running save.** A WebView-dependent phase owns the
 ///    page; taking it silently would break the run.
 /// 3. **Store the request**, rather than loading now — see [BrowserNavigator].
 /// 4. **Pop back to the shell.** This is the step every call site was
-///    missing. Series Detail and the details sheet are routes pushed *above*
+///    missing. Collection Detail and the details sheet are routes pushed *above*
 ///    the shell; flipping the shell's tab index under them changes nothing
 ///    the user can see.
 /// 5. **Select the Browser tab.**
@@ -40,7 +40,7 @@ Future<bool> openInBrowser(
   WidgetRef ref,
   String rawUrl, {
 
-  /// Shown when [rawUrl] is unusable. The default is the episode wording;
+  /// Shown when [rawUrl] is unusable. The default is the entry wording;
   /// callers with a different noun pass their own.
   String missingUrlMessage = kNoSourcePageMessage,
 
@@ -83,9 +83,9 @@ Future<bool> openInBrowser(
 
   // 5. Back to the shell. `popUntil`-style rather than `go('/')`: popping
   //    leaves the shell route — and therefore the WebView, its cookies and
-  //    any running capture — exactly as it was, where `go` would rebuild it.
+  //    any running save — exactly as it was, where `go` would rebuild it.
   //    Nothing is pushed, so there is no duplicate Browser, Library or
-  //    Series Detail route.
+  //    Collection Detail route.
   final router = GoRouter.of(context);
   while (router.canPop()) {
     router.pop();
@@ -97,15 +97,15 @@ Future<bool> openInBrowser(
   return true;
 }
 
-/// [openInBrowser] for a chapter row, with the source-URL rule applied.
-Future<bool> openChapterInBrowser(
+/// [openInBrowser] for an entry row, with the source-URL rule applied.
+Future<bool> openEntryInBrowser(
   BuildContext context,
   WidgetRef ref,
-  Chapter chapter,
+  Entry entry,
 ) => openInBrowser(
   context,
   ref,
-  hasUsableSourceUrl(chapter) ? chapter.sourceUrl : '',
+  hasUsableSourceUrl(entry) ? entry.sourceUrl : '',
 );
 
 bool _isUsableUrl(String url) {
@@ -114,7 +114,7 @@ bool _isUsableUrl(String url) {
   return uri != null && uri.hasScheme && uri.host.isNotEmpty;
 }
 
-/// Ask before taking the page out from under a running capture.
+/// Ask before taking the page out from under a running save.
 ///
 /// Returns true when it is safe to proceed — either nothing needed the
 /// Browser, or the user chose to pause. Mirrors D36: a hold, never a stop,
@@ -125,23 +125,23 @@ bool _isUsableUrl(String url) {
 /// navigating the page away costs it nothing — and a confirmation there would
 /// be the modal crying wolf.
 Future<bool> _confirmTakeOver(BuildContext context, WidgetRef ref) async {
-  final job = ref.read(captureJobProvider);
+  final run = ref.read(saveRunProvider);
   final checker = ref.read(updateCheckerProvider);
-  final atRisk = job.needsRenderedBrowser || checker.isRunning;
+  final atRisk = run.needsRenderedBrowser || checker.isRunning;
   if (!atRisk) return true;
 
   final proceed = await showTakeOverBrowserDialog(
     context: context,
-    progressLine: job.isRunning
-        ? job.progressSummary
-        : 'Checking for new chapters',
+    progressLine: run.isRunning
+        ? run.progressSummary
+        : 'Checking for new entries',
   );
   if (!proceed) return false;
 
   // Hold the run where it is before the page moves. The engine's own
-  // page-validation handles the rest: coming back to a different chapter
+  // page-validation handles the rest: coming back to a different entry
   // keeps it paused and says so, rather than resuming onto the wrong page.
-  if (job.isRunning) job.pauseForBrowserHidden();
+  if (run.isRunning) run.pauseForBrowserHidden();
   return true;
 }
 
@@ -159,14 +159,14 @@ Future<bool> showTakeOverBrowserDialog({
     context: context,
     builder: (dialogContext) => AlertDialog(
       icon: Icon(Icons.public, size: 26, color: palette.primary),
-      title: const Text('A capture is using the Browser'),
+      title: const Text('A save is using the Browser'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Opening this page moves the Browser off the chapter being '
-            'captured. The capture pauses — nothing captured so far is lost, '
+            'Opening this page moves the Browser off the entry being '
+            'saved. The save pauses — nothing saved so far is lost, '
             'and you can resume it from Activity.',
             style: TextStyle(
               fontSize: 13,
@@ -196,12 +196,12 @@ Future<bool> showTakeOverBrowserDialog({
         TextButton(
           key: const ValueKey('takeOverBrowserPause'),
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Pause and open episode'),
+          child: const Text('Pause and open entry'),
         ),
         FilledButton(
           key: const ValueKey('takeOverBrowserStay'),
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Stay with capture'),
+          child: const Text('Stay with save'),
         ),
       ],
     ),

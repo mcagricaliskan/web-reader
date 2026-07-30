@@ -6,12 +6,13 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../browser/browser_controller.dart';
-import '../capture/capture_job.dart';
+import '../save/save_run.dart';
 import '../core/config.dart';
 import '../core/url_utils.dart';
-import '../capture/capture_preflight.dart';
-import '../capture/capture_state.dart';
-import '../library/series_identity.dart';
+import '../save/save_preflight.dart';
+import '../save/save_state.dart';
+import '../save/stop_conditions.dart';
+import '../library/collection_identity.dart';
 import '../library/update_checker.dart';
 import '../storage/cleanup.dart';
 import '../storage/database.dart';
@@ -19,46 +20,49 @@ import '../storage/file_store.dart';
 
 const _uuid = Uuid();
 
-/// What a queue entry does. `checkAllSeries` is scheduled here but expands
-/// into per-series checks when M15 lands; the scheduler does not special-case
+/// What a queue entry does. `checkAllCollections` is scheduled here but expands
+/// into per-collection checks when M15 lands; the scheduler does not special-case
 /// it beyond the type name.
 enum QueueTaskType {
-  chapterCapture,
-  multiChapterCapture,
-  seriesCheck,
-  checkAllSeries,
+  entrySave,
+  sequenceSave,
+  collectionCheck,
+  checkAllCollections,
 
-  /// Bulk offline-file removal (a whole series, or every finished chapter).
+  /// Bulk offline-file removal (a whole collection, or every finished entry).
   /// Removal is never metadata deletion; see [CleanupService].
   removeOfflineFiles,
 }
 
-QueueTaskType queueTaskTypeFromName(String name) => QueueTaskType.values
-    .firstWhere((t) => t.name == name, orElse: () => QueueTaskType.seriesCheck);
+QueueTaskType queueTaskTypeFromName(String name) =>
+    QueueTaskType.values.firstWhere(
+      (t) => t.name == name,
+      orElse: () => QueueTaskType.collectionCheck,
+    );
 
 /// What a removeOfflineFiles task targets, encoded in `startUrl` (the column
-/// is free-form text; a cleanup task has no URL): `series` uses
-/// libraryItemId; `finishedEverywhere` sweeps every completed offline
-/// chapter in the active library.
-const kCleanupScopeSeries = 'cleanup:series';
+/// is free-form text; a cleanup task has no URL): `collection` uses
+/// collectionId; `finishedEverywhere` sweeps every completed offline
+/// entry in the active library.
+const kCleanupScopeCollection = 'cleanup:collection';
 const kCleanupScopeFinished = 'cleanup:finishedEverywhere';
 
 enum QueueTaskState { queued, running, completed, failed, cancelled }
 
 /// `queue_tasks.origin` values (D58). Ordinary queued work carries
-/// [kQueueOriginQueue]; a row written for a capture the user started straight
+/// [kQueueOriginQueue]; a row written for a save the user started straight
 /// from the Browser carries [kQueueOriginDirect] and is always terminal.
 const kQueueOriginQueue = 'queue';
 const kQueueOriginDirect = 'direct';
 
 bool isDirectOriginTask(QueueTask task) => task.origin == kQueueOriginDirect;
 
-/// Is there a capture request still *waiting* for this exact page?
+/// Is there a save request still *waiting* for this exact page?
 ///
-/// Queued rows only. A running one is the job's business (the Browser reads
-/// that from the job itself), and a terminal one is history — a chapter
-/// captured last week must not make today's page look "queued" (D59).
-bool pageHasQueuedCapture(List<QueueTask> tasks, String pageKey) {
+/// Queued rows only. A running one is the run's business (the Browser reads
+/// that from the run itself), and a terminal one is history — an entry
+/// saved last week must not make today's page look "queued" (D59).
+bool pageHasQueuedSave(List<QueueTask> tasks, String pageKey) {
   if (pageKey.isEmpty) return false;
   for (final task in tasks) {
     if (task.state != QueueTaskState.queued.name) continue;
@@ -71,40 +75,59 @@ bool pageHasQueuedCapture(List<QueueTask> tasks, String pageKey) {
   return false;
 }
 
-/// Whether a capture task is Browser-dependent from the queue's point of
+/// Whether a save task is Browser-dependent from the queue's point of
 /// view. Checks drive the WebView too; cleanup never does.
 bool taskNeedsBrowser(QueueTaskType type) => switch (type) {
-  QueueTaskType.chapterCapture ||
-  QueueTaskType.multiChapterCapture ||
-  QueueTaskType.seriesCheck ||
-  QueueTaskType.checkAllSeries => true,
+  QueueTaskType.entrySave ||
+  QueueTaskType.sequenceSave ||
+  QueueTaskType.collectionCheck ||
+  QueueTaskType.checkAllCollections => true,
   QueueTaskType.removeOfflineFiles => false,
 };
 
-/// Capture is the only work that waits for an explicit start.
+/// Save is the only work that waits for an explicit start.
 ///
 /// Update checks and cleanup are cheap, bounded, and already user-initiated
 /// per action; making them wait behind a second confirmation would be
-/// ceremony. Capture is the one that opens the Browser, holds it for minutes
+/// ceremony. Save is the one that opens the Browser, holds it for minutes
 /// and downloads megabytes — so it is the one the user gets to batch up and
 /// start deliberately (D46).
 bool taskWaitsForExplicitStart(QueueTaskType type) =>
-    type == QueueTaskType.chapterCapture ||
-    type == QueueTaskType.multiChapterCapture;
+    type == QueueTaskType.entrySave || type == QueueTaskType.sequenceSave;
 
 /// Why a direct start did not begin. `started` is the only success.
 enum DirectStartResult {
   started,
 
-  /// Something else already owns the WebView (a capture, an update check).
+  /// Something else already owns the WebView (a save, an update check).
   /// Not an error — the queue is still open to the same request.
   browserBusy,
 
   /// The Browser could not be brought forward / has no attached WebView.
   browserUnavailable,
 
-  /// No page to capture.
+  /// No page to save.
   noPage,
+}
+
+/// What [TaskQueueController.cancelTask] did (D64).
+///
+/// Four outcomes rather than void, because "it had already started" and "it
+/// never started" are different things to tell the user, and because a tap
+/// that lost the race with the pump must not be reported as a clean removal.
+enum CancelResult {
+  /// It was still waiting; it is now a cancelled history row and will not run.
+  cancelledBeforeStart,
+
+  /// It was already running. The worker has been asked to stop at its next
+  /// safe boundary; the row is cancelled from this moment on.
+  stoppingRunning,
+
+  /// Already terminal — there was nothing left to cancel.
+  alreadyFinished,
+
+  /// No such row (pruned, cleared, or cancelled by something else first).
+  gone,
 }
 
 /// Whatever is holding the shared WebView right now, named for the UI.
@@ -115,7 +138,7 @@ class BrowserOwnerState {
     required this.needsBrowser,
   });
 
-  /// "A capture is running", "An update check is running".
+  /// "A save is running", "An update check is running".
   final String label;
 
   /// Canonical identity of the page it is working on; empty when unknown.
@@ -126,9 +149,9 @@ class BrowserOwnerState {
   final bool needsBrowser;
 }
 
-/// What [TaskQueueController.enqueueCapture] did.
+/// What [TaskQueueController.enqueueSave] did.
 ///
-/// `alreadyQueued` is not a failure: the chapter is in the queue, which is
+/// `alreadyQueued` is not a failure: the entry is in the queue, which is
 /// what the user wanted. It exists so the caller can say "already in the
 /// queue" instead of a second "added".
 class QueueEnqueueResult {
@@ -141,7 +164,7 @@ class QueueEnqueueResult {
 /// The counts the Activity screen and the Library strip both quote.
 class QueueSummary {
   const QueueSummary({
-    required this.queuedCaptures,
+    required this.queuedSaves,
     required this.queuedOther,
     required this.running,
     required this.failed,
@@ -149,16 +172,16 @@ class QueueSummary {
     required this.cancelled,
   });
 
-  final int queuedCaptures;
+  final int queuedSaves;
   final int queuedOther;
   final int running;
   final int failed;
   final int completed;
   final int cancelled;
 
-  int get queued => queuedCaptures + queuedOther;
+  int get queued => queuedSaves + queuedOther;
   int get remaining => queued + running;
-  bool get hasQueuedCaptures => queuedCaptures > 0;
+  bool get hasQueuedSaves => queuedSaves > 0;
 
   factory QueueSummary.of(List<QueueTask> tasks) {
     var qc = 0, qo = 0, r = 0, f = 0, c = 0, x = 0;
@@ -181,7 +204,7 @@ class QueueSummary {
       }
     }
     return QueueSummary(
-      queuedCaptures: qc,
+      queuedSaves: qc,
       queuedOther: qo,
       running: r,
       failed: f,
@@ -205,67 +228,67 @@ class QueueOutcome {
 
 /// Schedules autonomous work — it never performs any.
 ///
-/// The design line that keeps this from becoming a second job system: the
+/// The design line that keeps this from becoming a second run system: the
 /// queue owns *ordering, persistence and history*; the work itself stays in
-/// [CaptureJobController] and [UpdateChecker], which already know how to
-/// capture, check, pause, and clean up after themselves. One task runs at a
+/// [SaveRunController] and [UpdateChecker], which already know how to
+/// save, check, pause, and clean up after themselves. One task runs at a
 /// time — the shared WebView (`automationOwner`) makes concurrency structurally
 /// impossible anyway, so the scheduler simply respects that.
 ///
 /// Restart semantics: queued work is **offered, never auto-resumed**
-/// ([OPEN_QUESTIONS.md] Q24) — the same rule the interrupted-capture card has
+/// ([OPEN_QUESTIONS.md] Q24) — the same rule the interrupted-save card has
 /// always followed. Nothing navigates a WebView at launch because a row said
 /// so yesterday.
 class TaskQueueController extends ChangeNotifier {
   TaskQueueController({
     required this.db,
-    required this.captureJob,
+    required this.saveRun,
     required this.checker,
     required this.browser,
     CleanupService? cleanup,
     this.historyLimit = 50,
-    @visibleForTesting this.captureRunner,
+    @visibleForTesting this.saveRunner,
     @visibleForTesting this.checkRunner,
   }) : cleanup =
            cleanup ??
            CleanupService(
              db: db,
              fileStore: FileStore(Directory.systemTemp),
-             captureJob: captureJob,
+             saveRun: saveRun,
            ) {
-    // The pump defers while someone else owns the WebView (a resumed capture,
+    // The pump defers while someone else owns the WebView (a resumed save,
     // a directly-started check). Ownership release does not notify by itself,
     // but both controllers notify at the end of their runs — after clearing
     // the owner — so listening to them closes the stall: queued work drains
     // as soon as the browser frees, not at the next enqueue.
-    captureJob.addListener(_maybePump);
+    saveRun.addListener(_maybePump);
     checker.addListener(_maybePump);
   }
 
   @override
   void dispose() {
-    captureJob.removeListener(_maybePump);
+    saveRun.removeListener(_maybePump);
     checker.removeListener(_maybePump);
     super.dispose();
   }
 
   void _maybePump() {
     if (_pumping || _resumeOffered) return;
-    // A direct capture has claimed the Browser but may not have taken
+    // A direct save has claimed the Browser but may not have taken
     // `automationOwner` yet (start() does a disk check first). Without this the
     // pump could slip a queued check in through that window and the direct
     // start would then refuse itself.
-    if (_directCaptureClaimed) return;
+    if (_directSaveClaimed) return;
     if (browser.automationOwner != null) return;
     unawaited(_pump());
   }
 
-  /// Is this chapter already spoken for?
+  /// Is this entry already spoken for?
   ///
-  /// Matches on the normalised start URL across queued and running capture
-  /// rows only. History is deliberately excluded: a chapter captured last
+  /// Matches on the normalised start URL across queued and running save
+  /// rows only. History is deliberately excluded: an entry saved last
   /// week must not block an intentional re-fetch today.
-  Future<QueueTask?> pendingCaptureFor(String startUrl) async {
+  Future<QueueTask?> pendingSaveFor(String startUrl) async {
     final key = normalizeUrl(startUrl);
     if (key.isEmpty) return null;
     final pending = await db.pendingQueueTasks();
@@ -280,14 +303,14 @@ class TaskQueueController extends ChangeNotifier {
   }
 
   final AppDatabase db;
-  final CaptureJobController captureJob;
+  final SaveRunController saveRun;
   final UpdateChecker checker;
   final BrowserController browser;
   final CleanupService cleanup;
   final int historyLimit;
 
   /// Test seams: replace the real work while keeping the real scheduler.
-  final Future<QueueOutcome> Function(QueueTask task)? captureRunner;
+  final Future<QueueOutcome> Function(QueueTask task)? saveRunner;
   final Future<QueueOutcome> Function(QueueTask task)? checkRunner;
 
   bool _pumping = false;
@@ -305,37 +328,37 @@ class TaskQueueController extends ChangeNotifier {
 
   final Set<String> _cancelRequested = {};
 
-  /// True between "the user pressed Start Capture" and the capture queue
+  /// True between "the user pressed Start Save" and the save queue
   /// running dry.
   ///
   /// **Not persisted, deliberately.** Queued rows survive a restart; the
   /// permission to drive the Browser does not. A relaunch that resumed
   /// scrolling because a row existed yesterday is exactly what Q24 forbids,
   /// and D46 makes it a product rule rather than an accident of timing.
-  bool _captureStartAuthorised = false;
-  bool get captureStartAuthorised => _captureStartAuthorised;
+  bool _saveStartAuthorised = false;
+  bool get saveStartAuthorised => _saveStartAuthorised;
 
-  /// True from "the user pressed Start Capture in the Browser" until that one
+  /// True from "the user pressed Start Save in the Browser" until that one
   /// run ends.
   ///
-  /// Deliberately **not** [_captureStartAuthorised]: a direct capture is one
+  /// Deliberately **not** [_saveStartAuthorised]: a direct save is one
   /// run the user pointed at, not permission to drain the queue behind it
-  /// (D58). Pending captures stay pending, in their existing order, and are
-  /// released only by [startQueuedCaptures] / [startQueuedTask].
-  bool _directCaptureClaimed = false;
-  bool get directCaptureRunning => _directCaptureClaimed;
+  /// (D58). Pending saves stay pending, in their existing order, and are
+  /// released only by [startQueuedSaves] / [startQueuedTask].
+  bool _directSaveClaimed = false;
+  bool get directSaveRunning => _directSaveClaimed;
 
   /// Asked before a Browser-dependent task runs: bring the Browser forward
   /// and tell us whether its WebView is actually there.
   ///
   /// Injected by the shell, which is the thing that owns tab switching. Null
   /// in tests and headless contexts, where it degrades to "assume visible" —
-  /// the capture engine's own render guard is the real safety net, this is
+  /// the save engine's own render guard is the real safety net, this is
   /// the *navigation*.
   Future<bool> Function()? ensureBrowserVisible;
 
-  /// Queued capture work the user has not started yet.
-  Future<List<QueueTask>> queuedCaptures() async {
+  /// Queued save work the user has not started yet.
+  Future<List<QueueTask>> queuedSaves() async {
     final pending = await db.pendingQueueTasks();
     return [
       for (final t in pending)
@@ -345,48 +368,48 @@ class TaskQueueController extends ChangeNotifier {
     ];
   }
 
-  /// The user pressed Start Capture. Authorises Browser automation for the
-  /// queued captures and starts draining; returns how many were released.
-  Future<int> startQueuedCaptures() async {
-    final waiting = await queuedCaptures();
+  /// The user pressed Start Save. Authorises Browser automation for the
+  /// queued saves and starts draining; returns how many were released.
+  Future<int> startQueuedSaves() async {
+    final waiting = await queuedSaves();
     if (waiting.isEmpty) return 0;
-    _captureStartAuthorised = true;
+    _saveStartAuthorised = true;
     _resumeOffered = false;
     notifyListeners();
     unawaited(_pump());
     return waiting.length;
   }
 
-  /// Start one queued capture ahead of the rest: it moves to the front, and
-  /// the queue is authorised as if Start Capture had been pressed.
+  /// Start one queued save ahead of the rest: it moves to the front, and
+  /// the queue is authorised as if Start Save had been pressed.
   Future<bool> startQueuedTask(String id) async {
     final task = await db.queueTaskById(id);
     if (task == null || task.state != QueueTaskState.queued.name) return false;
     await moveQueuedToFront(id);
-    _captureStartAuthorised = true;
+    _saveStartAuthorised = true;
     _resumeOffered = false;
     notifyListeners();
     unawaited(_pump());
     return true;
   }
 
-  // --- direct capture (D58) --------------------------------------------------
+  // --- direct save (D58) --------------------------------------------------
 
   /// Who owns the shared WebView right now, or null when it is free.
   ///
   /// One driver at a time is structural — there is one WebView and one
-  /// [CaptureJobController] — so this is what the capture sheet consults before
-  /// offering **Start Capture** at all.
+  /// [SaveRunController] — so this is what the save sheet consults before
+  /// offering **Start Save** at all.
   BrowserOwnerState? get browserOwner {
-    if (captureJob.hasActiveRun) {
+    if (saveRun.hasActiveRun) {
       return BrowserOwnerState(
-        label: captureJob.isPaused
-            ? 'A capture is paused'
-            : (captureJob.needsRenderedBrowser
-                  ? 'A capture is using the Browser'
-                  : 'A capture is finishing its downloads'),
-        pageKey: captureJob.activePageKey,
-        needsBrowser: captureJob.needsRenderedBrowser,
+        label: saveRun.isPaused
+            ? 'A save is paused'
+            : (saveRun.needsRenderedBrowser
+                  ? 'A save is using the Browser'
+                  : 'A save is finishing its downloads'),
+        pageKey: saveRun.activePageKey,
+        needsBrowser: saveRun.needsRenderedBrowser,
       );
     }
     if (checker.isRunning) {
@@ -408,94 +431,94 @@ class TaskQueueController extends ChangeNotifier {
     return null;
   }
 
-  /// Capture [startUrl] **now**, in the Browser the user is looking at.
+  /// Save [startUrl] **now**, in the Browser the user is looking at.
   ///
   /// Creates no queue row: nothing is added to the pending queue, nothing
   /// already queued is released, reordered or consumed, and the batch
-  /// authorisation is untouched (D58). The persistent `capture_jobs` record is
+  /// authorisation is untouched (D58). The persistent `save_runs` record is
   /// still written — that is what progress, pause, recovery and resume stand
   /// on — and a **terminal** queue row is written when the run ends, so the
   /// result appears in Activity history like any other work.
   ///
   /// Returns as soon as the run has begun; the run itself is observable on
-  /// [captureJob], never awaited by the caller.
-  Future<DirectStartResult> startDirectCapture({
+  /// [saveRun], never awaited by the caller.
+  Future<DirectStartResult> startDirectSave({
     required String startUrl,
-    required int chapterLimit,
+    required int entryLimit,
     DuplicatePolicy policy = DuplicatePolicy.ask,
-    CaptureRangeMode range = CaptureRangeMode.fixedCount,
-    String? libraryItemId,
+    SaveScope range = SaveScope.fixedCount,
+    String? collectionId,
   }) async {
     if (startUrl.trim().isEmpty) return DirectStartResult.noPage;
-    if (_directCaptureClaimed || browserOwner != null) {
+    if (_directSaveClaimed || browserOwner != null) {
       return DirectStartResult.browserBusy;
     }
     // Claimed before the first await: two taps in the same frame must not both
     // get through, and the pump must not take the WebView in between.
-    _directCaptureClaimed = true;
+    _directSaveClaimed = true;
     notifyListeners();
 
     // Rendered-Browser validation before anything starts (D47): the same hook
     // the queue uses, so a direct start cannot skip the step queued work takes.
     final ready = await ensureBrowserVisible?.call() ?? browser.isAttached;
     if (!ready) {
-      _directCaptureClaimed = false;
+      _directSaveClaimed = false;
       notifyListeners();
       return DirectStartResult.browserUnavailable;
     }
 
     unawaited(
       _runDirect(
-        libraryItemId: libraryItemId,
+        collectionId: collectionId,
         startUrl: startUrl,
-        chapterLimit: chapterLimit,
+        entryLimit: entryLimit,
         range: range,
-        run: () => captureJob.start(
-          chapterLimit: chapterLimit,
+        run: () => saveRun.start(
+          entryLimit: entryLimit,
           startUrl: startUrl,
           policy: policy,
           range: range,
-          origin: CaptureOrigin.direct,
+          origin: SaveOrigin.direct,
         ),
       ),
     );
     return DirectStartResult.started;
   }
 
-  /// Resume an interrupted run. A direct capture resumes **directly**; it is
+  /// Resume an interrupted run. A direct save resumes **directly**; it is
   /// never converted into a pending queue task (D58).
-  Future<DirectStartResult> resumeInterruptedCapture(CaptureJob job) async {
-    if (_directCaptureClaimed || browserOwner != null) {
+  Future<DirectStartResult> resumeInterruptedSave(SaveRun run) async {
+    if (_directSaveClaimed || browserOwner != null) {
       return DirectStartResult.browserBusy;
     }
-    _directCaptureClaimed = true;
+    _directSaveClaimed = true;
     notifyListeners();
     final ready = await ensureBrowserVisible?.call() ?? browser.isAttached;
     if (!ready) {
-      _directCaptureClaimed = false;
+      _directSaveClaimed = false;
       notifyListeners();
       return DirectStartResult.browserUnavailable;
     }
     unawaited(
       _runDirect(
-        libraryItemId: job.libraryItemId,
-        startUrl: job.currentUrl ?? job.startUrl,
-        chapterLimit: job.requestedChapters,
-        range: captureRangeModeFromName(job.rangeMode),
+        collectionId: run.collectionId,
+        startUrl: run.currentUrl ?? run.startUrl,
+        entryLimit: run.requestedEntries,
+        range: saveScopeFromName(run.scope),
         resumed: true,
-        run: () => captureJob.resumeJob(job),
+        run: () => saveRun.resumeRun(run),
       ),
     );
     return DirectStartResult.started;
   }
 
-  /// Run a direct capture and record how it ended.
+  /// Run a direct save and record how it ended.
   Future<void> _runDirect({
     required String startUrl,
-    required int chapterLimit,
-    required CaptureRangeMode range,
+    required int entryLimit,
+    required SaveScope range,
     required Future<void> Function() run,
-    String? libraryItemId,
+    String? collectionId,
     bool resumed = false,
   }) async {
     try {
@@ -503,63 +526,67 @@ class TaskQueueController extends ChangeNotifier {
     } catch (e) {
       await _recordDirectOutcome(
         startUrl: startUrl,
-        chapterLimit: chapterLimit,
+        entryLimit: entryLimit,
         range: range,
-        libraryItemId: libraryItemId,
+        collectionId: collectionId,
         resumed: resumed,
         outcome: QueueOutcome.failure(e.toString()),
       );
       return;
     } finally {
-      _directCaptureClaimed = false;
+      _directSaveClaimed = false;
       notifyListeners();
       // The Browser is free again. Work that drains on its own (checks,
-      // cleanup) may now run; pending *captures* still may not — they are
+      // cleanup) may now run; pending *saves* still may not — they are
       // released by an explicit Start and by nothing else (D46, D58).
       _maybePump();
     }
-    final p = captureJob.progress;
+    final p = saveRun.progress;
     final summary =
-        '${p.storedChapters} captured'
-        '${p.skippedChapters > 0 ? ', ${p.skippedChapters} skipped' : ''}';
+        '${p.storedEntries} saved'
+        '${p.skippedEntries > 0 ? ', ${p.skippedEntries} skipped' : ''}';
     await _recordDirectOutcome(
       startUrl: startUrl,
-      chapterLimit: chapterLimit,
+      entryLimit: entryLimit,
       range: range,
-      libraryItemId: libraryItemId,
+      collectionId: collectionId,
       resumed: resumed,
-      outcome: p.state == CaptureState.failed
+      outcome: p.state == SaveState.failed
           ? QueueOutcome.failure(p.lastError ?? summary)
           : QueueOutcome.success(
-              p.state == CaptureState.cancelled
-                  ? 'stopped · $summary'
-                  : summary,
+              p.state == SaveState.cancelled ? 'stopped · $summary' : summary,
             ),
-      cancelled: p.state == CaptureState.cancelled,
+      cancelled: p.state == SaveState.cancelled,
     );
   }
 
   /// One **terminal** row for a direct run — history, never a plan.
   Future<void> _recordDirectOutcome({
     required String startUrl,
-    required int chapterLimit,
-    required CaptureRangeMode range,
+    required int entryLimit,
+    required SaveScope range,
     required QueueOutcome outcome,
-    String? libraryItemId,
+    String? collectionId,
     bool resumed = false,
     bool cancelled = false,
+    bool includeImages = true,
+    int? maxBytes,
+    StopReason? stopReason,
   }) async {
     final now = DateTime.now();
     await db.upsertQueueTask(
       QueueTask(
         id: _uuid.v4(),
-        taskType: range != CaptureRangeMode.currentChapter && chapterLimit > 1
-            ? QueueTaskType.multiChapterCapture.name
-            : QueueTaskType.chapterCapture.name,
-        libraryItemId: libraryItemId,
+        taskType: range != SaveScope.currentPageOnly && entryLimit > 1
+            ? QueueTaskType.sequenceSave.name
+            : QueueTaskType.entrySave.name,
+        collectionId: collectionId,
         startUrl: startUrl,
-        chapterLimit: chapterLimit,
-        rangeMode: range.name,
+        entryLimit: entryLimit,
+        maxBytes: maxBytes,
+        includeImages: includeImages,
+        scope: range.name,
+        stopReason: stopReason?.name,
         origin: kQueueOriginDirect,
         state: cancelled
             ? QueueTaskState.cancelled.name
@@ -579,10 +606,10 @@ class TaskQueueController extends ChangeNotifier {
   }
 
   /// Stop the batch: the running task is asked to stop and the remaining
-  /// queued captures go back to waiting. They are **not** cancelled — the
+  /// queued saves go back to waiting. They are **not** cancelled — the
   /// user stopped the run, not the plan.
-  Future<void> stopQueuedCaptures() async {
-    _captureStartAuthorised = false;
+  Future<void> stopQueuedSaves() async {
+    _saveStartAuthorised = false;
     final id = _runningTaskId;
     if (id != null) await cancelTask(id);
     notifyListeners();
@@ -612,34 +639,39 @@ class TaskQueueController extends ChangeNotifier {
 
   // --- enqueueing -----------------------------------------------------------
 
-  /// Add a capture request. It **waits** — nothing navigates, nothing
+  /// Add a save request. It **waits** — nothing navigates, nothing
   /// scrolls, no WebView is touched until the user starts the queue (D46).
   ///
-  /// Deduplicated against queued and running capture rows by start URL, so a
-  /// second tap on the same chapter reports "already queued" rather than
+  /// Deduplicated against queued and running save rows by start URL, so a
+  /// second tap on the same entry reports "already queued" rather than
   /// stacking an identical run behind the first.
-  Future<QueueEnqueueResult> enqueueCapture({
+  Future<QueueEnqueueResult> enqueueSave({
     required String startUrl,
-    required int chapterLimit,
-    String? libraryItemId,
+    required int entryLimit,
+    String? collectionId,
     DuplicatePolicy policy = DuplicatePolicy.ask,
-    CaptureRangeMode range = CaptureRangeMode.fixedCount,
+    // The safe default, so a caller that forgets to say saves one page.
+    SaveScope range = SaveScope.currentPageOnly,
+    int? maxBytes,
+    bool includeImages = true,
   }) async {
-    final existing = await pendingCaptureFor(startUrl);
+    final existing = await pendingSaveFor(startUrl);
     if (existing != null) {
       return QueueEnqueueResult(id: existing.id, alreadyQueued: true);
     }
     final id = await _enqueue(
       QueueTask(
         id: _uuid.v4(),
-        taskType: range != CaptureRangeMode.currentChapter && chapterLimit > 1
-            ? QueueTaskType.multiChapterCapture.name
-            : QueueTaskType.chapterCapture.name,
-        libraryItemId: libraryItemId,
+        taskType: range != SaveScope.currentPageOnly && entryLimit > 1
+            ? QueueTaskType.sequenceSave.name
+            : QueueTaskType.entrySave.name,
+        collectionId: collectionId,
         startUrl: startUrl,
-        chapterLimit: chapterLimit,
+        entryLimit: entryLimit,
+        maxBytes: maxBytes,
+        includeImages: includeImages,
         duplicatePolicy: policy.name,
-        rangeMode: range.name,
+        scope: range.name,
         origin: kQueueOriginQueue,
         state: QueueTaskState.queued.name,
         orderIndex: 0, // assigned in _enqueue
@@ -649,39 +681,39 @@ class TaskQueueController extends ChangeNotifier {
     return QueueEnqueueResult(id: id, alreadyQueued: false);
   }
 
-  /// Queue a set of chapters for capture, oldest first.
+  /// Queue a set of entries for save, oldest first.
   ///
-  /// [chapters] arrives in whatever order the screen was displaying — which
+  /// [entries] arrives in whatever order the screen was displaying — which
   /// is usually newest-first — and is re-sorted into **reading order** here.
-  /// Capture walks forward through a series; queueing 490, 489, 488 in that
+  /// Save walks forward through a collection; queueing 490, 489, 488 in that
   /// order would fight the chain-following the engine does on its own.
   ///
-  /// Each chapter becomes its own single-chapter task against its own stored
+  /// Each entry becomes its own single-entry task against its own stored
   /// URL, so one bad page cannot strand the rest, and every row keeps its
-  /// existing chapter record (D48).
-  Future<BatchQueueResult> enqueueChapters(
-    List<Chapter> chapters, {
+  /// existing entry record (D48).
+  Future<BatchQueueResult> enqueueEntries(
+    List<Entry> entries, {
     DuplicatePolicy policy = DuplicatePolicy.replaceAll,
   }) async {
-    final ordered = sortChaptersForCaptureOrder(chapters);
+    final ordered = sortEntriesForSaveOrder(entries);
     final queued = <String>[];
-    final already = <Chapter>[];
-    final noSource = <Chapter>[];
+    final already = <Entry>[];
+    final noSource = <Entry>[];
 
-    for (final chapter in ordered) {
-      if (!chapterHasCapturableUrl(chapter)) {
-        noSource.add(chapter);
+    for (final entry in ordered) {
+      if (!entryHasCapturableUrl(entry)) {
+        noSource.add(entry);
         continue;
       }
-      final result = await enqueueCapture(
-        startUrl: chapter.sourceUrl.trim(),
-        chapterLimit: 1,
-        libraryItemId: chapter.libraryItemId,
+      final result = await enqueueSave(
+        startUrl: entry.sourceUrl.trim(),
+        entryLimit: 1,
+        collectionId: entry.collectionId,
         policy: policy,
-        range: CaptureRangeMode.currentChapter,
+        range: SaveScope.currentPageOnly,
       );
       if (result.alreadyQueued) {
-        already.add(chapter);
+        already.add(entry);
       } else {
         queued.add(result.id);
       }
@@ -693,16 +725,16 @@ class TaskQueueController extends ChangeNotifier {
     );
   }
 
-  /// Idempotent per series: a check is a metadata read, so a second tap while
-  /// one is already queued or running for the same series returns the
+  /// Idempotent per collection: a check is a metadata read, so a second tap while
+  /// one is already queued or running for the same collection returns the
   /// existing task instead of stacking a duplicate behind it.
-  Future<String> enqueueSeriesCheck(String libraryItemId) async {
+  Future<String> enqueueCollectionCheck(String collectionId) async {
     final pending = await db.pendingQueueTasks();
     final existing = pending
         .where(
           (t) =>
-              t.taskType == QueueTaskType.seriesCheck.name &&
-              t.libraryItemId == libraryItemId,
+              t.taskType == QueueTaskType.collectionCheck.name &&
+              t.collectionId == collectionId,
         )
         .firstOrNull;
     if (existing != null) {
@@ -713,8 +745,12 @@ class TaskQueueController extends ChangeNotifier {
     return _enqueue(
       QueueTask(
         id: _uuid.v4(),
-        taskType: QueueTaskType.seriesCheck.name,
-        libraryItemId: libraryItemId,
+        taskType: QueueTaskType.collectionCheck.name,
+        collectionId: collectionId,
+        // Metadata only: a check never writes a file, so there are no images to
+        // include and no storage ceiling to apply.
+        includeImages: false,
+        origin: kQueueOriginQueue,
         state: QueueTaskState.queued.name,
         orderIndex: 0,
         queuedAt: DateTime.now(),
@@ -722,37 +758,37 @@ class TaskQueueController extends ChangeNotifier {
     );
   }
 
-  /// M15: "check everything" expands into one [QueueTaskType.seriesCheck] row
-  /// per series rather than one opaque mega-task. That choice does the heavy
+  /// M15: "check everything" expands into one [QueueTaskType.collectionCheck] row
+  /// per collection rather than one opaque mega-task. That choice does the heavy
   /// lifting for free: a kill mid-run leaves the remainder as queued rows the
-  /// restart offer picks up, one series' failure is its own history row with
+  /// restart offer picks up, one collection's failure is its own history row with
   /// its own reason, and progress is just the queue's own counts.
   ///
-  /// Idempotent via [enqueueSeriesCheck]'s per-series dedupe: series already
+  /// Idempotent via [enqueueCollectionCheck]'s per-collection dedupe: collection already
   /// pending are not stacked again. Returns the task ids, existing or new.
   Future<List<String>> enqueueCheckAll() async {
-    final items = await db.allLibraryItems();
+    final items = await db.allCollections();
     final ids = <String>[];
     for (final item in items) {
-      // Archived series are asleep: no checks until restored (M16).
+      // Archived collection are asleep: no checks until restored (M16).
       if (item.lifecycle == 'archived') continue;
-      ids.add(await enqueueSeriesCheck(item.id));
+      ids.add(await enqueueCollectionCheck(item.id));
     }
     return ids;
   }
 
-  /// Everything still pending for one series — the number the archive dialog
+  /// Everything still pending for one collection — the number the archive dialog
   /// quotes before it cancels them.
-  Future<List<QueueTask>> pendingTasksForSeries(String libraryItemId) async {
+  Future<List<QueueTask>> pendingTasksForCollection(String collectionId) async {
     final pending = await db.pendingQueueTasks();
-    return pending.where((t) => t.libraryItemId == libraryItemId).toList();
+    return pending.where((t) => t.collectionId == collectionId).toList();
   }
 
-  /// M16 (Q25): archiving a series takes its pending work with it — queued
+  /// M16 (Q25): archiving a collection takes its pending work with it — queued
   /// rows are cancelled outright, a running one is asked to stop. Returns how
   /// many tasks were affected.
-  Future<int> cancelTasksForSeries(String libraryItemId) async {
-    final affected = await pendingTasksForSeries(libraryItemId);
+  Future<int> cancelTasksForCollection(String collectionId) async {
+    final affected = await pendingTasksForCollection(collectionId);
     for (final task in affected) {
       await cancelTask(task.id);
     }
@@ -760,39 +796,40 @@ class TaskQueueController extends ChangeNotifier {
   }
 
   /// Cancel every *queued* check, leaving the in-flight one to finish — the
-  /// M15 cancel semantic: "stop after the current series".
+  /// M15 cancel semantic: "stop after the current collection".
   Future<int> cancelQueuedChecks() async {
     final pending = await db.pendingQueueTasks();
     final queuedChecks = pending
         .where(
           (t) =>
               t.state == QueueTaskState.queued.name &&
-              (t.taskType == QueueTaskType.seriesCheck.name ||
-                  t.taskType == QueueTaskType.checkAllSeries.name),
+              (t.taskType == QueueTaskType.collectionCheck.name ||
+                  t.taskType == QueueTaskType.checkAllCollections.name),
         )
         .toList();
+    var cancelled = 0;
     for (final task in queuedChecks) {
-      await _finish(
-        task,
-        QueueTaskState.cancelled,
-        const QueueOutcome.failure('cancelled before it started'),
-      );
+      // The count is what was actually dropped: one of these may have just
+      // been claimed by the pump, and it keeps running.
+      if (await _cancelQueued(task, 'cancelled before it started')) cancelled++;
     }
-    return queuedChecks.length;
+    return cancelled;
   }
 
-  /// Bulk offline-file removal as an observable task: a whole series
-  /// (pass [libraryItemId]) or every finished offline chapter everywhere.
-  /// Small single-chapter removals stay inline (toast + undo) — a queue row
+  /// Bulk offline-file removal as an observable task: a whole collection
+  /// (pass [collectionId]) or every finished offline entry everywhere.
+  /// Small single-entry removals stay inline (toast + undo) — a queue row
   /// for an instant is noise.
-  Future<String> enqueueCleanup({String? libraryItemId}) => _enqueue(
+  Future<String> enqueueCleanup({String? collectionId}) => _enqueue(
     QueueTask(
       id: _uuid.v4(),
       taskType: QueueTaskType.removeOfflineFiles.name,
-      libraryItemId: libraryItemId,
-      startUrl: libraryItemId != null
-          ? kCleanupScopeSeries
+      collectionId: collectionId,
+      startUrl: collectionId != null
+          ? kCleanupScopeCollection
           : kCleanupScopeFinished,
+      includeImages: false,
+      origin: kQueueOriginQueue,
       state: QueueTaskState.queued.name,
       orderIndex: 0,
       queuedAt: DateTime.now(),
@@ -803,7 +840,7 @@ class TaskQueueController extends ChangeNotifier {
     final order = await db.nextQueueOrderIndex();
     await db.upsertQueueTask(task.copyWith(orderIndex: order));
     notifyListeners();
-    // Captures wait for an explicit start (D46); checks and cleanup are
+    // Saves wait for an explicit start (D46); checks and cleanup are
     // cheap and already one-action-one-intent, so they drain immediately.
     if (!taskWaitsForExplicitStart(queueTaskTypeFromName(task.taskType))) {
       unawaited(_pump());
@@ -814,33 +851,135 @@ class TaskQueueController extends ChangeNotifier {
   // --- controls ---------------------------------------------------------------
 
   /// Cancel a queued task outright, or ask the running one to stop.
-  Future<void> cancelTask(String id) async {
+  ///
+  /// Returns what actually happened, because the caller has different things
+  /// to say for each — and because "it had already started" is a real outcome
+  /// of pressing Remove on a row the pump claimed in the same instant.
+  Future<CancelResult> cancelTask(String id) async {
     final task = await db.queueTaskById(id);
-    if (task == null) return;
+    if (task == null) return CancelResult.gone;
     if (task.state == QueueTaskState.queued.name) {
-      await _finish(
+      final cancelled = await _cancelQueued(
         task,
-        QueueTaskState.cancelled,
-        const QueueOutcome.failure('cancelled before it started'),
+        'cancelled before it started',
       );
-      return;
-    }
-    if (task.state == QueueTaskState.running.name) {
-      _cancelRequested.add(id);
-      switch (queueTaskTypeFromName(task.taskType)) {
-        case QueueTaskType.chapterCapture:
-        case QueueTaskType.multiChapterCapture:
-          captureJob.stop();
-        case QueueTaskType.seriesCheck:
-        case QueueTaskType.checkAllSeries:
-          checker.cancel();
-        case QueueTaskType.removeOfflineFiles:
-          // Removal batches finish each chapter atomically; there is no
-          // mid-chapter state to interrupt. The flag stops it via _finish.
-          break;
+      if (cancelled) return CancelResult.cancelledBeforeStart;
+      // Lost the race with the pump's claim. Fall through and read the row
+      // again rather than reporting a cancellation that did not happen.
+      final now = await db.queueTaskById(id);
+      if (now == null || now.state != QueueTaskState.running.name) {
+        return CancelResult.gone;
       }
+      return _stopRunning(now);
+    }
+    if (task.state == QueueTaskState.running.name) return _stopRunning(task);
+    return CancelResult.alreadyFinished;
+  }
+
+  /// Ask the worker driving [task] to stop, and record the request durably.
+  ///
+  /// The row moves to `cancelled` **now**, not when the worker gets round to
+  /// noticing. That is what makes a cancellation survive a kill: a row left
+  /// `running` is demoted back to `queued` by [restore], so an in-memory-only
+  /// request would hand the user their cancelled work back on relaunch. The
+  /// pump writes the real summary over it when the run unwinds.
+  Future<CancelResult> _stopRunning(QueueTask task) async {
+    // Conditional for the same reason the claim is: the run may have ended
+    // between reading this row and writing to it, and stamping `cancelled`
+    // over a finished run would misreport work that actually completed.
+    final marked = await db.updateQueueTaskIfState(
+      id: task.id,
+      expected: [QueueTaskState.running.name],
+      values: QueueTasksCompanion(
+        state: Value(QueueTaskState.cancelled.name),
+        outcome: const Value('stopping — cancelled by you'),
+        lastError: const Value(null),
+        finishedAt: Value(DateTime.now()),
+      ),
+    );
+    if (!marked) return CancelResult.alreadyFinished;
+    // Only now: a flag set for a task the pump has already finished with would
+    // never be cleared.
+    _cancelRequested.add(task.id);
+    switch (queueTaskTypeFromName(task.taskType)) {
+      case QueueTaskType.entrySave:
+      case QueueTaskType.sequenceSave:
+        saveRun.stop();
+      case QueueTaskType.collectionCheck:
+      case QueueTaskType.checkAllCollections:
+        checker.cancel();
+      case QueueTaskType.removeOfflineFiles:
+        // Nothing to interrupt mid-entry; the batch reads _cancelRequested
+        // between entries and stops there (see _runCleanup).
+        break;
+    }
+    notifyListeners();
+    return CancelResult.stoppingRunning;
+  }
+
+  /// Cancel a row **only while it is still queued**. False means the pump
+  /// claimed it first, and the caller must not pretend otherwise.
+  Future<bool> _cancelQueued(QueueTask task, String reason) async {
+    final won = await db.updateQueueTaskIfState(
+      id: task.id,
+      expected: [QueueTaskState.queued.name],
+      values: QueueTasksCompanion(
+        state: Value(QueueTaskState.cancelled.name),
+        outcome: Value(reason),
+        lastError: const Value(null),
+        finishedAt: Value(DateTime.now()),
+      ),
+    );
+    if (won) {
+      await db.pruneQueueHistory(keep: historyLimit);
       notifyListeners();
     }
+    return won;
+  }
+
+  /// Put a cancelled row back where it was — the Undo behind "removed from the
+  /// queue".
+  ///
+  /// In place, keeping its `orderIndex`: [retryTask] would clone it to the back
+  /// of the queue, which is a different thing to offer for an accidental tap.
+  /// Only a `cancelled` row qualifies, so an undo racing a retry or a history
+  /// clear does nothing rather than resurrecting work twice.
+  Future<bool> restoreQueuedTask(String id) async {
+    final restored = await db.updateQueueTaskIfState(
+      id: id,
+      expected: [QueueTaskState.cancelled.name],
+      values: QueueTasksCompanion(
+        state: Value(QueueTaskState.queued.name),
+        outcome: const Value(null),
+        lastError: const Value(null),
+        startedAt: const Value(null),
+        finishedAt: const Value(null),
+      ),
+    );
+    if (!restored) return false;
+    notifyListeners();
+    // Checks and cleanup drain on their own; a restored save waits for a
+    // Start exactly as it did before it was cancelled (D46).
+    final task = await db.queueTaskById(id);
+    if (task != null &&
+        !taskWaitsForExplicitStart(queueTaskTypeFromName(task.taskType))) {
+      unawaited(_pump());
+    }
+    return true;
+  }
+
+  /// Drop one **terminal** row from Activity — the single-row [clearHistory].
+  ///
+  /// Deletion, not a sixth state: the row is already history, history is
+  /// already bounded and already wholesale-deletable, and a "dismissed" state
+  /// would only be a history row the history screen has to learn to hide. A
+  /// queued or running row is refused here; those go through [cancelTask]
+  /// (D64). Queue rows are never the content, so this deletes no entry, no
+  /// file and no reading progress.
+  Future<bool> removeTask(String id) async {
+    final removed = await db.deleteTerminalQueueTask(id);
+    if (removed) notifyListeners();
+    return removed;
   }
 
   // --- reordering and queue management --------------------------------------
@@ -886,24 +1025,26 @@ class TaskQueueController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Drop every queued capture. Metadata and offline files are untouched —
+  /// Drop every queued save. Metadata and offline files are untouched —
   /// this cancels *plans*, never content.
-  Future<int> clearQueuedCaptures() async {
-    final waiting = await queuedCaptures();
+  Future<int> clearQueuedSaves() async {
+    final waiting = await queuedSaves();
+    var cleared = 0;
     for (final task in waiting) {
-      await _finish(
+      if (await _cancelQueued(
         task,
-        QueueTaskState.cancelled,
-        const QueueOutcome.failure('removed from the queue before it started'),
-      );
+        'removed from the queue before it started',
+      )) {
+        cleared++;
+      }
     }
-    if (waiting.isNotEmpty) notifyListeners();
-    return waiting.length;
+    if (cleared > 0) notifyListeners();
+    return cleared;
   }
 
-  /// Pause/resume forward to the capture job (checks have no pause).
-  void pauseRunning() => captureJob.pause();
-  void resumeRunning() => captureJob.resume();
+  /// Pause/resume forward to the save run (checks have no pause).
+  void pauseRunning() => saveRun.pause();
+  void resumeRunning() => saveRun.resume();
 
   /// Re-enqueue a terminal task as a fresh entry at the back of the queue.
   Future<String?> retryTask(String id) async {
@@ -914,10 +1055,10 @@ class TaskQueueController extends ChangeNotifier {
     return _enqueue(
       task.copyWith(
         id: _uuid.v4(),
-        // Retrying the record of a direct capture puts a fresh request in the
+        // Retrying the record of a direct save puts a fresh request in the
         // *queue*, where it waits for a Start like everything else — a history
         // row must not become a plan that runs itself.
-        origin: const Value(kQueueOriginQueue),
+        origin: kQueueOriginQueue,
         state: QueueTaskState.queued.name,
         outcome: const Value(null),
         lastError: const Value(null),
@@ -929,7 +1070,7 @@ class TaskQueueController extends ChangeNotifier {
   }
 
   /// Delete terminal history. Never touches queued/running rows, and queue
-  /// rows are never the content — captured chapters are unaffected.
+  /// rows are never the content — saved entries are unaffected.
   Future<void> clearHistory() async {
     await db.clearQueueHistory();
     notifyListeners();
@@ -944,14 +1085,14 @@ class TaskQueueController extends ChangeNotifier {
     try {
       while (true) {
         final pending = await db.pendingQueueTasks();
-        // Eligible = queued, and either not capture work or capture work the
-        // user has explicitly started. A queued capture sitting behind an
+        // Eligible = queued, and either not save work or save work the
+        // user has explicitly started. A queued save sitting behind an
         // un-pressed Start button must not block a check behind it.
         final next = pending
             .where(
               (t) =>
                   t.state == 'queued' &&
-                  (_captureStartAuthorised ||
+                  (_saveStartAuthorised ||
                       !taskWaitsForExplicitStart(
                         queueTaskTypeFromName(t.taskType),
                       )),
@@ -960,9 +1101,9 @@ class TaskQueueController extends ChangeNotifier {
         if (next == null) break;
 
         // One driver on the shared WebView. Someone else (a directly-started
-        // capture, a manual check) owning it is not an error — wait our turn
+        // save, a manual check) owning it is not an error — wait our turn
         // by stopping the pump; the next enqueue or resume pumps again.
-        if (_directCaptureClaimed || browser.automationOwner != null) break;
+        if (_directSaveClaimed || browser.automationOwner != null) break;
 
         // The Browser comes forward BEFORE any WebView automation, never as
         // a side effect of it (D47). A queue task must not begin scrolling
@@ -976,10 +1117,25 @@ class TaskQueueController extends ChangeNotifier {
           }
         }
 
-        _runningTaskId = next.id;
-        await db.upsertQueueTask(
-          next.copyWith(state: 'running', startedAt: Value(DateTime.now())),
+        // Claim it conditionally — this is the cancellation race (D64). The
+        // row was read before the `ensureBrowserVisible` await above, and a
+        // cancel landing in that window has already moved it out of `queued`.
+        // Losing the claim means someone else settled this row: skip it and
+        // look for the next one, rather than reviving it into `running`.
+        final claimed = await db.updateQueueTaskIfState(
+          id: next.id,
+          expected: [QueueTaskState.queued.name],
+          values: QueueTasksCompanion(
+            state: Value(QueueTaskState.running.name),
+            startedAt: Value(DateTime.now()),
+          ),
         );
+        if (!claimed) {
+          _cancelRequested.remove(next.id);
+          continue;
+        }
+
+        _runningTaskId = next.id;
         notifyListeners();
 
         QueueOutcome outcome;
@@ -990,25 +1146,31 @@ class TaskQueueController extends ChangeNotifier {
         }
 
         final wasCancelled = _cancelRequested.remove(next.id);
-        await _finish(
-          (await db.queueTaskById(next.id))!,
-          wasCancelled
-              ? QueueTaskState.cancelled
-              : (outcome.failed
-                    ? QueueTaskState.failed
-                    : QueueTaskState.completed),
-          outcome,
-        );
+        // Gone means history was cleared under the run; there is nothing left
+        // to write an outcome onto, and re-creating the row would resurrect an
+        // entry the user deleted.
+        final row = await db.queueTaskById(next.id);
+        if (row != null) {
+          await _finish(
+            row,
+            wasCancelled
+                ? QueueTaskState.cancelled
+                : (outcome.failed
+                      ? QueueTaskState.failed
+                      : QueueTaskState.completed),
+            outcome,
+          );
+        }
         _runningTaskId = null;
         notifyListeners();
       }
     } finally {
       _pumping = false;
       _runningTaskId = null;
-      // A drained capture queue revokes its own permission: adding more work
+      // A drained save queue revokes its own permission: adding more work
       // later is a new decision and gets a new Start.
-      if (_captureStartAuthorised && (await queuedCaptures()).isEmpty) {
-        _captureStartAuthorised = false;
+      if (_saveStartAuthorised && (await queuedSaves()).isEmpty) {
+        _saveStartAuthorised = false;
       }
       notifyListeners();
     }
@@ -1016,38 +1178,40 @@ class TaskQueueController extends ChangeNotifier {
 
   Future<QueueOutcome> _run(QueueTask task) async {
     switch (queueTaskTypeFromName(task.taskType)) {
-      case QueueTaskType.chapterCapture:
-      case QueueTaskType.multiChapterCapture:
-        if (captureRunner != null) return captureRunner!(task);
-        await captureJob.start(
-          chapterLimit: task.chapterLimit ?? 1,
+      case QueueTaskType.entrySave:
+      case QueueTaskType.sequenceSave:
+        if (saveRunner != null) return saveRunner!(task);
+        await saveRun.start(
+          entryLimit: task.entryLimit ?? 1,
           startUrl: task.startUrl,
           policy: duplicatePolicyFromName(task.duplicatePolicy),
-          range: captureRangeModeFromName(task.rangeMode),
-          origin: CaptureOrigin.queue,
+          range: saveScopeFromName(task.scope),
+          origin: SaveOrigin.queue,
         );
-        final p = captureJob.progress;
+        final p = saveRun.progress;
         final summary =
-            '${p.storedChapters} captured'
-            '${p.skippedChapters > 0 ? ', ${p.skippedChapters} skipped' : ''}';
-        return p.state == CaptureState.failed
+            '${p.storedEntries} saved'
+            '${p.skippedEntries > 0 ? ', ${p.skippedEntries} skipped' : ''}';
+        return p.state == SaveState.failed
             ? QueueOutcome.failure(p.lastError ?? summary)
             : QueueOutcome.success(summary);
       case QueueTaskType.removeOfflineFiles:
         if (checkRunner != null) return checkRunner!(task);
         return _runCleanup(task);
-      case QueueTaskType.seriesCheck:
-      case QueueTaskType.checkAllSeries:
+      case QueueTaskType.collectionCheck:
+      case QueueTaskType.checkAllCollections:
         if (checkRunner != null) return checkRunner!(task);
-        final itemId = task.libraryItemId;
+        final itemId = task.collectionId;
         if (itemId == null) {
-          return const QueueOutcome.failure('no series attached to the task');
+          return const QueueOutcome.failure(
+            'no collection attached to the task',
+          );
         }
         final result = await checker.check(itemId);
         final summary = switch (result.state) {
           UpdateCheckState.upToDate => 'up to date',
           UpdateCheckState.updatesAvailable =>
-            '${result.newChapters} new chapter(s)',
+            '${result.newEntries} new entry(s)',
           UpdateCheckState.cancelled => 'cancelled',
           _ => result.error ?? result.state.name,
         };
@@ -1057,17 +1221,17 @@ class TaskQueueController extends ChangeNotifier {
     }
   }
 
-  /// Removal never touches metadata; locked chapters (open reader, active
-  /// capture) are kept and counted. Progress lands on the task row so the
+  /// Removal never touches metadata; locked entries (open reader, active
+  /// save) are kept and counted. Progress lands on the task row so the
   /// Activity screen can show "18 / 42 · 1.2 GB freed" live.
   Future<QueueOutcome> _runCleanup(QueueTask task) async {
-    final all = task.libraryItemId != null
-        ? await db.chaptersForItem(task.libraryItemId!)
+    final all = task.collectionId != null
+        ? await db.entriesForCollection(task.collectionId!)
         : await _finishedOfflineEverywhere();
     final targets = [
       for (final c in all)
         if (cleanup.isRemovable(c) &&
-            (task.libraryItemId != null || c.readStatus == 'completed'))
+            (task.collectionId != null || c.readStatus == 'completed'))
           c.id,
     ];
     if (targets.isEmpty) {
@@ -1075,6 +1239,9 @@ class TaskQueueController extends ChangeNotifier {
     }
     final result = await cleanup.removeOfflineNow(
       targets,
+      // Cancelling a running removal genuinely stops it, between entries —
+      // the queue does not offer a Cancel it cannot honour (D64).
+      shouldContinue: () => !_cancelRequested.contains(task.id),
       onProgress: (processed, freed) async {
         if (processed % 5 != 0) return;
         final row = await db.queueTaskById(task.id);
@@ -1092,24 +1259,27 @@ class TaskQueueController extends ChangeNotifier {
     final kept = result.keptLocked.isEmpty
         ? ''
         : ' · ${result.keptLocked.length} kept (in use)';
+    // A stopped sweep says what it did, not what it was asked to do: the
+    // entries it never reached still have their files.
+    final stopped = result.stoppedEarly ? 'stopped · ' : '';
     return QueueOutcome.success(
-      '${result.removed} chapter(s) removed · '
+      '$stopped${result.removed} entry(s) removed · '
       '${_fmtBytes(result.freedBytes)} freed$kept',
     );
   }
 
-  /// Completed offline chapters across the ACTIVE library (archived series
-  /// are asleep; their files are removed per-series if the user wants).
-  Future<List<Chapter>> _finishedOfflineEverywhere() async {
-    final items = await db.allLibraryItems();
+  /// Completed offline entries across the ACTIVE library (archived collection
+  /// are asleep; their files are removed per-collection if the user wants).
+  Future<List<Entry>> _finishedOfflineEverywhere() async {
+    final items = await db.allCollections();
     final active = {
       for (final i in items)
         if (i.lifecycle != 'archived') i.id,
     };
-    final chapters = await db.allChapters();
+    final entries = await db.allEntries();
     return [
-      for (final c in chapters)
-        if (active.contains(c.libraryItemId) && c.readStatus == 'completed') c,
+      for (final c in entries)
+        if (active.contains(c.collectionId) && c.readStatus == 'completed') c,
     ];
   }
 
@@ -1139,33 +1309,33 @@ class TaskQueueController extends ChangeNotifier {
   }
 }
 
-/// A chapter can be captured automatically only when it still knows where it
+/// An entry can be saved automatically only when it still knows where it
 /// came from. Removing offline files never touches `source_url` (D42), so a
-/// removed chapter normally does; a row written blank by an older build does
+/// removed entry normally does; a row written blank by an older build does
 /// not, and must be reported rather than silently dropped.
-bool chapterHasCapturableUrl(Chapter chapter) {
-  final url = chapter.sourceUrl.trim();
+bool entryHasCapturableUrl(Entry entry) {
+  final url = entry.sourceUrl.trim();
   if (url.isEmpty) return false;
   final uri = Uri.tryParse(url);
   return uri != null && uri.hasScheme && uri.host.isNotEmpty;
 }
 
-/// Reading order — the order capture should run in, whatever the list was
-/// showing. Decimal-safe, because [compareChaptersForReading] is.
-List<Chapter> sortChaptersForCaptureOrder(List<Chapter> chapters) {
-  final sorted = [...chapters];
+/// Reading order — the order save should run in, whatever the list was
+/// showing. Decimal-safe, because [compareEntriesForReading] is.
+List<Entry> sortEntriesForSaveOrder(List<Entry> entries) {
+  final sorted = [...entries];
   sorted.sort(
-    (a, b) => compareChaptersForReading(
-      (number: a.chapterNumber, sequence: a.sequence, capturedAt: a.capturedAt),
-      (number: b.chapterNumber, sequence: b.sequence, capturedAt: b.capturedAt),
+    (a, b) => compareEntriesForReading(
+      (number: a.entryNumber, entryOrder: a.entryOrder, savedAt: a.savedAt),
+      (number: b.entryNumber, entryOrder: b.entryOrder, savedAt: b.savedAt),
     ),
   );
   return sorted;
 }
 
-/// What a multi-select "add to capture queue" actually did.
+/// What a multi-select "add to save queue" actually did.
 ///
-/// Three outcomes rather than a bool, because a selection of eight chapters
+/// Three outcomes rather than a bool, because a selection of eight entries
 /// where two have no source page is a *partial* success and the sheet has to
 /// be able to say so (D48).
 class BatchQueueResult {
@@ -1176,8 +1346,8 @@ class BatchQueueResult {
   });
 
   final List<String> queuedIds;
-  final List<Chapter> alreadyQueued;
-  final List<Chapter> missingSource;
+  final List<Entry> alreadyQueued;
+  final List<Entry> missingSource;
 
   int get queued => queuedIds.length;
   int get skipped => alreadyQueued.length + missingSource.length;

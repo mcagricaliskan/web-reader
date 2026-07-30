@@ -1,33 +1,33 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/browser/page_data.dart';
-import 'package:web_reader/capture/next_page.dart';
+import 'package:web_reader/save/next_page.dart';
 
 /// Controlled multilingual fixtures. Three languages, not an attempt at
 /// coverage — the point is that detection must not *depend* on the hint list.
 PageProbe probe({
-  String url = 'https://x.com/manga/foo/10',
+  String url = 'https://x.example/guide/foo/10',
   String? headNext,
   List<PageLink> links = const [],
 }) => PageProbe(
   url: url,
-  title: 'Chapter 10',
+  title: 'Entry 10',
   headNextHref: headNext,
   links: links,
 );
 
 void main() {
-  const current = 'https://x.com/manga/foo/10';
+  const current = 'https://x.example/guide/foo/10';
 
   group('automatic detection succeeds without user input', () {
     test('link[rel=next] proceeds on its own', () {
       final result = resolveNextPage(
-        probe(headNext: 'https://x.com/manga/foo/11'),
+        probe(headNext: 'https://x.example/guide/foo/11'),
         currentUrl: current,
         visitedNormalized: {},
       );
 
       expect(result.decision, NextDecision.proceed);
-      expect(result.chosen!.href, 'https://x.com/manga/foo/11');
+      expect(result.chosen!.href, 'https://x.example/guide/foo/11');
       expect(result.chosen!.confidence, NextConfidence.high);
       expect(result.needsUserSelection, isFalse);
     });
@@ -36,7 +36,10 @@ void main() {
       final result = resolveNextPage(
         probe(
           links: const [
-            PageLink(href: 'https://x.com/manga/foo/11', text: 'Next Chapter'),
+            PageLink(
+              href: 'https://x.example/guide/foo/11',
+              text: 'Next Entry',
+            ),
           ],
         ),
         currentUrl: current,
@@ -49,7 +52,10 @@ void main() {
       final result = resolveNextPage(
         probe(
           links: const [
-            PageLink(href: 'https://x.com/manga/foo/11', text: 'Sonraki Bölüm'),
+            PageLink(
+              href: 'https://x.example/guide/foo/11',
+              text: 'Sonraki part',
+            ),
           ],
         ),
         currentUrl: current,
@@ -63,7 +69,9 @@ void main() {
       for (final label in ['Weiter', 'Nächstes Kapitel']) {
         final result = resolveNextPage(
           probe(
-            links: [PageLink(href: 'https://x.com/manga/foo/11', text: label)],
+            links: [
+              PageLink(href: 'https://x.example/guide/foo/11', text: label),
+            ],
           ),
           currentUrl: current,
           visitedNormalized: {},
@@ -78,7 +86,7 @@ void main() {
         probe(
           links: const [
             PageLink(
-              href: 'https://x.com/manga/foo/11',
+              href: 'https://x.example/guide/foo/11',
               rel: 'next',
               text: 'Volgende',
             ),
@@ -92,11 +100,11 @@ void main() {
     });
 
     test('corroboration lifts a medium signal to high', () {
-      // A label AND a same-series chapter+1 link, both pointing at /11.
+      // A label AND a same-collection entry+1 link, both pointing at /11.
       final result = resolveNextPage(
         probe(
           links: const [
-            PageLink(href: 'https://x.com/manga/foo/11', text: 'Next'),
+            PageLink(href: 'https://x.example/guide/foo/11', text: 'Next'),
           ],
         ),
         currentUrl: current,
@@ -112,8 +120,8 @@ void main() {
       final result = resolveNextPage(
         probe(
           links: const [
-            PageLink(href: 'https://x.com/manga/foo/11', text: 'Next'),
-            PageLink(href: 'https://x.com/manga/foo/99', text: 'Continue'),
+            PageLink(href: 'https://x.example/guide/foo/11', text: 'Next'),
+            PageLink(href: 'https://x.example/guide/foo/99', text: 'Continue'),
           ],
         ),
         currentUrl: current,
@@ -126,12 +134,12 @@ void main() {
       expect(result.considered.length, greaterThanOrEqualTo(2));
     });
 
-    test('only a chapter-progression link is not enough on its own', () {
+    test('only an entry-progression link is not enough on its own', () {
       final result = resolveNextPage(
         probe(
           links: const [
-            // No label, no rel — just a link that happens to be chapter 11.
-            PageLink(href: 'https://x.com/manga/foo/11'),
+            // No label, no rel — just a link that happens to be entry 11.
+            PageLink(href: 'https://x.example/guide/foo/11'),
           ],
         ),
         currentUrl: current,
@@ -139,14 +147,14 @@ void main() {
       );
 
       expect(result.decision, NextDecision.askUser);
-      expect(result.chosen!.strategy, NextStrategy.chapterProgression);
+      expect(result.chosen!.strategy, NextStrategy.numberProgression);
       expect(result.chosen!.confidence, NextConfidence.low);
     });
 
     test('nothing plausible at all is end-of-chain, not a prompt', () {
       final result = resolveNextPage(
         probe(
-          links: const [PageLink(href: 'https://x.com/', text: 'Home')],
+          links: const [PageLink(href: 'https://x.example/', text: 'Home')],
         ),
         currentUrl: current,
         visitedNormalized: {},
@@ -157,7 +165,7 @@ void main() {
 
     test('allowUserAssist:false falls back to best effort', () {
       final result = resolveNextPage(
-        probe(links: const [PageLink(href: 'https://x.com/manga/foo/11')]),
+        probe(links: const [PageLink(href: 'https://x.example/guide/foo/11')]),
         currentUrl: current,
         visitedNormalized: {},
         allowUserAssist: false,
@@ -170,19 +178,19 @@ void main() {
     test('a rule href outranks everything and proceeds', () {
       final result = resolveNextPage(
         probe(
-          headNext: 'https://x.com/manga/foo/999',
+          headNext: 'https://x.example/guide/foo/999',
           links: const [
-            PageLink(href: 'https://x.com/manga/foo/888', text: 'Next'),
+            PageLink(href: 'https://x.example/guide/foo/888', text: 'Next'),
           ],
         ),
         currentUrl: current,
         visitedNormalized: {},
-        ruleHref: 'https://x.com/manga/foo/11',
+        hintHref: 'https://x.example/guide/foo/11',
       );
 
       expect(result.decision, NextDecision.proceed);
-      expect(result.chosen!.strategy, NextStrategy.savedRule);
-      expect(result.chosen!.href, 'https://x.com/manga/foo/11');
+      expect(result.chosen!.strategy, NextStrategy.savedHint);
+      expect(result.chosen!.href, 'https://x.example/guide/foo/11');
     });
 
     test('a rule pointing off-host is rejected, not followed', () {
@@ -190,7 +198,7 @@ void main() {
         probe(),
         currentUrl: current,
         visitedNormalized: {},
-        ruleHref: 'https://evil.com/manga/foo/11',
+        hintHref: 'https://evil.example/guide/foo/11',
       );
       expect(result.decision, NextDecision.endOfChain);
     });
@@ -199,23 +207,23 @@ void main() {
       final result = resolveNextPage(
         probe(),
         currentUrl: current,
-        visitedNormalized: {'https://x.com/manga/foo/9'},
-        ruleHref: 'https://x.com/manga/foo/9',
+        visitedNormalized: {'https://x.example/guide/foo/9'},
+        hintHref: 'https://x.example/guide/foo/9',
       );
       expect(result.decision, NextDecision.endOfChain);
     });
   });
 
-  group('starting from the middle of a series', () {
-    test('chapter 883 finds 884 without needing chapter 1', () {
-      const mid = 'https://uzaymanga.example/manga/foo/883-bolum-oku';
+  group('starting from the middle of a collection', () {
+    test('entry 883 finds 884 without needing entry 1', () {
+      const mid = 'https://a.example/guide/foo/883-part-oku';
       final result = resolveNextPage(
         probe(
           url: mid,
           links: const [
             PageLink(
-              href: 'https://uzaymanga.example/manga/foo/884-bolum-oku',
-              text: 'Sonraki Bölüm',
+              href: 'https://a.example/guide/foo/884-part-oku',
+              text: 'Sonraki part',
             ),
           ],
         ),
@@ -224,18 +232,20 @@ void main() {
       );
 
       expect(result.decision, NextDecision.proceed);
-      expect(result.chosen!.href, contains('884-bolum-oku'));
+      expect(result.chosen!.href, contains('884-part-oku'));
     });
 
-    test('chapterNumberIn reads the number from varied layouts', () {
-      expect(chapterNumberIn('https://x.com/manga/foo/883-bolum-oku'), 883);
-      expect(chapterNumberIn('https://x.com/comics/bar/chapter/101'), 101);
-      expect(chapterNumberIn('https://x.com/series/baz'), isNull);
+    test('entryNumberIn reads the number from varied layouts', () {
+      expect(entryNumberIn('https://x.example/guide/foo/883-part-oku'), 883);
+      expect(entryNumberIn('https://x.example/comics/bar/entry/101'), 101);
+      expect(entryNumberIn('https://x.example/collection/baz'), isNull);
     });
 
-    test('a progression link from a different series is not offered', () {
+    test('a progression link from a different collection is not offered', () {
       final result = resolveNextPage(
-        probe(links: const [PageLink(href: 'https://x.com/manga/OTHER/11')]),
+        probe(
+          links: const [PageLink(href: 'https://x.example/guide/OTHER/11')],
+        ),
         currentUrl: current,
         visitedNormalized: {},
       );
@@ -244,11 +254,17 @@ void main() {
   });
 
   group('deny hints', () {
-    test('"next series" and its translations are not chapter navigation', () {
-      for (final label in ['Next series', 'Sonraki seri', 'Nächste Serie']) {
+    test('"next collection" and its translations are not entry navigation', () {
+      for (final label in [
+        'Next collection',
+        'Sonraki seri',
+        'Nächste Serie',
+      ]) {
         final result = resolveNextPage(
           probe(
-            links: [PageLink(href: 'https://x.com/manga/other', text: label)],
+            links: [
+              PageLink(href: 'https://x.example/guide/other', text: label),
+            ],
           ),
           currentUrl: current,
           visitedNormalized: {},
@@ -261,10 +277,10 @@ void main() {
   group('short hints must not match inside longer words', () {
     // Regression from a real page: the Turkish hint "ileri" matched inside
     // "anime onerileri" (recommendations), offering three unrelated sites as
-    // next-chapter candidates. Only same-host validation caught them.
+    // next-entry candidates. Only same-host validation caught them.
     test('"ileri" does not match inside "anime onerileri"', () {
       const link = PageLink(
-        href: 'https://x.com/manga/foo/11',
+        href: 'https://x.example/guide/foo/11',
         text: 'anime onerileri',
       );
       expect(matchNextText(link), isNull);
@@ -273,13 +289,16 @@ void main() {
     test('"ileri" still matches as its own word', () {
       expect(
         matchNextText(
-          const PageLink(href: 'https://x.com/manga/foo/11', text: 'Ileri'),
+          const PageLink(href: 'https://x.example/guide/foo/11', text: 'Ileri'),
         ),
         isNotNull,
       );
       expect(
         matchNextText(
-          const PageLink(href: 'https://x.com/manga/foo/11', text: 'ileri >'),
+          const PageLink(
+            href: 'https://x.example/guide/foo/11',
+            text: 'ileri >',
+          ),
         ),
         isNotNull,
       );
@@ -288,12 +307,17 @@ void main() {
     test('short English hints are bounded too', () {
       expect(
         matchNextText(
-          const PageLink(href: 'https://x.com/a', text: 'nextdoor neighbours'),
+          const PageLink(
+            href: 'https://x.example/a',
+            text: 'nextdoor neighbours',
+          ),
         ),
         isNull,
       );
       expect(
-        matchNextText(const PageLink(href: 'https://x.com/a', text: 'Next')),
+        matchNextText(
+          const PageLink(href: 'https://x.example/a', text: 'Next'),
+        ),
         isNotNull,
       );
     });
@@ -302,8 +326,8 @@ void main() {
       expect(
         matchNextText(
           const PageLink(
-            href: 'https://x.com/a',
-            text: 'Go to next chapter now',
+            href: 'https://x.example/a',
+            text: 'Go to next entry now',
           ),
         ),
         isNotNull,

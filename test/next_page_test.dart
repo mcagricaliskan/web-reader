@@ -1,34 +1,30 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/browser/page_data.dart';
-import 'package:web_reader/capture/next_page.dart';
+import 'package:web_reader/save/next_page.dart';
 import 'package:web_reader/core/url_utils.dart';
 
 PageProbe probe({
-  String url = 'https://x.com/chapter/1',
+  String url = 'https://x.example/entry/1',
   String? headNext,
   List<PageLink> links = const [],
-}) => PageProbe(
-  url: url,
-  title: 'Chapter 1',
-  headNextHref: headNext,
-  links: links,
-);
+}) =>
+    PageProbe(url: url, title: 'Entry 1', headNextHref: headNext, links: links);
 
 void main() {
   group('strategy ordering', () {
     test('link[rel=next] outranks a labelled control', () {
       final result = resolveNextPage(
         probe(
-          headNext: 'https://x.com/chapter/2',
+          headNext: 'https://x.example/entry/2',
           links: const [
-            PageLink(href: 'https://x.com/chapter/99', text: 'Next chapter'),
+            PageLink(href: 'https://x.example/entry/99', text: 'Next entry'),
           ],
         ),
-        currentUrl: 'https://x.com/chapter/1',
+        currentUrl: 'https://x.example/entry/1',
         visitedNormalized: {},
       );
 
-      expect(result.chosen!.href, 'https://x.com/chapter/2');
+      expect(result.chosen!.href, 'https://x.example/entry/2');
       expect(result.chosen!.strategy, NextStrategy.headRelNext);
     });
 
@@ -36,27 +32,27 @@ void main() {
       final result = resolveNextPage(
         probe(
           links: const [
-            PageLink(href: 'https://x.com/chapter/50', text: 'Continue'),
-            PageLink(href: 'https://x.com/chapter/2', rel: 'next', text: '→'),
+            PageLink(href: 'https://x.example/entry/50', text: 'Continue'),
+            PageLink(href: 'https://x.example/entry/2', rel: 'next', text: '→'),
           ],
         ),
-        currentUrl: 'https://x.com/chapter/1',
+        currentUrl: 'https://x.example/entry/1',
         visitedNormalized: {},
       );
 
       expect(result.chosen!.strategy, NextStrategy.anchorRelNext);
-      expect(result.chosen!.href, 'https://x.com/chapter/2');
+      expect(result.chosen!.href, 'https://x.example/entry/2');
     });
 
     test('a site override outranks everything', () {
       final result = resolveNextPage(
-        probe(headNext: 'https://x.com/wrong'),
-        currentUrl: 'https://x.com/chapter/1',
+        probe(headNext: 'https://x.example/wrong'),
+        currentUrl: 'https://x.example/entry/1',
         visitedNormalized: {},
-        ruleHref: 'https://x.com/right',
+        hintHref: 'https://x.example/right',
       );
-      expect(result.chosen!.strategy, NextStrategy.savedRule);
-      expect(result.chosen!.href, 'https://x.com/right');
+      expect(result.chosen!.strategy, NextStrategy.savedHint);
+      expect(result.chosen!.href, 'https://x.example/right');
     });
   });
 
@@ -64,17 +60,17 @@ void main() {
     test('matches common next labels across languages', () {
       for (final label in [
         'Next',
-        'Next Chapter',
-        'Next episode',
-        'Sonraki Bölüm',
+        'Next Entry',
+        'Next entry',
+        'Sonraki part',
         'Siguiente',
         '다음화',
       ]) {
         final result = resolveNextPage(
           probe(
-            links: [PageLink(href: 'https://x.com/chapter/2', text: label)],
+            links: [PageLink(href: 'https://x.example/entry/2', text: label)],
           ),
-          currentUrl: 'https://x.com/chapter/1',
+          currentUrl: 'https://x.example/entry/1',
           visitedNormalized: {},
         );
         expect(result.hasNext, isTrue, reason: label);
@@ -86,13 +82,13 @@ void main() {
         probe(
           links: const [
             PageLink(
-              href: 'https://x.com/chapter/2',
+              href: 'https://x.example/entry/2',
               text: '›',
-              ariaLabel: 'Next chapter',
+              ariaLabel: 'Next entry',
             ),
           ],
         ),
-        currentUrl: 'https://x.com/chapter/1',
+        currentUrl: 'https://x.example/entry/1',
         visitedNormalized: {},
       );
       expect(result.hasNext, isTrue);
@@ -103,11 +99,17 @@ void main() {
       final result = resolveNextPage(
         probe(
           links: const [
-            PageLink(href: 'https://x.com/series/2', text: 'Next series'),
-            PageLink(href: 'https://x.com/comments?p=2', text: 'Next comments'),
+            PageLink(
+              href: 'https://x.example/collection/2',
+              text: 'Next collection',
+            ),
+            PageLink(
+              href: 'https://x.example/comments?p=2',
+              text: 'Next comments',
+            ),
           ],
         ),
-        currentUrl: 'https://x.com/chapter/1',
+        currentUrl: 'https://x.example/entry/1',
         visitedNormalized: {},
       );
       expect(result.hasNext, isFalse);
@@ -118,12 +120,12 @@ void main() {
         probe(
           links: const [
             PageLink(
-              href: 'https://x.com/blog',
+              href: 'https://x.example/blog',
               text: 'Read what happens next in our weekly newsletter roundup',
             ),
           ],
         ),
-        currentUrl: 'https://x.com/chapter/1',
+        currentUrl: 'https://x.example/entry/1',
         visitedNormalized: {},
       );
       expect(result.hasNext, isFalse);
@@ -134,24 +136,26 @@ void main() {
     test('skips a visited candidate and takes the next viable one', () {
       final result = resolveNextPage(
         probe(
-          headNext: 'https://x.com/chapter/1', // already visited
+          headNext: 'https://x.example/entry/1', // already visited
           links: const [
-            PageLink(href: 'https://x.com/chapter/2', text: 'Next'),
+            PageLink(href: 'https://x.example/entry/2', text: 'Next'),
           ],
         ),
-        currentUrl: 'https://x.com/chapter/9',
-        visitedNormalized: {'https://x.com/chapter/1'},
+        currentUrl: 'https://x.example/entry/9',
+        visitedNormalized: {'https://x.example/entry/1'},
       );
 
-      expect(result.chosen!.href, 'https://x.com/chapter/2');
+      expect(result.chosen!.href, 'https://x.example/entry/2');
     });
 
     test('reports no next when every candidate is rejected', () {
       final result = resolveNextPage(
         probe(
-          links: const [PageLink(href: 'https://other.com/c/2', text: 'Next')],
+          links: const [
+            PageLink(href: 'https://other.example/c/2', text: 'Next'),
+          ],
         ),
-        currentUrl: 'https://x.com/chapter/1',
+        currentUrl: 'https://x.example/entry/1',
         visitedNormalized: {},
       );
 
@@ -163,9 +167,9 @@ void main() {
     test('no candidates at all is end-of-chain, not an error', () {
       final result = resolveNextPage(
         probe(
-          links: const [PageLink(href: 'https://x.com/', text: 'Home')],
+          links: const [PageLink(href: 'https://x.example/', text: 'Home')],
         ),
-        currentUrl: 'https://x.com/chapter/3',
+        currentUrl: 'https://x.example/entry/3',
         visitedNormalized: {},
       );
       expect(result.hasNext, isFalse);
@@ -180,15 +184,15 @@ void main() {
           probe(
             links: const [
               PageLink(
-                href: 'https://x.com/chapter/2?utm_source=rss#top',
+                href: 'https://x.example/entry/2?utm_source=rss#top',
                 rel: 'next',
               ),
             ],
           ),
-          currentUrl: 'https://x.com/chapter/1',
+          currentUrl: 'https://x.example/entry/1',
           visitedNormalized: {},
         );
-        expect(result.chosen!.href, 'https://x.com/chapter/2');
+        expect(result.chosen!.href, 'https://x.example/entry/2');
       },
     );
   });

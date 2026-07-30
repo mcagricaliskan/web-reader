@@ -1,4 +1,4 @@
-// The controlled webtoon fixture: page markup and image bytes.
+// The controlled image sequence fixture: page markup and image bytes.
 //
 // Shared by the standalone CLI server (`serve.dart`, for manual browsing) and
 // by the integration test, which serves it *in-process on the simulator* so
@@ -6,12 +6,12 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-const int kChapterCount = 3;
-const int kContentImagesPerChapter = 6;
+const int kEntryCount = 3;
+const int kContentImagesPerEntry = 6;
 
-/// Chapter with a deliberately broken (503) panel, so partial capture is
+/// Entry with a deliberately broken (503) panel, so partial save is
 /// exercised on every run.
-const int kBrokenChapter = 2;
+const int kBrokenEntry = 2;
 const int kBrokenPanel = 5;
 
 /// Panel that responds slowly, so "loaded" never means "finished".
@@ -22,16 +22,16 @@ Future<bool> handleFixtureRequest(
   HttpRequest req, {
   bool applyDelays = true,
 
-  /// How many chapters the "site" currently has. Tests raise this mid-run to
-  /// simulate the source publishing new chapters after a capture.
-  int chapterCount = kChapterCount,
+  /// How many entries the "site" currently has. Tests raise this mid-run to
+  /// simulate the source publishing new entries after a save.
+  int entryCount = kEntryCount,
 }) async {
   final path = req.uri.path;
   final res = req.response;
   res.headers.set('Access-Control-Allow-Origin', '*');
 
   if (path == '/' || path == '/index.html') {
-    await _html(res, indexPage(chapterCount));
+    await _html(res, indexPage(entryCount));
     return true;
   }
 
@@ -45,43 +45,40 @@ Future<bool> handleFixtureRequest(
   if (localeMatch != null) {
     final variant = localeMatch.group(1)!;
     final n = int.parse(localeMatch.group(2)!);
-    if (n < 1 || n > chapterCount) {
+    if (n < 1 || n > entryCount) {
       res.statusCode = 404;
-      await _html(res, '<h1>No such chapter</h1>');
+      await _html(res, '<h1>No such entry</h1>');
       return true;
     }
-    await _html(
-      res,
-      localisedChapterPage(variant, n, chapterCount: chapterCount),
-    );
+    await _html(res, localisedEntryPage(variant, n, entryCount: entryCount));
     return true;
   }
 
-  final chapterMatch = RegExp(r'^/chapter/(\d+)$').firstMatch(path);
-  if (chapterMatch != null) {
-    final n = int.parse(chapterMatch.group(1)!);
-    if (n < 1 || n > chapterCount) {
+  final entryMatch = RegExp(r'^/entry/(\d+)$').firstMatch(path);
+  if (entryMatch != null) {
+    final n = int.parse(entryMatch.group(1)!);
+    if (n < 1 || n > entryCount) {
       res.statusCode = 404;
-      await _html(res, '<h1>No such chapter</h1>');
+      await _html(res, '<h1>No such entry</h1>');
       return true;
     }
-    await _html(res, chapterPage(n, chapterCount: chapterCount));
+    await _html(res, entryPage(n, entryCount: entryCount));
     return true;
   }
 
   final imgMatch = RegExp(r'^/img/(\d+)/(\d+)\.png$').firstMatch(path);
   if (imgMatch != null) {
-    final chapter = int.parse(imgMatch.group(1)!);
+    final entry = int.parse(imgMatch.group(1)!);
     final index = int.parse(imgMatch.group(2)!);
     if (applyDelays && index == kSlowPanel) {
       await Future<void>.delayed(const Duration(seconds: 2));
     }
-    if (chapter == kBrokenChapter && index == kBrokenPanel) {
+    if (entry == kBrokenEntry && index == kBrokenPanel) {
       res.statusCode = 503;
       await res.close();
       return true;
     }
-    await _png(res, panelPng(chapter: chapter, index: index));
+    await _png(res, panelPng(entry: entry, index: index));
     return true;
   }
 
@@ -117,20 +114,20 @@ Future<void> _png(HttpResponse res, Uint8List bytes) {
   return res.close();
 }
 
-String indexPage([int chapterCount = kChapterCount]) =>
+String indexPage([int entryCount = kEntryCount]) =>
     '''
 <!doctype html><html><head><meta name="viewport"
-  content="width=device-width, initial-scale=1"><title>Fixture Webtoon</title></head>
+  content="width=device-width, initial-scale=1"><title>Fixture image sequence</title></head>
 <body style="font-family:-apple-system,sans-serif;padding:24px">
-<h1>Fixture Webtoon</h1>
-<ul>${List.generate(chapterCount, (i) => '<li><a href="/chapter/${i + 1}">Chapter ${i + 1}</a></li>').join()}</ul>
+<h1>Fixture image sequence</h1>
+<ul>${List.generate(entryCount, (i) => '<li><a href="/entry/${i + 1}">Entry ${i + 1}</a></li>').join()}</ul>
 </body></html>''';
 
 /// Panels 1-2 load eagerly; 3-6 are lazy-loaded on intersection with a delay,
-/// so a capture that trusted `onLoadStop` would miss two thirds of the chapter.
-String chapterPage(int n, {int chapterCount = kChapterCount}) {
+/// so a save that trusted `onLoadStop` would miss two thirds of the entry.
+String entryPage(int n, {int entryCount = kEntryCount}) {
   final buf = StringBuffer();
-  for (var i = 1; i <= kContentImagesPerChapter; i++) {
+  for (var i = 1; i <= kContentImagesPerEntry; i++) {
     final url = '/img/$n/$i.png';
     if (i <= 2) {
       buf.writeln(
@@ -155,18 +152,18 @@ String chapterPage(int n, {int chapterCount = kChapterCount}) {
     'style="display:none" alt="hidden">',
   );
 
-  final nextLink = n < chapterCount
-      ? '<a id="next" rel="next" href="/chapter/${n + 1}">Next Chapter →</a>'
-      : '<span id="next-disabled">No next chapter</span>';
+  final nextLink = n < entryCount
+      ? '<a id="next" rel="next" href="/entry/${n + 1}">Next Entry →</a>'
+      : '<span id="next-disabled">No next entry</span>';
   final prevLink = n > 1
-      ? '<a rel="prev" href="/chapter/${n - 1}">← Previous</a>'
+      ? '<a rel="prev" href="/entry/${n - 1}">← Previous</a>'
       : '';
 
   return '''
 <!doctype html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fixture Webtoon — Chapter $n</title>
-<link rel="canonical" href="/chapter/$n">
+<title>Fixture image sequence — Entry $n</title>
+<link rel="canonical" href="/entry/$n">
 <style>
   body { margin:0; background:#111; color:#eee; font-family:-apple-system,sans-serif; }
   header, footer { padding:12px 16px; background:#1c1c1c; }
@@ -179,7 +176,7 @@ String chapterPage(int n, {int chapterCount = kChapterCount}) {
   <img src="/chrome/logo.png" width="240" height="48" alt="logo">
   <img src="/chrome/icon.png" width="32" height="32" alt="icon">
   <img src="/chrome/avatar.png" width="64" height="64" alt="avatar">
-  <h2>Fixture Webtoon — Chapter $n</h2>
+  <h2>Fixture image sequence — Entry $n</h2>
 </header>
 <img src="/chrome/banner.png" width="970" height="90" alt="ad banner">
 <div class="reader">
@@ -205,16 +202,16 @@ $buf
 // Minimal PNG encoder — keeps the fixture dependency-free.
 // ---------------------------------------------------------------------------
 
-/// A content panel: distinct colour per chapter, plus `index` white bars so
+/// A content panel: distinct colour per entry, plus `index` white bars so
 /// panel order is verifiable by eye in the reader.
-Uint8List panelPng({required int chapter, required int index}) {
+Uint8List panelPng({required int entry, required int index}) {
   const w = 800, h = 1200;
   const palette = [
     [0x1e, 0x3a, 0x8a],
     [0x7c, 0x2d, 0x12],
     [0x14, 0x53, 0x2d],
   ];
-  final base = palette[(chapter - 1) % palette.length];
+  final base = palette[(entry - 1) % palette.length];
   final rgb = Uint8List(w * h * 3);
   for (var y = 0; y < h; y++) {
     final shade = (y * 40 ~/ h);
@@ -308,32 +305,32 @@ int _crc32(Uint8List bytes) {
   return (c ^ 0xffffffff) & 0xffffffff;
 }
 
-/// Chapter pages whose next-control is expressed differently, so detection is
+/// Entry pages whose next-control is expressed differently, so detection is
 /// exercised beyond `rel="next"` and beyond English.
 ///
 /// Deliberately not a language-coverage exercise. `nolabel` and `amb` exist to
 /// prove the app *asks the user* rather than guessing when the page gives it
 /// nothing trustworthy — which is the point of the fallback model.
-String localisedChapterPage(
+String localisedEntryPage(
   String variant,
   int n, {
-  int chapterCount = kChapterCount,
+  int entryCount = kEntryCount,
 }) {
   final buf = StringBuffer();
-  for (var i = 1; i <= kContentImagesPerChapter; i++) {
+  for (var i = 1; i <= kContentImagesPerEntry; i++) {
     buf.writeln(
       '<img class="panel" src="/img/$n/$i.png" width="800" height="1200" '
       'alt="panel $i">',
     );
   }
 
-  final next = n < chapterCount ? '/$variant/${n + 1}' : null;
+  final next = n < entryCount ? '/$variant/${n + 1}' : null;
   final String nav;
   switch (variant) {
     case 'tr':
       nav = next == null
-          ? '<span>Son bolum</span>'
-          : '<a class="nav-next" href="$next">Sonraki Bolum</a>';
+          ? '<span>Son part</span>'
+          : '<a class="nav-next" href="$next">Sonraki part</a>';
     case 'de':
       nav = next == null
           ? '<span>Letztes Kapitel</span>'
@@ -344,7 +341,7 @@ String localisedChapterPage(
       nav = next == null
           ? '<span>Ende</span>'
           : '<a href="$next">Next</a> '
-                '<a href="/$variant/$chapterCount">Continue</a>';
+                '<a href="/$variant/$entryCount">Continue</a>';
     case 'nolabel':
     default:
       // Icon-only control: no rel, no text, no aria-label, no href pattern the
@@ -358,7 +355,7 @@ String localisedChapterPage(
   return '''
 <!doctype html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fixture $variant - chapter $n</title>
+<title>Fixture $variant - entry $n</title>
 <style>
   body { margin:0; background:#111; color:#eee; }
   img.panel { display:block; width:100%; height:auto; max-width:800px; margin:0 auto; }

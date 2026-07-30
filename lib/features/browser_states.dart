@@ -50,8 +50,8 @@ class PageStateView extends StatelessWidget {
         BrowserPageState.offline => (
           Icons.wifi_off,
           "You're offline",
-          "The device has no connection, so this page can't load. Chapters "
-              'already captured still open from your library.',
+          "The device has no connection, so this page can't load. Entries "
+              'already saved still open from your library.',
         ),
         BrowserPageState.unreachable => (
           Icons.public_off,
@@ -62,18 +62,18 @@ class PageStateView extends StatelessWidget {
         BrowserPageState.unavailable => (
           Icons.public_off,
           "This page didn't load",
-          'The site answered with an error. It may be down, or the chapter '
+          'The site answered with an error. It may be down, or the entry '
               'may have moved.',
         ),
         BrowserPageState.invalidAddress => (
           Icons.link_off,
           "That address doesn't look right",
-          'Check the spelling, or search for the chapter instead.',
+          'Check the spelling, or search for the entry instead.',
         ),
         BrowserPageState.certificate => (
           Icons.gpp_bad,
           "This connection isn't private",
-          "The site's security certificate can't be verified. Capture is "
+          "The site's security certificate can't be verified. Save is "
               'blocked on pages like this.',
         ),
         BrowserPageState.redirectBlocked => (
@@ -276,12 +276,12 @@ class _ActionWrap extends StatelessWidget {
   }
 }
 
-/// The dashed "captures are waiting" chip the design shows over the page.
+/// The dashed "saves are waiting" chip the design shows over the page.
 ///
 /// Deliberately inert: it counts and it points at Activity. Nothing on
 /// Browser Home or this chip may start queued work (D46, §16).
-class QueuedCapturesChip extends StatelessWidget {
-  const QueuedCapturesChip({
+class QueuedSavesChip extends StatelessWidget {
+  const QueuedSavesChip({
     super.key,
     required this.count,
     required this.onViewActivity,
@@ -310,7 +310,7 @@ class QueuedCapturesChip extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  count == 1 ? 'Capture queued' : '$count captures waiting',
+                  count == 1 ? 'Save queued' : '$count saves waiting',
                   style: TextStyle(
                     fontSize: 12.5,
                     fontVariations: wght(600),

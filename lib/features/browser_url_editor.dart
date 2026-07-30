@@ -196,7 +196,7 @@ List<(String, List<UrlSuggestion>)> buildSuggestions({
 /// The expanded URL editor: a full surface over the page, not an inline
 /// field.
 ///
-/// Its whole reason for existing is that a chapter URL does not fit in the
+/// Its whole reason for existing is that an entry URL does not fit in the
 /// toolbar. The full address is shown on its own horizontally-scrolling line
 /// above the input, so it can be *read* as well as edited (§6).
 class BrowserUrlEditor extends ConsumerStatefulWidget {

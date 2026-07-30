@@ -169,7 +169,7 @@ class FaviconService extends ChangeNotifier {
     }
   }
 
-  /// Magic-number sniff. The same principle as stored chapter assets (D31):
+  /// Magic-number sniff. The same principle as stored entry assets (D31):
   /// trust the bytes, not the extension or the Content-Type.
   static bool _looksLikeImage(Uint8List bytes) {
     if (bytes.length < 4) return false;

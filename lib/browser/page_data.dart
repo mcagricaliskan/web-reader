@@ -1,9 +1,9 @@
 /// Plain models for what the JavaScript bridge reports about a page.
-/// No Flutter, no plugin types — so the capture heuristics that consume these
+/// No Flutter, no plugin types — so the save heuristics that consume these
 /// are unit testable against literal fixtures.
 library;
 
-import '../library/series_identity.dart';
+import '../library/collection_identity.dart';
 
 class PageImage {
   const PageImage({
@@ -56,7 +56,7 @@ class PageImage {
 
   /// The `width`/`height` HTML attributes. The last resort for sizing an image
   /// that never loaded — without them a broken panel looks like a 0x0 icon and
-  /// gets silently filtered out, which is how a chapter loses a page and still
+  /// gets silently filtered out, which is how an entry loses a page and still
   /// reports success.
   final int attrWidth;
   final int attrHeight;
@@ -90,7 +90,7 @@ class PageImage {
   /// (a 800px panel renders at ~390 logical px on a phone). Preferring the
   /// rendered box mixed the two bases, so a broken panel measured 390 against
   /// loaded panels measuring 800 and got discarded as "outside the content
-  /// column" — silently shrinking the chapter by a page.
+  /// column" — silently shrinking the entry by a page.
   int get effectiveWidth => naturalWidth > 0
       ? naturalWidth
       : (attrWidth > 0 ? attrWidth : renderedWidth);
@@ -148,6 +148,155 @@ class PageLink {
   final int documentTop;
 }
 
+/// Structural description of a page: how much prose, how much image area, does
+/// it declare an article, does it carry a date, does it have real pagination.
+///
+/// Deliberately contains no subject matter and no genre. Every field is a
+/// measurement or a standard HTML semantic, which is what lets one detector read
+/// a blog post, a documentation page and an image gallery without knowing
+/// anything about any website.
+class PageContentSignals {
+  const PageContentSignals({
+    this.textLength = 0,
+    this.paragraphCount = 0,
+    this.contentImageCount = 0,
+    this.contentImagePixels = 0,
+    this.hasArticleElement = false,
+    this.hasMainElement = false,
+    this.publishedAt,
+    this.hasRelPrev = false,
+    this.pagerNumbers = const [],
+    this.listedDates = const [],
+    this.headingText = '',
+  });
+
+  factory PageContentSignals.fromJson(Map<String, dynamic> json) =>
+      PageContentSignals(
+        textLength: _int(json['textLength']),
+        paragraphCount: _int(json['paragraphCount']),
+        contentImageCount: _int(json['contentImageCount']),
+        contentImagePixels: _int(json['contentImagePixels']),
+        hasArticleElement: json['hasArticleElement'] == true,
+        hasMainElement: json['hasMainElement'] == true,
+        publishedAt: _date(json['publishedAt']),
+        hasRelPrev: json['hasRelPrev'] == true,
+        pagerNumbers: ((json['pagerNumbers'] as List<dynamic>?) ?? const [])
+            .map(_int)
+            .where((n) => n > 0)
+            .toList(),
+        listedDates: ((json['listedDates'] as List<dynamic>?) ?? const [])
+            .map(_date)
+            .whereType<DateTime>()
+            .toList(),
+        headingText: json['headingText']?.toString().trim() ?? '',
+      );
+
+  /// Characters of visible prose in the main content region.
+  final int textLength;
+  final int paragraphCount;
+
+  /// Images big enough to be content rather than chrome, and their total area.
+  final int contentImageCount;
+  final int contentImagePixels;
+
+  final bool hasArticleElement;
+  final bool hasMainElement;
+
+  /// Publication date, only from a standard declaration (`<time datetime>`,
+  /// article metadata, JSON-LD). Never guessed from a URL.
+  final DateTime? publishedAt;
+
+  /// A declared previous-page relationship. With `rel=next` this is what makes a
+  /// sequence *explicit* rather than inferred.
+  final bool hasRelPrev;
+
+  /// Numbers found inside a pagination control. A range here is the only thing
+  /// that justifies calling something a "page".
+  final List<int> pagerNumbers;
+
+  /// Dates attached to repeated sibling items — the signature of a feed.
+  final List<DateTime> listedDates;
+
+  final String headingText;
+
+  /// Share of the page that is image, by rough area. Compared against prose
+  /// rather than used alone: a long article with one big photo is not
+  /// image-dominant.
+  bool get looksImageDominant =>
+      contentImageCount >= 2 && textLength < 900 && contentImagePixels > 400000;
+
+  bool get looksProse => textLength >= 900 && paragraphCount >= 3;
+}
+
+/// Audio and video the app deliberately does not save.
+///
+/// Counted so the offline copy can show an honest placeholder and a link to the
+/// original page. Nothing reads a media URL, and nothing fetches one.
+class PageMediaSignals {
+  const PageMediaSignals({this.videoCount = 0, this.audioCount = 0});
+
+  factory PageMediaSignals.fromJson(Map<String, dynamic> json) =>
+      PageMediaSignals(
+        videoCount: _int(json['videoCount']),
+        audioCount: _int(json['audioCount']),
+      );
+
+  final int videoCount;
+  final int audioCount;
+
+  bool get hasMedia => videoCount > 0 || audioCount > 0;
+  int get total => videoCount + audioCount;
+}
+
+/// Signals that automatic continuation must stop.
+///
+/// Detection only. Nothing in the app attempts, works around, or retries past
+/// any of these; the run stops and names which one it hit.
+class PageAccessSignals {
+  const PageAccessSignals({
+    this.hasPasswordField = false,
+    this.hasLoginForm = false,
+    this.hasCaptchaWidget = false,
+    this.hasPaywallMarker = false,
+    this.deniedPhrase,
+    this.ratePhrase,
+    this.paywallPhrase,
+    this.authPhrase,
+    this.isEmptyDocument = false,
+  });
+
+  factory PageAccessSignals.fromJson(Map<String, dynamic> json) =>
+      PageAccessSignals(
+        hasPasswordField: json['hasPasswordField'] == true,
+        hasLoginForm: json['hasLoginForm'] == true,
+        hasCaptchaWidget: json['hasCaptchaWidget'] == true,
+        hasPaywallMarker: json['hasPaywallMarker'] == true,
+        deniedPhrase: _str(json['deniedPhrase']),
+        ratePhrase: _str(json['ratePhrase']),
+        paywallPhrase: _str(json['paywallPhrase']),
+        authPhrase: _str(json['authPhrase']),
+        isEmptyDocument: json['isEmptyDocument'] == true,
+      );
+
+  /// Structural: an actual input or widget is present.
+  final bool hasPasswordField;
+  final bool hasLoginForm;
+  final bool hasCaptchaWidget;
+  final bool hasPaywallMarker;
+
+  /// Phrase hints. The weakest signal available, and used only to corroborate a
+  /// structural one or an empty document — a page that merely *mentions*
+  /// "subscribe to continue" in a footer is not a paywall.
+  final String? deniedPhrase;
+  final String? ratePhrase;
+  final String? paywallPhrase;
+  final String? authPhrase;
+
+  /// Almost no visible text. On its own this is a load failure; combined with a
+  /// phrase hint it is a gate.
+  final bool isEmptyDocument;
+}
+
 /// One snapshot of the page, taken between scroll steps.
 class PageProbe {
   const PageProbe({
@@ -163,7 +312,10 @@ class PageProbe {
     this.headNextHref,
     this.atBottom = false,
     this.imagesTruncated = false,
-    this.seriesHints = const SeriesHints(),
+    this.pageHints = const PageHints(),
+    this.content = const PageContentSignals(),
+    this.media = const PageMediaSignals(),
+    this.access = const PageAccessSignals(),
   });
 
   factory PageProbe.fromJson(Map<String, dynamic> json) => PageProbe(
@@ -183,11 +335,26 @@ class PageProbe {
     headNextHref: _str(json['headNextHref']),
     atBottom: json['atBottom'] == true,
     imagesTruncated: json['imagesTruncated'] == true,
-    seriesHints: json['seriesHints'] is Map
-        ? SeriesHints.fromJson(
-            Map<String, dynamic>.from(json['seriesHints'] as Map),
+    pageHints: json['pageHints'] is Map
+        ? PageHints.fromJson(
+            Map<String, dynamic>.from(json['pageHints'] as Map),
           )
-        : const SeriesHints(),
+        : const PageHints(),
+    content: json['content'] is Map
+        ? PageContentSignals.fromJson(
+            Map<String, dynamic>.from(json['content'] as Map),
+          )
+        : const PageContentSignals(),
+    media: json['media'] is Map
+        ? PageMediaSignals.fromJson(
+            Map<String, dynamic>.from(json['media'] as Map),
+          )
+        : const PageMediaSignals(),
+    access: json['access'] is Map
+        ? PageAccessSignals.fromJson(
+            Map<String, dynamic>.from(json['access'] as Map),
+          )
+        : const PageAccessSignals(),
   );
 
   final String url;
@@ -205,12 +372,19 @@ class PageProbe {
   final bool atBottom;
 
   /// The page carried more images than the probe returns. Reported so a
-  /// truncated capture is never mistaken for a complete one.
+  /// truncated save is never mistaken for a complete one.
   final bool imagesTruncated;
 
-  /// What the page says about the series this chapter belongs to. Only
+  /// What the page says about the collection this entry belongs to. Only
   /// populated when the probe was asked for links.
-  final SeriesHints seriesHints;
+  final PageHints pageHints;
+
+  /// Structure, media and access signals. Defaults are all "nothing detected",
+  /// so a probe taken by an older bridge degrades to "unknown content" rather
+  /// than to a confident wrong answer.
+  final PageContentSignals content;
+  final PageMediaSignals media;
+  final PageAccessSignals access;
 
   bool get domReady => readyState == 'interactive' || readyState == 'complete';
 
@@ -251,4 +425,11 @@ String? _str(Object? v) {
   if (v == null) return null;
   final s = v.toString().trim();
   return s.isEmpty ? null : s;
+}
+
+/// A date only when it parses. An unparseable string is "no date", never today.
+DateTime? _date(Object? v) {
+  final s = _str(v);
+  if (s == null) return null;
+  return DateTime.tryParse(s);
 }

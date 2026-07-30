@@ -5,8 +5,8 @@ import 'package:drift/drift.dart' show TableInfo;
 import 'package:flutter/foundation.dart';
 
 import '../browser/browser_controller.dart';
-import '../browser/saved_sites_repository.dart';
-import '../capture/capture_job.dart';
+
+import '../save/save_run.dart';
 import '../library/update_checker.dart';
 import '../queue/task_queue.dart';
 import '../storage/database.dart';
@@ -81,7 +81,7 @@ class LocalResetService {
     required this.db,
     required this.fileStore,
     required this.browser,
-    required this.captureJob,
+    required this.saveRun,
     required this.checker,
     required this.taskQueue,
     this.clearCookies,
@@ -90,7 +90,7 @@ class LocalResetService {
   final AppDatabase db;
   final FileStore fileStore;
   final BrowserController browser;
-  final CaptureJobController captureJob;
+  final SaveRunController saveRun;
   final UpdateChecker checker;
   final TaskQueueController taskQueue;
 
@@ -103,15 +103,14 @@ class LocalResetService {
   ///
   /// Files last on purpose — a crash between the two leaves orphaned files
   /// that startup recovery already knows how to sweep, whereas orphaned rows
-  /// pointing at deleted files would surface as broken chapters.
+  /// pointing at deleted files would surface as broken entries.
   Future<ResetReport> resetEverything() async {
     final steps = <ResetStep>[];
 
     steps.add(await _step('active work', _stopEverything));
     steps.add(await _step('database rows', _wipeDatabase));
-    steps.add(await _step('captured files', _wipeFiles));
+    steps.add(await _step('saved files', _wipeFiles));
     steps.add(await _step('browser session', _wipeBrowserSession));
-    steps.add(await _step('browser defaults', _reseedBrowser));
 
     final report = ResetReport(steps);
     debugPrint('[reset] $report');
@@ -129,25 +128,25 @@ class LocalResetService {
   /// Nothing may be mid-write when the tables go.
   Future<String> _stopEverything() async {
     taskQueue.ensureBrowserVisible = null;
-    await taskQueue.stopQueuedCaptures();
-    captureJob.stop();
+    await taskQueue.stopQueuedSaves();
+    saveRun.stop();
     checker.cancel();
     browser.automationOwner = null;
     // Let the stop propagate through the running loops before the rows they
     // are writing to disappear underneath them.
-    for (var i = 0; i < 40 && captureJob.isRunning; i++) {
+    for (var i = 0; i < 40 && saveRun.isRunning; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
-    return captureJob.isRunning
-        ? 'capture still winding down'
+    return saveRun.isRunning
+        ? 'save still winding down'
         : 'queue stopped, browser released';
   }
 
   /// Every table, in one transaction. Listed from the schema rather than by
   /// name so a table added later cannot be quietly missed.
   ///
-  /// Foreign keys are suspended for the wipe. `chapters` references
-  /// `library_items`, so deleting in schema order trips constraint 787 — and
+  /// Foreign keys are suspended for the wipe. `entries` references
+  /// `collections`, so deleting in schema order trips constraint 787 — and
   /// relying on declaration order to happen to be dependency order is the
   /// kind of thing that breaks silently the next time a table is added.
   /// The pragma is a no-op inside a transaction, hence outside it.
@@ -172,17 +171,7 @@ class LocalResetService {
     return '${tables.length} tables emptied';
   }
 
-  /// Put the initial saved site back.
-  ///
-  /// The only path that ever recreates it. Removing Google by hand is
-  /// permanent; a full reset is the app becoming a clean install again, and a
-  /// clean install has it (D54).
-  Future<String> _reseedBrowser() async {
-    await SavedSitesRepository(db).seedDefaultIfNeeded();
-    return 'default saved site restored';
-  }
-
-  /// The whole asset tree: committed chapters, staging, and the `.previous`
+  /// The whole asset tree: committed entries, staging, and the `.previous`
   /// backups a replacement leaves behind.
   Future<String> _wipeFiles() async {
     final root = fileStore.rootDir;
@@ -192,7 +181,7 @@ class LocalResetService {
       entity.deleteSync(recursive: true);
       removed++;
     }
-    // Put the empty skeleton back so the next capture does not have to.
+    // Put the empty skeleton back so the next save does not have to.
     Directory(
       '${root.path}/${FileStore.libraryFolderName}',
     ).createSync(recursive: true);

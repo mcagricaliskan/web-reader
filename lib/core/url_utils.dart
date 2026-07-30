@@ -1,5 +1,5 @@
 /// URL normalisation and next-page validation. Pure Dart, no I/O — this is the
-/// module that stops navigation loops and duplicate chapters, so it is unit
+/// module that stops navigation loops and duplicate entries, so it is unit
 /// tested directly.
 library;
 
@@ -17,7 +17,7 @@ const _trackingParams = <String>{
   '_ga',
 };
 
-/// Deny-listed path fragments that a "next chapter" link must never point at.
+/// Deny-listed path fragments that a "next entry" link must never point at.
 const _denyPathPatterns = <String>[
   '/login',
   '/signin',
@@ -121,7 +121,7 @@ class NextUrlCheck {
 
 /// Validate a next-page candidate before navigating to it.
 ///
-/// [visited] holds already-normalised URLs from this job, which is what
+/// [visited] holds already-normalised URLs from this run, which is what
 /// prevents A -> B -> A loops.
 NextUrlCheck validateNextUrl({
   required String candidate,

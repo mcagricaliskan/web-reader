@@ -1,279 +1,165 @@
 # Web Reader — project instructions
 
-iOS-first, Android-compatible Flutter app: embedded browser + autonomous
-webtoon capture + offline reading library. Plans live in `docs/MVP_PLAN.md`,
-as-built truth in `docs/IMPLEMENTATION_STATUS.md`, durable decisions in
-`docs/DECISIONS.md`.
+A general-purpose personal reading tool, iOS-first and Android-compatible:
+embedded browser + explicit page saving + offline reading library.
 
-## Live-Site Verification Protocol
+Read [docs/TERMINOLOGY.md](docs/TERMINOLOGY.md) before writing any code. The
+as-built model is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); store positioning
+is [docs/STORE_PACKAGE.md](docs/STORE_PACKAGE.md); the policy reasoning behind the
+safety rules is [docs/STORE_POLICY_MAP.md](docs/STORE_POLICY_MAP.md).
 
-Real websites are **optional, explicit, bounded smoke tests** — never
-dependencies of the normal suite. But when a change touches behavior that
-only a real site can prove, the matching live smoke test is part of "done".
+## What this app is, and is not
 
-1. Run the deterministic fixture tests first (`flutter test`, then the
-   fixture integration suites). They gate everything; live tests never
-   substitute for them.
-2. Decide whether the change affects: capture scrolling · panel extraction ·
-   image downloads / MIME handling · next-chapter navigation · multi-chapter
-   chaining · update checking · duplicate handling · user-assisted rules ·
-   authentication/session behavior · **browser navigation, history recording,
-   or the navigation-source split** (M18 — only a live site exercises
-   redirects, cookies and chapter hops together).
-3. If yes: run the bounded live smoke test(s) whose matrix entry covers that
-   area, on a Simulator/device. If the environment has no device or no
-   network access, say so — report the limitation honestly instead of
-   skipping silently.
-4. Never make `flutter test` (or CI) depend on a live site. Structural
-   guarantee today: everything under `test/` is network-free, and
-   `integration_test/live_*.dart` runs only by explicit file + `-d device`.
-5. Never commit downloaded third-party chapter content. Captured bytes stay
-   in app containers or scratch directories.
-6. Record every live run's outcome as one of: **PASSED · FAILED · BLOCKED ·
-   SKIPPED (unreachable)**. The tests print a machine-greppable line:
-   `[LIVE][<site>] RESULT: <outcome> url=<url> …`.
-7. An unreachable or blocked site is **never** a passing verification. The
-   live tests call `markTestSkipped` in that case; report it as such.
-8. No site-specific production hacks unless a generic strategy is impossible
-   — and then isolated behind its own seam and documented in
-   `docs/DECISIONS.md`.
-9. Keep each live run to the smallest operation that answers the question:
-   one chapter for capture checks, two for chaining, read-only probes for
-   detection. Never run "Until the end" against a live site in automation.
-10. When the user supplies a new site/series, add a matrix row below with its
-    purpose and bounds before relying on it.
+It lets a user save web pages they are legally permitted to keep, organise them,
+and read them offline.
 
-### Command reference
+It is **not** a bulk fetcher, an automated harvester, a site archiver, a client
+for particular websites, or a tool for getting past any access control. Do not write
+code, comments, tests, fixtures, docs or store copy that position it as any of
+those. `test/repository_cleanliness_test.dart` enforces this and will fail the
+build.
+
+## Standing rules
+
+### Terminology — one model, one label system
+
+- The canonical model is **Library / Collection / Entry / Page or Section**.
+  `Collection` and `Entry` are the only nouns in code.
+- User-facing nouns come from `lib/library/entry_labels.dart` and **nowhere
+  else**. A screen that types its own noun is how one app calls the same thing an
+  three different things on three consecutive screens.
+- Low or unknown confidence prints **Item** / **Saved item**. Never infer a
+  structure from a number in a URL, and never infer a page from the fact that the
+  content came from the web.
+
+### Nothing site-specific ships
+
+- No hostname, selector, site list, provider catalogue or "supported sites"
+  anywhere in the binary, the tests, the fixtures or the docs. Use the reserved
+  example domains.
+- `user_page_hints` holds only what a person taught by tapping an element. It is
+  empty on a clean install; nothing seeds it, and nothing seeds `saved_sites`
+  either.
+- Detection uses standard HTML semantics and measurements only —
+  `lib/save/content_detection.dart` is the whole surface.
+
+### Saving is explicit and bounded
+
+- **The default is one page.** `SaveScope.currentPageOnly` is preselected, and
+  `SaveRunController.start` takes `range` as a **required** parameter so nothing
+  inherits a default about how much of someone else's site to touch.
+- `SaveLimits.forScope` is the only way to build limits and cannot produce an
+  unbounded run. An open-ended scope requires an explicit maximum.
+- Show the detection result *before* saving more than one page: what was found,
+  the domain, the count or that it is unknown, the shape, the direction, the stop
+  condition, the estimate, and how to cancel.
+- Nothing saves in the background. Queued work waits for an explicit Start, and
+  that authorisation is never persisted.
+
+### The app stops; it never works around
+
+- Add stopping conditions to `lib/save/stop_conditions.dart` as a named
+  `StopReason`. Never add a retry with different headers, an alternate-URL
+  attempt, cookie manipulation, or a rate-limit wait-out.
+- Structural signals stand alone; **phrase hints never do**. A footer that says
+  "subscribe to continue" is not a paywall.
+- "Finished" and "the site stopped us" are different outcomes and live in
+  different column values.
+
+### Media
+
+Audio and video are never saved. `AssetFetcher` accepts image bytes only, verified
+by magic number rather than `Content-Type`. Media elements are counted so an entry
+can show a placeholder and a link to the original page.
+
+### Storage and privacy
+
+- Original image bytes are stored byte-for-byte; no format conversion, no quality
+  profiles. Stored extensions come from sniffed MIME.
+- App-private storage only. No export to Photos, Gallery, Downloads or shared
+  storage. No new permission without a visible, justified feature.
+- No analytics, crash-reporting or advertising SDK. Nothing is sent to the
+  developer. Do not add a dependency that changes this.
+- Never claim "no tracking", "completely private" or "everything stays on device"
+  — the embedded browser contacts the sites the user visits.
+
+### Structural invariants
+
+- **Cancelling preserves the row; dismissing deletes it.** A cancel moves a task
+  to the existing `cancelled` state — there is no sixth state — and *Remove from
+  Activity* deletes a row that is already terminal, refusing anything live. A
+  waiting row is removed on a tap with an **Undo** that restores its
+  `orderIndex`; a running one gets a dialog naming what survives, and its
+  cancellation is written the moment it is asked for, because `restore()` demotes
+  a killed `running` row back to `queued`. Both the pump's claim and every cancel
+  go through `updateQueueTaskIfState` — one conditional SQL `UPDATE` — so exactly
+  one wins and the loser is told; a pump that loses the claim skips the row and
+  carries on. Never offer a stop that does not stop: `removeOfflineNow` takes
+  `shouldContinue` and is asked between entries, and stopping is cooperative
+  everywhere, so the wording is "at the next safe point".
+
+- Reading state is writable only from `lib/reading/`; `writeEntryReading` is the
+  only DAO method that can reach a reading column.
+- A completed entry is 100% read, enforced on write and again on display.
+- Removing offline files is never deleting an entry: only `content_path`,
+  `byte_size` and `offline_removed_at` are written.
+- `entries.source_url` is durable metadata — every writer names its columns.
+- `entries.collection_id` is nullable. A standalone entry is a first-class
+  library item; never wrap one in a collection of one.
+- Only manual navigation enters browsing history, enforced twice.
+- `AppPalette` is the only source of colour; `test/theme_palette_test.dart` scans
+  `lib/` and fails on a literal `Color(0x…)`.
+- Header actions use `HeaderIconButton` / `kHeaderActionSize` (40) /
+  `kHeaderIconSize` (22) / `kHeaderIconColor`.
+- **drift trap:** `insertOnConflictUpdate` treats a null field as *absent*, so
+  anything that must be cleared needs its own narrow writer.
+- The app mark is generated by `tool/brand/generate_brand_assets.swift`, never
+  hand-edited. Its colours are `AppPalette`'s.
+- Destructive developer tools are `kDebugMode`-only at the settings entry, the
+  route registration and the screen.
+
+### The database has no history
+
+`schemaVersion` is **1**, with an `onCreate` and no `onUpgrade`. Do not add a
+migration branch, a schema dump, a step verifier or a data-copying routine. If the
+schema needs to change after release, write a migration then.
+
+## Verification
 
 ```bash
-# deterministic (network-free) — the gate:
+dart format lib test integration_test tool
+flutter analyze
 flutter test
-# fixture integration suites (Simulator; in-process fixture server):
-flutter test integration_test/capture_flow_test.dart  -d <udid>
+dart run build_runner build          # after touching lib/storage/database.dart
+```
+
+Deterministic tests are network-free and gate everything. Fixture integration
+suites run against the in-process server in `tool/fixture/`:
+
+```bash
+flutter test integration_test/save_flow_test.dart     -d <udid>
 flutter test integration_test/offline_read_test.dart  -d <udid>
 flutter test integration_test/reading_flow_test.dart  -d <udid>
 flutter test integration_test/update_check_test.dart  -d <udid>
 flutter test integration_test/user_assist_test.dart   -d <udid>
-# live smoke (explicit, bounded, third-party):
-flutter test integration_test/live_capture_test.dart     -d <udid>  # uzaymanga, 1 chapter
-flutter test integration_test/live_asura_smoke_test.dart -d <udid>  # asura, 2 chapters
-flutter test integration_test/live_site_probe_test.dart  -d <udid>  # read-only, both sites
-flutter test integration_test/live_queue_start_test.dart -d <udid>  # queue-first flow
-flutter test integration_test/live_browser_test.dart     -d <udid>  # browser UX (M18)
-flutter test integration_test/live_direct_capture_test.dart -d <udid> # direct capture (M19)
-#   ^ manual navigation creates history · the same site captured creates
-#     none · Browser Home preserves the loaded page · saved-site seeding
-#   ^ Add to Queue starts nothing · Start Capture runs in the visible Browser ·
-#     the pending queue is untouched · the next page comes up clean (D58/D59)
-#   ^ two groups: one chapter page per site (extraction + next-detection),
-#     and one series index page per site (chapter-list ordering, D40).
 ```
 
-### Live-site matrix
+### Live-site verification
 
-| | Uzay Manga | Asura Scans |
-|---|---|---|
-| Series | Efsanevi Büyü İmparatoru | The Nebula's Civilization |
-| Example URL | `https://uzaymanga.com/manga/efsanevi-buyu-imparatoru/885-bolum-oku` | `https://asurascans.com/comics/the-nebulas-civilization-059befe1/chapter/137` |
-| Purpose | Real single-chapter capture · Referer-gated AVIF CDN · very tall panels (800×16000) · MIME/extension verification · next-chapter detection · aspect-ratio/manifest repair · adaptive scroll on a long lazy chapter · chapter-list ordering on the series index page · **manual navigation → history, capture over the same site → none (D53), Browser Home preserves the page (D52)** · **direct start vs queue, and a clean capture state on the next chapter (D58/D59)** | Very long eager-rendered chapter (~146k px, ~31 panels) · fast traversal over loaded content · hidden-WebView pause protection · comment-avatar false-positive rejection · JPEG bytes under `.webp` URLs · next-chapter detection · bounded multi-chapter chain · large-chapter downloads (15–40 MB) · chapter-list ordering on the series index page · queue-first start flow (D46/D47) |
-| Download allowed | Yes — 1 chapter (~1.4 MB) | Yes — max 2 chapters (~30–80 MB) |
-| Max chapters | 1 | 2 |
-| Content type | Webtoon, AVIF strips, no HTML size attrs | Webtoon, WebP/JPEG strips via Astro/React island (panels absent from static HTML; hydrate eagerly) |
-| Test file | `integration_test/live_capture_test.dart` (+ probe, `live_browser_test.dart`, `live_direct_capture_test.dart`) | `integration_test/live_asura_smoke_test.dart` (+ probe) |
-| Last verified | 2026-07-28 (direct capture: Add-to-Queue starts nothing · Start Capture ran 1 chapter in the visible Browser · 2 queued rows untouched · next chapter came up clean, session=2, result cleared, second start began — PASSED) · 2026-07-28 (browser UX: manual history, capture-leaves-no-history, Home preserves page — see report) · 2026-07-27 (capture+dims+extensions; series-page list read-only: 500 links, 483 chapters, `newestFirst`, confident) | 2026-07-27 (2-chapter smoke incl. pause/resume; series-page list read-only: 141 links, 103 chapters, `newestFirst`, confident) |
-| Caveats | Series page carries *İlk Bölüm* / *En Son Bölüm* jump links above the list (D40); Turkish titles; site occasionally slow; CDN 503s single assets (partial-capture path) | Cloudflare-fronted; comment avatars sit pending forever; URL slugs contain content hashes and may rot; a hidden-but-once-painted WebView keeps live metrics on the Simulator (run continues — correct); the pause fires only on broken metrics |
+Bounded, explicit, and **against the developer-owned demo site only** — see
+[docs/DEMO_CONTENT.md](docs/DEMO_CONTENT.md). Pass the origin in; never compile
+one in:
 
-> **Coding-agent rule:** when a change affects an area covered by a matrix
-> entry, run the relevant bounded live smoke test after deterministic tests —
-> unless the environment cannot access a device or the site, in which case
-> report that limitation honestly. Do not run every live site after every
-> unrelated change.
+```bash
+flutter test integration_test/live_demo_test.dart -d <udid> \
+  --dart-define=DEMO_BASE_URL=https://demo.example
+```
 
-## Standing engineering rules (project-specific)
+Rules: deterministic tests first, always. Never make `flutter test` or CI depend
+on a network. Never commit downloaded third-party content. Report each live run as
+**PASSED · FAILED · BLOCKED · SKIPPED (unreachable)** — an unreachable site is
+never a passing verification. Keep each run to the smallest operation that answers
+the question.
 
-- Original image bytes are stored byte-for-byte; no format conversion, no
-  quality profiles (D31). Stored file extensions come from sniffed MIME.
-- WebView-dependent automation must never scroll, measure, or extract on an
-  unrendered surface (zero viewport) — pause and ask for the Browser (D32).
-- Disk-space checks run before and during captures; low-disk is its own
-  error class (`insufficientStorage`), never a generic I/O failure.
-- `webread/` (chapter assets) is excluded from device backup; the database
-  and settings are not.
-- Capture range UX is exactly three choices: current chapter · number of
-  chapters · until the end (safety-limited, distinct result at the limit).
-- `flutter_inappwebview` is pinned to an exact version (see pubspec comment,
-  D29). Do not let a caret drift it.
-- SPM stays disabled for iOS builds (D25) until verified on a physical
-  device.
-- **A completed chapter is 100% read** (D39). `progress_fraction` is pinned
-  at 1 whenever `read_status` is `completed`, enforced on write and again on
-  display (`readProgressFor`). Re-reading a finished chapter moves the anchor,
-  never the fraction.
-- Update-check chapter-list ordering is **measured from the page**, never
-  assumed. Emission is oldest-first; "nothing new" ends a check only when the
-  ordering was unambiguous, otherwise the chain walk still runs.
-- **Queueing a capture does not start it** (D46). Adding a capture request
-  creates a `queued` row and nothing else — no navigation, no WebView. It
-  waits for **Start Capture**. Update checks and cleanup still drain on their
-  own (`taskWaitsForExplicitStart` is the predicate). The start authorisation
-  is **never persisted**: queued rows survive a restart, permission does not.
-- **The Browser comes forward before automation** (D47), via the queue's
-  `ensureBrowserVisible` hook, which the shell provides. If it cannot, the
-  task stays queued — not failed, not cancelled. Downloading and saving do
-  **not** need the Browser: `needsRenderedBrowser` is the line, and leaving
-  during a download must not warn or pause.
-- **Browser Capture offers Add to Queue and Start Capture, in the range
-  sheet** (D58) — never a second drawer asking which. **Start Capture** runs
-  the request now via `TaskQueueController.startDirectCapture`: a
-  `capture_jobs` row, **no pending `queue_task`**, and the batch authorisation
-  untouched, so chapters queued earlier are still waiting afterwards and start
-  only on **Start queued captures**. A direct run's outcome is written as a
-  *terminal* `origin = 'direct'` queue row — history, never a plan. The chosen
-  launch is carried through the duplicate preflight (`_launch`), so a
-  re-download stays direct or stays queued as the user asked; the question is
-  never asked twice. `browserOwner != null` replaces Start Capture with **View
-  active task**, and leaves Add to Queue alone.
-- **The Browser's capture state is page state** (D59). `BrowserController`
-  carries a `pageSession` counter and `pageSessionKey` (`pageIdentityKey` —
-  normalised URL, no fragment); `resolveBrowserCaptureState` derives the
-  control from the page on screen, the run that matches it, and this page's own
-  offline metadata. A completed/failed/cancelled run is a **result** scoped to
-  the page session it ended on, shown as a dismissible banner and never as the
-  standing state of a later page — and a historical job never disables
-  Capture. Automation hops re-scope the *presentation* and never touch the
-  running job; hash-only changes, sub-frames, asset loads and `about:blank`
-  start no session.
-- **Removed episodes can be batch-queued for re-download** (D48), oldest
-  first regardless of the display sort, reusing the existing chapter row.
-  Chapters with no usable `source_url` are reported separately, never
-  silently dropped and never fatal to the rest of the selection.
-- **Destructive developer tools are `kDebugMode` only** (D50) — Settings
-  entry, route registration and the screen itself all check it. The reset is
-  two-step and requires typing `RESET`.
-- **Anything in a screen header uses the shared action geometry**:
-  `HeaderIconButton`, `kHeaderActionSize` (40), `kHeaderIconSize` (22),
-  `kHeaderIconColor`. A widget with its own size or glyph size in that row is
-  how the header ended up with two centre lines and three glyph sizes.
-- **The episode list's progress pie is painted from the real fraction** (D43)
-  and is the only read-state indicator. Newest-first by default, with the sort
-  persisted in `settings['series.chapterSort']`. Descending is the same
-  ordering reversed, never a second comparison.
-- **Chapter numbers are the display label** (D43): `chapterDisplayLabel` prints
-  `Chapter 487`; the raw source marker is kept on the row for the details
-  sheet. Never invent a number — `Prologue` prints as itself.
-- **Tap reads, long press explains** (D44). The details sheet reads only from
-  the chapter row (including `byteSize`); it never measures the disk.
-  "Remove offline files" keeps metadata; "Delete episode" is not offered
-  because permanent metadata deletion does not exist (D35).
-- **A chapter's `source_url` is durable metadata** (D42). It survives removal,
-  archive, restore, re-download and reading updates because every writer names
-  its columns; it is what "Open on website" and "Capture again" stand on. A
-  chapter with no usable URL disables those actions rather than guessing one.
-- **Storage colour comes from the percentage used** (D51): < 75% quiet,
-  75–89% amber, ≥ 90% red, plus a hard escalation under 1 GB free. One rule
-  (`DeviceCapacity.level`) and one palette (`storageLook`) shared by the
-  Library pill and the Storage screen. Exactly one element per screen carries
-  the warning state — the metric tiles never colour themselves.
-- **The Library's storage indicator is a glyph and a percentage** (D41):
-  device usage from one throttled `capacity` call, fixed width, no filesystem
-  walk. Detailed figures live on Settings → Storage. Never show the library's
-  own share as though it were device usage, and never invent a percentage when
-  the platform will not report capacity.
-- **Removing offline files is never deleting a chapter** (D35): bytes go,
-  every piece of metadata and reading history stays, and the chapter reads
-  as "Not available offline — capture again". Permanent metadata deletion is
-  a separate concept and is not implemented.
-- **Leaving the Browser during a WebView-dependent capture phase pauses it**
-  (D36) — never cancels, never continues blind. Downloading/saving phases do
-  not trigger the confirmation.
-- **Finished-chapter cleanup is a per-series decision** (D37), stored on the
-  library item (`finished_cleanup`: `remove` | `keep` | null). Null asks once,
-  on that series' first eligible forward transition, with **Remove after
-  continuing** preselected — a constant, never inherited from another series
-  or any setting. Saving applies to that transition and is never asked again;
-  Series detail › Downloaded chapters changes it or resets it to *Ask again
-  next time*. There is **no global cleanup preference**. Changing a decision
-  never removes anything retroactively, and only downloaded files ever go.
-- **Browser Home is a layer, not a route** (D52). One `InAppWebView`, built in
-  one place, mounted for the whole session; Home and the URL editor are drawn
-  over it. Closing them reveals the same page — scroll, cookies, in-page state
-  and any paused capture intact — because nothing was torn down. Covering the
-  page is still *hiding* it, so opening Home goes through the same
-  `LeaveBrowserGuard` as a tab switch (D36); download/save phases still do not
-  warn.
-- **Go is not permanent toolbar chrome** (D52). The toolbar is Back · Forward ·
-  Address · Refresh/Stop · Home. Go lives in the expanded URL editor and on the
-  keyboard, where entering an address actually happens. The compact address
-  field shows host + shortened path and opens the editor; it is never an
-  inline editor.
-- **Only manual navigation enters browsing history** (D53). Capture, update
-  checks, rule validation, internal navigation and live tests all drive the
-  same WebView and are never recorded — enforced twice: the source the
-  automation sets, and `effectiveNavigationSource`, which cannot answer
-  `manual` while `automationOwner` is held. `about:blank`, app schemes,
-  incomplete loads and faulted loads never enter either. Retention is 90 days
-  or 5,000 rows.
-- **Clearing history clears history** (D53). One table. Saved sites, library,
-  captured files, reading progress, cookies, rules and queue rows are not
-  reachable from it. **Clearing website data** is the separate,
-  stronger-confirmation action (cookies, site storage, cache) and never
-  touches app data.
-- **Google is the removable initial saved site** (D54). Seeded once per
-  install behind a settings flag — not inferred from an empty table, or it
-  could never be deleted. Removed stays removed; only a full reset (D50)
-  brings it back. Saved sites are their own table, keyed by normalised URL,
-  hand-ordered.
-- **Favicons are optional decoration** (D55). Nothing waits on one; the box is
-  a fixed size so a late icon never reflows a list; misses are cached too.
-  Tests run with `allowNetwork: false`.
-- **`AppPalette` is the one token layer** (D56) — a narrow amendment to D28,
-  because a literal colour cannot be "the quiet surface" in both appearances.
-  Dark values are *derived*, not designed: the design artifact is light-only.
-- **The palette is the *only* source of colour** (D62). No widget file may name
-  a `Color(0x…)` or any Material swatch except `Colors.transparent` and
-  `Colors.black`; `test/theme_palette_test.dart` scans `lib/` and fails if one
-  appears. The reader's fixed dark set lives in `ReaderColors`, in the same
-  file, for the one screen that is outside the appearance preference. Both
-  ramps are tuned against **measured** contrast — WCAG 2.x as the floor, APCA
-  Lc for the judgement, since WCAG 2 overstates contrast near black — and the
-  same test pins them: four text levels ≥ 4.5:1 on *every* surface, body ink
-  inside 7–15:1 at both ends, cards separated but under 1.9:1, borders
-  perceptible, and accents that stay distinct from the neutral inks in L\*
-  after a simulated device warm filter. Never add a colour by editing a
-  screen; add or reuse a role.
-- **"Open in Browser" goes through one coordinator** (D60): `openInBrowser`.
-  Validate → confirm with a running capture → store the request → **pop back
-  to the shell** → select the Browser tab → drain when mounted and attached.
-  The pop is the step that makes it visible: every episode action is reached
-  from a route pushed *above* the shell, so switching the tab underneath one
-  changes nothing the user can see. Never `go('/')` — that rebuilds the shell
-  and the WebView with it.
-- **The reader's cleanup notice is screen state, not a snack bar** (D61).
-  `_TransientNotice` lives inside the reader: *Previous chapter removed
-  offline*, a trash glyph, **Undo** while the undo window is open, its timeout
-  drawn as an emptying hairline, five seconds and gone. No byte count — that
-  belongs on Settings › Storage. One nullable field holds it, keyed so a second
-  removal restarts the countdown; it is dropped on chapter change, on **every**
-  lifecycle transition (the resume included), on close, and with the screen, and
-  nothing about it is persisted. `ScaffoldMessenger` is deliberately not used
-  here: its queue outlives the route, its animation resumes with the app, and
-  `SnackBar.persist` defaults to `action != null` — which is what made a
-  transient notice permanent. `showCleanupToast` keeps the snack bar for the
-  list screens and now persists only for a screen reader.
-- **The app mark is generated, never hand-edited** (D63). One CoreGraphics
-  script — `tool/brand/generate_brand_assets.swift`, run with `swift` from the
-  repo root — emits every iOS icon slot, both Android icon layers, both launch
-  images and `assets/brand/app_mark.png`. Its colours are `AppPalette`'s, so a
-  palette change means re-running it. Editing a PNG is always the wrong fix.
-- **Startup is a screen, and it tells the truth** (D63). The work between
-  launch and a usable library runs as named `StartupStep`s inside the tree,
-  under the splash, not before `runApp`. Only "Opening your library" is
-  `critical`; every later step logs a warning and lets the user in, because a
-  failing backfill must never be why someone cannot read. Adding boot work
-  means adding a step with a user-facing label — never a silent `await` in
-  `main()`. The splash follows the *system* appearance (it continues the
-  native launch window); the persisted preference applies once the app is up.
-- **drift trap:** `insertOnConflictUpdate` treats a null field on a data
-  class as *absent*, so nullable columns survive an upsert. Anything that
-  must be cleared needs its own narrow writer (`clearOfflineRemovedMark`,
-  `clearJobPauseReason`).
+There is deliberately no matrix of third-party sites. If a change needs a real
+site to prove it, add the case to the demo site.

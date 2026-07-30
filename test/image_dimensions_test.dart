@@ -16,7 +16,7 @@ void main() {
         const ImageDimensions(800, 1200),
       );
       expect(
-        readImageDimensions(panelPng(chapter: 1, index: 3)),
+        readImageDimensions(panelPng(entry: 1, index: 3)),
         const ImageDimensions(800, 1200),
       );
     });
@@ -172,7 +172,7 @@ void main() {
       expect(
         readImageDimensions(avif([ispe(800, 16000)])),
         const ImageDimensions(800, 16000),
-        reason: 'real uzaymanga panels are strips this tall',
+        reason: 'real example panels are strips this tall',
       );
     });
 

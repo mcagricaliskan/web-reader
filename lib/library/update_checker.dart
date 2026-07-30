@@ -8,13 +8,14 @@ import 'package:drift/drift.dart' show Value;
 import '../browser/browser_controller.dart';
 import '../browser/history_repository.dart' show NavigationSource;
 import '../browser/page_data.dart';
-import '../capture/next_page.dart';
-import '../capture/rule_repository.dart';
-import '../capture/selection_request.dart';
-import '../capture/site_rule.dart';
+import '../save/next_page.dart';
+import '../save/page_hint_repository.dart';
+import '../save/selection_request.dart';
+import '../save/page_hint.dart';
 import '../core/url_utils.dart';
 import '../storage/database.dart';
-import 'series_identity.dart';
+import 'collection_identity.dart';
+import 'content_shape.dart';
 
 const _uuid = Uuid();
 
@@ -43,14 +44,14 @@ enum UpdateCheckState {
 class UpdateCheckConfig {
   const UpdateCheckConfig({
     this.maxPagesInspected = 12,
-    this.maxNewChapters = 20,
+    this.maxNewEntries = 20,
     this.maxCheckDuration = const Duration(minutes: 3),
     this.navigationTimeout = const Duration(seconds: 25),
     this.cooldownBetweenPages = const Duration(milliseconds: 800),
   });
 
   final int maxPagesInspected;
-  final int maxNewChapters;
+  final int maxNewEntries;
   final Duration maxCheckDuration;
   final Duration navigationTimeout;
   final Duration cooldownBetweenPages;
@@ -62,46 +63,46 @@ const kDefaultUpdateCheckConfig = UpdateCheckConfig();
 class UpdateCheckOutcome {
   const UpdateCheckOutcome({
     required this.state,
-    this.newChapters = 0,
+    this.newEntries = 0,
     this.pagesInspected = 0,
     this.error,
     this.detail = '',
   });
 
   final UpdateCheckState state;
-  final int newChapters;
+  final int newEntries;
   final int pagesInspected;
   final String? error;
   final String detail;
 }
 
-/// Foreground, user-triggered "has this series published anything since?".
+/// Foreground, user-triggered "has this collection published anything since?".
 ///
-/// Discovers chapter *metadata* only: a discovered chapter becomes a
-/// `knownRemote` row with no local content, never a fake offline chapter.
+/// Discovers entry *metadata* only: a discovered entry becomes a
+/// `knownRemote` row with no local content, never a fake offline entry.
 /// Downloading stays a separate, explicit act.
 ///
-/// Reuses the same machinery captures trust: safe-URL validation, the
+/// Reuses the same machinery saves trust: safe-URL validation, the
 /// saved-rule → generic next-detection chain, and the user-assisted fallback
 /// when confidence is insufficient.
 class UpdateChecker extends ChangeNotifier implements SelectionHost {
   UpdateChecker({
     required this.browser,
     required this.db,
-    RuleRepository? rules,
+    PageHintRepository? rules,
     this.config = kDefaultUpdateCheckConfig,
-  }) : rules = rules ?? RuleRepository(db);
+  }) : rules = rules ?? PageHintRepository(db);
 
   @override
   final BrowserController browser;
   final AppDatabase db;
-  final RuleRepository rules;
+  final PageHintRepository rules;
   final UpdateCheckConfig config;
 
   UpdateCheckState _state = UpdateCheckState.idle;
   UpdateCheckState get state => _state;
 
-  /// The series being checked, while one is.
+  /// The collection being checked, while one is.
   String? _activeItemId;
   String? get activeItemId => _activeItemId;
 
@@ -147,7 +148,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
   @override
   Future<void> submitSelection(
     SelectedElement element, {
-    RuleScope scope = RuleScope.series,
+    HintScope scope = HintScope.collection,
   }) async {
     final request = _pendingSelection;
     if (request == null) return;
@@ -160,22 +161,22 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     if (!check.isAccepted) {
       _pendingSelection = request.withError(
         'That link is not usable here (${check.rejection?.name}). '
-        'Pick the control that opens the next chapter.',
+        'Pick the control that opens the next entry.',
       );
       notifyListeners();
       return;
     }
 
-    // Save the rule exactly like the capture flow does, at the narrowest
+    // Save the rule exactly like the save flow does, at the narrowest
     // scope the user chose — the whole point is that the next check (and the
-    // next capture) does not have to ask again.
-    final rule = await rules.createNextLinkRule(
+    // next save) does not have to ask again.
+    final rule = await rules.createNextLinkHint(
       element: element,
       sourceUrl: request.sourceUrl,
       scope: scope,
     );
     _addLog(
-      'saved next-link rule for ${rule.host}${rule.seriesPath ?? ""} '
+      'saved next-link rule for ${rule.host}${rule.hintPath ?? ""} '
       '(scope: ${rule.scope.label})',
     );
 
@@ -219,7 +220,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
 
   // --- the check -------------------------------------------------------------
 
-  Future<UpdateCheckOutcome> check(String libraryItemId) async {
+  Future<UpdateCheckOutcome> check(String collectionId) async {
     if (isRunning) {
       return const UpdateCheckOutcome(
         state: UpdateCheckState.failed,
@@ -239,24 +240,24 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       );
     }
 
-    final item = await db.libraryItemById(libraryItemId);
+    final item = await db.collectionById(collectionId);
     if (item == null) {
       return const UpdateCheckOutcome(
         state: UpdateCheckState.failed,
-        error: 'series no longer listed',
+        error: 'collection no longer listed',
       );
     }
 
     final startedAt = DateTime.now();
-    _activeItemId = libraryItemId;
+    _activeItemId = collectionId;
     _cancelRequested = false;
     _visited.clear();
     _log.clear();
     _state = UpdateCheckState.checking;
-    _addLog('checking "${item.title}" for new chapters');
+    _addLog('checking "${item.title}" for new entries');
 
     browser.automationOwner = 'an update check';
-    // Reading a chapter list is the app asking the source a question, not a
+    // Reading an entry list is the app asking the source a question, not a
     // page the user visited — excluded from browsing history (D53).
     browser.navigationSource = NavigationSource.updateCheck;
     browser.navigationLocked = true;
@@ -290,14 +291,14 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     }
 
     // Persist the outcome — including failures. "It last failed, and why"
-    // is series state the UI must be able to show after a restart.
+    // is collection state the UI must be able to show after a restart.
     final succeeded =
         outcome.state == UpdateCheckState.upToDate ||
         outcome.state == UpdateCheckState.updatesAvailable;
     try {
-      await db.writeSeriesCheck(
-        libraryItemId,
-        LibraryItemsCompanion(
+      await db.writeCollectionCheck(
+        collectionId,
+        CollectionsCompanion(
           lastCheckAt: Value(startedAt),
           lastCheckSuccessAt: succeeded
               ? Value(DateTime.now())
@@ -313,8 +314,8 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     _addLog(switch (outcome.state) {
       UpdateCheckState.upToDate => 'up to date — nothing new on the source',
       UpdateCheckState.updatesAvailable =>
-        '${outcome.newChapters} new chapter(s) found '
-            '(not downloaded — capture is a separate step)',
+        '${outcome.newEntries} new entry(s) found '
+            '(not downloaded — save is a separate step)',
       UpdateCheckState.cancelled => 'check cancelled',
       _ => 'check failed: ${outcome.error}',
     });
@@ -322,80 +323,82 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     return outcome;
   }
 
-  Future<UpdateCheckOutcome> _run(LibraryItem item) async {
-    final chapters = await db.chaptersForItem(item.id);
-    if (chapters.isEmpty) {
+  Future<UpdateCheckOutcome> _run(Collection item) async {
+    final entries = await db.entriesForCollection(item.id);
+    if (entries.isEmpty) {
       return const UpdateCheckOutcome(
         state: UpdateCheckState.failed,
-        error: 'no known chapter to start from',
+        error: 'no known entry to start from',
       );
     }
 
-    for (final c in chapters) {
+    for (final c in entries) {
       _visited.add(c.urlKey);
     }
 
     double? latestNumber;
-    for (final c in chapters) {
-      final n = c.chapterNumber;
+    for (final c in entries) {
+      final n = c.entryNumber;
       if (n != null && (latestNumber == null || n > latestNumber)) {
         latestNumber = n;
       }
     }
-    var maxSequence = 0;
-    for (final c in chapters) {
-      if (c.sequence > maxSequence) maxSequence = c.sequence;
+    var maxEntryOrder = 0;
+    for (final c in entries) {
+      if (c.entryOrder > maxEntryOrder) maxEntryOrder = c.entryOrder;
     }
 
     var pages = 0;
     var found = 0;
 
-    // --- strategy 1: the series page's chapter list ------------------------
-    final seriesUrl = item.seriesUrl;
-    final seriesKey = item.seriesKey;
-    if (seriesUrl != null && seriesUrl.isNotEmpty && seriesKey != null) {
+    // --- strategy 1: the collection page's entry list ------------------------
+    final collectionIndexUrl = item.collectionIndexUrl;
+    final collectionKey = item.collectionKey;
+    if (collectionIndexUrl != null &&
+        collectionIndexUrl.isNotEmpty &&
+        collectionKey != null) {
       if (_cancelRequested) {
         return const UpdateCheckOutcome(state: UpdateCheckState.cancelled);
       }
-      _addLog('inspecting series page: $seriesUrl');
-      final probe = await _navigateAndProbe(seriesUrl);
+      _addLog('inspecting collection page: $collectionIndexUrl');
+      final probe = await _navigateAndProbe(collectionIndexUrl);
       pages++;
       if (probe != null) {
-        final discovery = discoverFromChapterList(
+        final discovery = discoverFromEntryList(
           probe,
-          seriesKey: seriesKey,
+          collectionKey: collectionKey,
           latestKnownNumber: latestNumber,
           knownUrlKeys: _visited,
-          maxNew: config.maxNewChapters,
+          maxNew: config.maxNewEntries,
         );
         _addLog(
-          'chapter list: ${discovery.direction.name}, '
+          'entry list: ${discovery.direction.name}, '
           '${discovery.knownSeen} already held, '
-          '${discovery.newChapters.length} new'
+          '${discovery.newEntries.length} new'
           '${discovery.orderingConfident ? '' : ' (ordering unclear)'}',
         );
         if (discovery.dropped > 0) {
           _addLog(
-            '${discovery.dropped} further new chapter(s) left for the next '
-            'check (limit ${config.maxNewChapters})',
+            '${discovery.dropped} further new entry(s) left for the next '
+            'check (limit ${config.maxNewEntries})',
           );
         }
-        // Trusting an empty result means declaring the series up to date
+        // Trusting an empty result means declaring the collection up to date
         // without looking any further. That is only safe when the list's own
         // ordering was unambiguous; otherwise "nothing above the checkpoint"
         // may just mean we could not tell what was above it, and the chain
         // walk gets its turn.
         if (discovery.listRecognised &&
-            (discovery.newChapters.isNotEmpty || discovery.orderingConfident)) {
-          for (final found_ in discovery.newChapters) {
-            maxSequence++;
+            (discovery.newEntries.isNotEmpty || discovery.orderingConfident)) {
+          for (final found_ in discovery.newEntries) {
+            maxEntryOrder++;
             await _recordDiscovered(
               item: item,
               url: found_.url,
               title: found_.title,
               number: found_.number,
-              sequence: maxSequence,
-              basis: 'chapterList',
+              entryOrder: maxEntryOrder,
+              basis: 'entryList',
               confidence: 'high',
             );
             found++;
@@ -405,40 +408,32 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
             state: found > 0
                 ? UpdateCheckState.updatesAvailable
                 : UpdateCheckState.upToDate,
-            newChapters: found,
+            newEntries: found,
             pagesInspected: pages,
-            detail: 'chapter list on the series page',
+            detail: 'entry list on the collection page',
           );
         }
         _addLog(
           discovery.listRecognised
-              ? 'chapter list gave nothing but could not be ordered — '
-                    'walking the chapter chain'
-              : 'no recognisable chapter list — walking the chapter chain',
+              ? 'entry list gave nothing but could not be ordered — '
+                    'walking the entry chain'
+              : 'no recognisable entry list — walking the entry chain',
         );
       } else {
-        _addLog('series page unreachable — walking the chapter chain');
+        _addLog('collection page unreachable — walking the entry chain');
       }
     }
 
-    // --- strategy 2: follow next-chapter links from the latest known -------
-    final ordered = [...chapters]
+    // --- strategy 2: follow next-entry links from the latest known -------
+    final ordered = [...entries]
       ..sort(
-        (a, b) => compareChaptersForReading(
-          (
-            number: a.chapterNumber,
-            sequence: a.sequence,
-            capturedAt: a.capturedAt,
-          ),
-          (
-            number: b.chapterNumber,
-            sequence: b.sequence,
-            capturedAt: b.capturedAt,
-          ),
+        (a, b) => compareEntriesForReading(
+          (number: a.entryNumber, entryOrder: a.entryOrder, savedAt: a.savedAt),
+          (number: b.entryNumber, entryOrder: b.entryOrder, savedAt: b.savedAt),
         ),
       );
     final latest = ordered.last;
-    _addLog('latest known: ${latest.chapterLabel ?? latest.title}');
+    _addLog('latest known: ${latest.sourceMarker ?? latest.title}');
 
     String? next;
     final storedNext = latest.nextSourceUrl;
@@ -451,11 +446,11 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       next = check.isAccepted ? check.normalized : null;
     }
     if (next == null) {
-      // Only now open the latest chapter's own page to read its next link.
+      // Only now open the latest entry's own page to read its next link.
       if (_cancelRequested) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.cancelled,
-          newChapters: found,
+          newEntries: found,
         );
       }
       final probe = await _navigateAndProbe(latest.sourceUrl);
@@ -463,7 +458,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       if (probe == null) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.failed,
-          error: 'could not open the latest known chapter',
+          error: 'could not open the latest known entry',
           pagesInspected: pages,
         );
       }
@@ -478,21 +473,22 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     }
 
     while (next != null &&
-        found < config.maxNewChapters &&
+        found < config.maxNewEntries &&
         pages < config.maxPagesInspected) {
       if (_cancelRequested) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.cancelled,
-          newChapters: found,
+          newEntries: found,
           pagesInspected: pages,
         );
       }
 
-      // The chain may not leave the series: a "next" that jumps to another
-      // series (or a login page — the validator already rejects those paths)
+      // The chain may not leave the collection: a "next" that jumps to another
+      // collection (or a login page — the validator already rejects those paths)
       // ends the check instead of being followed.
-      if (seriesFingerprint(next) != seriesFingerprint(latest.sourceUrl)) {
-        _addLog('next link leaves the series — stopping: $next');
+      if (collectionFingerprint(next) !=
+          collectionFingerprint(latest.sourceUrl)) {
+        _addLog('next link leaves the collection — stopping: $next');
         break;
       }
 
@@ -506,11 +502,11 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       final landed = browser.currentUrl.isEmpty ? next : browser.currentUrl;
       final landedKey = normalizeUrl(landed);
       if (_visited.contains(landedKey)) {
-        _addLog('landed on an already known chapter — stopping');
+        _addLog('landed on an already known entry — stopping');
         break;
       }
-      if (seriesFingerprint(landed) != seriesFingerprint(next)) {
-        _addLog('redirect left the series — stopping');
+      if (collectionFingerprint(landed) != collectionFingerprint(next)) {
+        _addLog('redirect left the collection — stopping');
         break;
       }
       _visited.add(landedKey);
@@ -523,13 +519,13 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       // carry it — the next check continues the chain without a page load.
       final resolved = await _resolveNext(probe, landed);
 
-      maxSequence++;
+      maxEntryOrder++;
       await _recordDiscovered(
         item: item,
         url: landed,
         title: title,
-        number: parseChapterNumber(title: title, url: landed),
-        sequence: maxSequence,
+        number: parseEntryNumber(title: title, url: landed),
+        entryOrder: maxEntryOrder,
         basis: 'nextChain',
         confidence: resolved.confidence ?? 'high',
         nextSourceUrl: resolved.url,
@@ -540,7 +536,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       if (resolved.cancelled) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.cancelled,
-          newChapters: found,
+          newEntries: found,
           pagesInspected: pages,
         );
       }
@@ -550,34 +546,34 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     }
 
     if (next != null && pages >= config.maxPagesInspected) {
-      _addLog('page bound reached with more chapters possibly remaining');
+      _addLog('page bound reached with more entries possibly remaining');
     }
-    if (next != null && found >= config.maxNewChapters) {
-      _addLog('new-chapter bound reached; check again to continue');
+    if (next != null && found >= config.maxNewEntries) {
+      _addLog('new-entry bound reached; check again to continue');
     }
 
     return UpdateCheckOutcome(
       state: found > 0
           ? UpdateCheckState.updatesAvailable
           : UpdateCheckState.upToDate,
-      newChapters: found,
+      newEntries: found,
       pagesInspected: pages,
-      detail: 'chapter chain from the latest known chapter',
+      detail: 'entry chain from the latest known entry',
     );
   }
 
   /// Saved rule first, then the generic chain; ask the user only when
-  /// detection is not confident, exactly like a capture would.
+  /// detection is not confident, exactly like a save would.
   Future<({String? url, String? confidence, bool cancelled})> _resolveNext(
     PageProbe probe,
     String currentUrl,
   ) async {
-    String? ruleHref;
-    final rule = await rules.findFor(currentUrl, RuleKind.nextLink);
+    String? hintHref;
+    final rule = await rules.findFor(currentUrl, HintKind.nextLink);
     if (rule != null) {
       final match = await browser.applyLocator(rule.locator.toJson());
       if (match != null && match.isMatch) {
-        ruleHref = match.href;
+        hintHref = match.href;
         await rules.recordUse(rule.id, success: true);
       } else {
         _addLog('saved next-link rule did not match here');
@@ -589,15 +585,15 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       probe,
       currentUrl: currentUrl,
       visitedNormalized: _visited,
-      ruleHref: ruleHref,
+      hintHref: hintHref,
     );
 
     if (result.needsUserSelection && !_cancelRequested) {
       final outcome = await _askUser(
         SelectionRequest(
-          kind: RuleKind.nextLink,
+          kind: HintKind.nextLink,
           sourceUrl: currentUrl,
-          prompt: 'Select the next chapter button',
+          prompt: 'Select the next entry button',
           reason: result.reason,
           candidates: result.considered,
         ),
@@ -649,7 +645,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       await browser.loadAndWait(url, timeout: config.navigationTimeout);
       await Future<void>.delayed(config.cooldownBetweenPages);
       var probe = await browser.probe(withLinks: true);
-      // Same protection as capture (the hidden-tab class of bug): a
+      // Same protection as save (the hidden-tab class of bug): a
       // zero-viewport WebView answers probes with unmeasurable layout. A
       // check reads links rather than geometry, but "measure nothing on an
       // unrendered surface" is one rule, not two.
@@ -674,45 +670,53 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
   }
 
   Future<void> _recordDiscovered({
-    required LibraryItem item,
+    required Collection item,
     required String url,
     required String title,
     required double? number,
-    required int sequence,
+    required int entryOrder,
     required String basis,
     required String confidence,
     String? nextSourceUrl,
   }) async {
     final key = normalizeUrl(url);
     _visited.add(key);
-    final existing = await db.findChapterByUrlKey(item.id, key);
+    final existing = await db.findEntryByUrlKey(item.id, key);
     if (existing != null) return; // already known — never a duplicate row
 
-    await db.upsertChapter(
-      Chapter(
+    await db.upsertEntry(
+      Entry(
         id: _uuid.v4(),
-        libraryItemId: item.id,
+        collectionId: item.id,
         title: title,
         sourceUrl: url,
         urlKey: key,
-        // Known to exist on the source; holds nothing locally. Everything
-        // that means "readable offline" keys off contentPath + status, so
-        // this can never masquerade as an offline chapter.
-        captureStatus: 'knownRemote',
+        host: Uri.tryParse(url)?.host.toLowerCase() ?? '',
+        // Discovery reads a list of links, not the pages themselves, so it has
+        // no evidence about what any of them contains. `unknownWebContent` at
+        // `low` is the honest answer, and the collection's own shape is what the
+        // UI labels these with until one is actually opened and saved.
+        contentKind: ContentKind.unknownWebContent.name,
+        contentKindConfidence: ShapeConfidence.low.name,
+        contentKindIsUserSet: false,
+        // Known to exist at the source; holds nothing locally. Everything that
+        // means "readable offline" keys off contentPath + status, so this can
+        // never masquerade as an offline entry.
+        saveStatus: 'knownRemote',
         contentPath: null,
-        capturedAt: null,
-        detectedImageCount: 0,
-        storedImageCount: 0,
+        savedAt: null,
+        detectedAssetCount: 0,
+        storedAssetCount: 0,
         nextSourceUrl: nextSourceUrl,
-        sequence: sequence,
-        captureError: null,
+        entryOrder: entryOrder,
+        saveError: null,
         byteSize: 0,
-        chapterNumber: number,
-        chapterLabel: chapterLabelFrom(title: title, url: url, number: number),
+        entryNumber: number,
+        sourceMarker: sourceMarkerFrom(title: title, url: url, number: number),
         readStatus: 'unread',
         progressFraction: 0,
-        progressImageIndex: 0,
-        progressOffsetInImage: 0,
+        progressPageIndex: 0,
+        progressOffsetInPage: 0,
         discoveredAt: DateTime.now(),
         discoveryBasis: basis,
         discoveryConfidence: confidence,
@@ -721,62 +725,58 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
   }
 }
 
-/// One chapter link found on a series page.
-class DiscoveredChapter {
-  const DiscoveredChapter({
-    required this.url,
-    required this.title,
-    this.number,
-  });
+/// One entry link found on a collection page.
+class DiscoveredEntry {
+  const DiscoveredEntry({required this.url, required this.title, this.number});
 
   final String url;
   final String title;
   final double? number;
 }
 
-/// Which way a chapter list runs down the page.
+/// Which way an entry list runs down the page.
 ///
 /// Most sites list newest first; some list oldest first; a few are not
 /// ordered coherently at all. Getting this wrong is what makes an update
-/// check capture chapter 1 when the user wanted 386.
-enum ChapterListDirection { newestFirst, oldestFirst, unknown }
+/// check save entry 1 when the user wanted 386.
+enum EntryListDirection { newestFirst, oldestFirst, unknown }
 
-class ChapterListDiscovery {
-  const ChapterListDiscovery({
+class EntryListDiscovery {
+  const EntryListDiscovery({
     required this.listRecognised,
-    required this.newChapters,
+    required this.newEntries,
     this.knownSeen = 0,
-    this.direction = ChapterListDirection.unknown,
+    this.direction = EntryListDirection.unknown,
     this.orderingConfident = false,
     this.dropped = 0,
   });
 
-  /// Whether the page plausibly showed this series' chapter list at all.
+  /// Whether the page plausibly showed this collection's entry list at all.
   /// False means "fall back to the chain walk", not "up to date".
   final bool listRecognised;
 
-  /// New chapters in **capture order: oldest first**, so a partial run leaves
+  /// New entries in **save order: oldest first**, so a partial run leaves
   /// a contiguous block rather than holes.
-  final List<DiscoveredChapter> newChapters;
+  final List<DiscoveredEntry> newEntries;
   final int knownSeen;
 
   /// Which way the list ran, as read off the page itself.
-  final ChapterListDirection direction;
+  final EntryListDirection direction;
 
   /// True only when the list's own ordering was unambiguous. An empty result
   /// from a list we could not order is *not* evidence of being up to date —
   /// see the caller, which keeps walking the chain in that case.
   final bool orderingConfident;
 
-  /// New chapters found but cut by `maxNew`. Reported rather than silently
+  /// New entries found but cut by `maxNew`. Reported rather than silently
   /// dropped: the next check picks them up, and the log should say so.
   final int dropped;
 }
 
-/// One same-series link, with the two things ordering can be read from: the
+/// One same-collection link, with the two things ordering can be read from: the
 /// number in its label and its position in the list.
-class _ChapterLink {
-  _ChapterLink({
+class _EntryLink {
+  _EntryLink({
     required this.index,
     required this.url,
     required this.key,
@@ -792,27 +792,27 @@ class _ChapterLink {
   final double? number;
   final int depth;
 
-  /// Where this chapter sits on the number line: its own number, or — for an
+  /// Where this entry sits on the number line: its own number, or — for an
   /// unnumbered one — a value interpolated from its numbered neighbours.
   /// Null only when the list offers nothing to interpolate from.
   double? position;
 }
 
-/// Whether a link is a chapter *of this series*.
+/// Whether a link is an entry *of this collection*.
 ///
-/// [seriesFingerprint] answers this for ordinary chapters by dropping a
-/// trailing chapter-looking segment. It cannot for a chapter whose slug is
-/// just a word — `/manga/foo/extra`, `/manga/foo/side-story` — which keeps
-/// its own segment and so fingerprints as a different series. Those are
-/// admitted on structure instead: exactly one segment below the series path.
-/// (What stops that from admitting `/manga/foo/comments` is the caller, which
+/// [collectionFingerprint] answers this for ordinary entries by dropping a
+/// trailing entry-looking segment. It cannot for an entry whose slug is
+/// just a word — `/guide/foo/extra`, `/guide/foo/side-story` — which keeps
+/// its own segment and so fingerprints as a different collection. Those are
+/// admitted on structure instead: exactly one segment below the collection path.
+/// (What stops that from admitting `/guide/foo/comments` is the caller, which
 /// only keeps an unnumbered link that sits *inside* the numbered run.)
-bool _belongsToSeries(String url, String seriesKey) {
-  if (seriesFingerprint(url) == seriesKey) return true;
+bool _belongsToCollection(String url, String collectionKey) {
+  if (collectionFingerprint(url) == collectionKey) return true;
   final path = Uri.tryParse(url)?.path;
   if (path == null) return false;
   final trailing = RegExp(r'/+$');
-  final prefix = '${seriesKey.replaceAll(trailing, '')}/';
+  final prefix = '${collectionKey.replaceAll(trailing, '')}/';
   final trimmed = path.replaceAll(trailing, '');
   if (!trimmed.startsWith(prefix)) return false;
   return !trimmed.substring(prefix.length).contains('/');
@@ -821,26 +821,26 @@ bool _belongsToSeries(String url, String seriesKey) {
 int _pathDepth(String url) =>
     Uri.tryParse(url)?.pathSegments.where((s) => s.isNotEmpty).length ?? 0;
 
-/// Read a series page's chapter list. Pure — unit tested against literal
+/// Read a collection page's entry list. Pure — unit tested against literal
 /// probes.
 ///
 /// Three things this has to get right, in order of how often they bite:
 ///
 /// 1. **Newest-to-oldest lists.** The links arrive in DOM order, which is the
 ///    site's own ordering. That ordering is measured (not assumed) and used
-///    to emit new chapters oldest-first, whichever way the page runs.
+///    to emit new entries oldest-first, whichever way the page runs.
 /// 2. **Decimals.** `385 < 385.5 < 386`; comparisons are on the parsed
 ///    numbers, never on text.
-/// 3. **Unnumbered chapters.** `"Extra"`, `"Prologue"`, `"Side Story"` have no
+/// 3. **Unnumbered entries.** `"Extra"`, `"Prologue"`, `"Side Story"` have no
 ///    number to compare, so they are placed by position relative to the
-///    chapters already held — not discarded, which is what used to happen.
+///    entries already held — not discarded, which is what used to happen.
 ///
 /// "Starting from the middle" falls out of the same rule: the checkpoint is
 /// the highest number already held plus the set of known URLs, so a library
-/// holding 100–105 of 400 finds 106 onwards and captures upward from there.
-ChapterListDiscovery discoverFromChapterList(
+/// holding 100–105 of 400 finds 106 onwards and saves upward from there.
+EntryListDiscovery discoverFromEntryList(
   PageProbe probe, {
-  required String seriesKey,
+  required String collectionKey,
   required double? latestKnownNumber,
   required Set<String> knownUrlKeys,
   int maxNew = 20,
@@ -848,27 +848,27 @@ ChapterListDiscovery discoverFromChapterList(
   final base = probe.url;
   final baseKey = normalizeUrl(base);
   final seen = <String>{};
-  final candidates = <_ChapterLink>[];
+  final candidates = <_EntryLink>[];
 
   for (final link in probe.links) {
     final resolved = resolveUrl(base, link.href);
     if (resolved == null) continue;
     if (hostOf(resolved).toLowerCase() != hostOf(base).toLowerCase()) continue;
-    if (!_belongsToSeries(resolved, seriesKey)) continue;
+    if (!_belongsToCollection(resolved, collectionKey)) continue;
 
     final key = normalizeUrl(resolved);
-    // The series page links to itself from its own header; that is not a
-    // chapter.
+    // The collection page links to itself from its own header; that is not a
+    // entry.
     if (key == baseKey) continue;
     if (!seen.add(key)) continue;
 
     candidates.add(
-      _ChapterLink(
+      _EntryLink(
         index: candidates.length,
         url: resolved,
         key: key,
         title: link.text.trim().isEmpty ? resolved : link.text.trim(),
-        number: parseChapterNumber(title: link.text, url: resolved),
+        number: parseEntryNumber(title: link.text, url: resolved),
         depth: _pathDepth(resolved),
       ),
     );
@@ -876,9 +876,9 @@ ChapterListDiscovery discoverFromChapterList(
 
   final numbered = candidates.where((c) => c.number != null).toList();
 
-  // An unnumbered link only counts as a chapter when it sits inside the
-  // numbered run and at the same URL depth. Without that, a series page's
-  // "comments" or "bookmark" link would be captured as a chapter — which is
+  // An unnumbered link only counts as an entry when it sits inside the
+  // numbered run and at the same URL depth. Without that, a collection page's
+  // "comments" or "bookmark" link would be saved as an entry — which is
   // why these used to be dropped outright.
   final modalDepth = _modalDepth(numbered);
   final firstNumbered = numbered.isEmpty ? -1 : numbered.first.index;
@@ -891,12 +891,12 @@ ChapterListDiscovery discoverFromChapterList(
         c.index < lastNumbered;
   }).toList();
 
-  // Give every unnumbered chapter a place on the number line by interpolating
+  // Give every unnumbered entry a place on the number line by interpolating
   // between its numbered neighbours in list order: a "Side Story" between
   // 386 and 385 belongs at 385.5. That is what lets the *same* comparison
-  // decide novelty and ordering for numbered and unnumbered chapters alike —
-  // and it is immune to the shortcut links ("First Chapter", "Latest") that
-  // real series pages put above their list.
+  // decide novelty and ordering for numbered and unnumbered entries alike —
+  // and it is immune to the shortcut links ("First Entry", "Latest") that
+  // real collection pages put above their list.
   _interpolateUnnumbered(links);
 
   // --- which way does the list run? ---------------------------------------
@@ -904,7 +904,7 @@ ChapterListDiscovery discoverFromChapterList(
   // Reported, and used only to gate early stopping. Deliberately tolerant:
   // those same shortcut links break strict monotonicity on both sites this
   // project verifies against, so a majority with a clear margin is what a
-  // real chapter list looks like.
+  // real entry list looks like.
   var ascendingPairs = 0;
   var descendingPairs = 0;
   for (var i = 1; i < numbered.length; i++) {
@@ -921,14 +921,14 @@ ChapterListDiscovery discoverFromChapterList(
       : ascendingPairs;
   final decided = orderedPairs > 0 && majority >= orderedPairs * 0.8;
   final direction = !decided
-      ? ChapterListDirection.unknown
+      ? EntryListDirection.unknown
       : descendingPairs > ascendingPairs
-      ? ChapterListDirection.newestFirst
-      : ChapterListDirection.oldestFirst;
+      ? EntryListDirection.newestFirst
+      : EntryListDirection.oldestFirst;
   // Enough entries for the majority to mean something. Two links that happen
   // to descend are a coincidence; three or more are an ordering.
   final confident =
-      direction != ChapterListDirection.unknown && numbered.length >= 3;
+      direction != EntryListDirection.unknown && numbered.length >= 3;
 
   var knownSeen = 0;
   for (final c in links) {
@@ -936,7 +936,7 @@ ChapterListDiscovery discoverFromChapterList(
   }
 
   // --- which of them are new ----------------------------------------------
-  final fresh = <_ChapterLink>[];
+  final fresh = <_EntryLink>[];
   for (final c in links) {
     if (knownUrlKeys.contains(c.key)) continue;
     final position = c.position;
@@ -955,7 +955,7 @@ ChapterListDiscovery discoverFromChapterList(
     if (isNew) fresh.add(c);
   }
 
-  // --- oldest first, so capture runs forward -------------------------------
+  // --- oldest first, so save runs forward -------------------------------
   fresh.sort((a, b) {
     final ap = a.position;
     final bp = b.position;
@@ -970,19 +970,18 @@ ChapterListDiscovery discoverFromChapterList(
     return a.index.compareTo(b.index);
   });
 
-  // Recognised = the page demonstrably lists this series' chapters: either
-  // it shows chapters we already hold, or several numbered same-series
+  // Recognised = the page demonstrably lists this collection's entries: either
+  // it shows entries we already hold, or several numbered same-collection
   // links. A page with neither tells us nothing and must not produce
   // "up to date".
   final recognised = knownSeen > 0 || numbered.length >= 2;
 
-  return ChapterListDiscovery(
+  return EntryListDiscovery(
     listRecognised: recognised,
-    newChapters: fresh
+    newEntries: fresh
         .take(maxNew)
         .map(
-          (c) =>
-              DiscoveredChapter(url: c.url, title: c.title, number: c.number),
+          (c) => DiscoveredEntry(url: c.url, title: c.title, number: c.number),
         )
         .toList(),
     knownSeen: knownSeen,
@@ -992,12 +991,12 @@ ChapterListDiscovery discoverFromChapterList(
   );
 }
 
-/// Place each unnumbered chapter between its numbered neighbours in list
+/// Place each unnumbered entry between its numbered neighbours in list
 /// order. With neighbours on both sides it lands midway between them; with
 /// only one side it borrows that neighbour's number, which keeps it adjacent
 /// to where the site put it. With no numbered neighbour at all it stays
 /// null — and an entry with no position is never claimed as new.
-void _interpolateUnnumbered(List<_ChapterLink> links) {
+void _interpolateUnnumbered(List<_EntryLink> links) {
   for (var i = 0; i < links.length; i++) {
     if (links[i].number != null) continue;
     double? before;
@@ -1020,8 +1019,8 @@ void _interpolateUnnumbered(List<_ChapterLink> links) {
   }
 }
 
-/// The URL depth most of the numbered chapter links share.
-int _modalDepth(List<_ChapterLink> numbered) {
+/// The URL depth most of the numbered entry links share.
+int _modalDepth(List<_EntryLink> numbered) {
   if (numbered.isEmpty) return -1;
   final counts = <int, int>{};
   for (final c in numbered) {

@@ -33,7 +33,7 @@ ThemeMode themeModeFor(AppearanceMode mode) => switch (mode) {
   AppearanceMode.dark => ThemeMode.dark,
 };
 
-/// Series monogram tile colours (background, foreground), keyed so a series
+/// Collection monogram tile colours (background, foreground), keyed so a collection
 /// keeps the same tile colour wherever it appears.
 ///
 /// One table with the site favicons, because they are the same object — a

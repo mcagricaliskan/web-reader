@@ -45,33 +45,38 @@ void main() {
 
   /// Three real 800x1200 panels on disk; the manifest records
   /// [manifestWidth]x[manifestHeight] (defaults: the truth).
-  Future<void> seedChapter({
+  Future<void> seedEntry({
+    String id = 'c1',
     int manifestWidth = 800,
     int manifestHeight = 1200,
     bool verified = true,
   }) async {
-    await db.upsertLibraryItem(
-      LibraryItem(
+    await db.upsertCollection(
+      Collection(
+        contentKind: 'unknownWebContent',
+        sequenceKind: 'none',
+        orderingBasis: 'discoveryOrder',
+        shapeConfidence: 'low',
         lifecycle: 'active',
-        id: 'series-1',
+        id: 'collection-1',
         title: 'Fixture',
-        sourceUrl: 'https://x.example/manga/foo',
+        sourceUrl: 'https://x.example/guide/foo',
         host: 'x.example',
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         createdAt: DateTime(2026, 7, 1),
       ),
     );
-    final staging = await store.beginChapter(
-      libraryItemId: 'series-1',
-      chapterId: 'c1',
+    final staging = await store.beginEntry(
+      collectionId: 'collection-1',
+      entryId: id,
     );
-    final entries = <AssetEntry>[];
+    final entries = <EntryAsset>[];
     for (var i = 1; i <= 3; i++) {
       await staging
           .assetFile('00$i.png')
-          .writeAsBytes(panelPng(chapter: 1, index: i));
+          .writeAsBytes(panelPng(entry: 1, index: i));
       entries.add(
-        AssetEntry(
+        EntryAsset(
           index: i,
           sourceUrl: 'https://cdn.example/$i.png',
           status: AssetStatus.stored,
@@ -84,55 +89,59 @@ void main() {
     }
     final relative = await store.commit(
       staging,
-      ChapterManifest(
+      EntryManifest(
         schemaVersion: 1,
-        chapterId: 'c1',
-        libraryItemId: 'series-1',
-        sourceUrl: 'https://x.example/manga/foo/1',
-        title: 'Foo Chapter 1',
-        capturedAt: DateTime(2026, 7, 20),
-        status: CaptureStatus.complete,
-        detectedImageCount: 3,
-        storedImageCount: 3,
+        entryId: id,
+        collectionId: 'collection-1',
+        sourceUrl: 'https://x.example/guide/foo/$id',
+        title: 'Foo Entry $id',
+        savedAt: DateTime(2026, 7, 20),
+        status: SaveStatus.complete,
+        detectedAssetCount: 3,
+        storedAssetCount: 3,
         assets: entries,
       ),
     );
-    await db.upsertChapter(
-      Chapter(
-        id: 'c1',
-        libraryItemId: 'series-1',
-        title: 'Foo Chapter 1',
-        sourceUrl: 'https://x.example/manga/foo/1',
-        urlKey: 'https://x.example/manga/foo/1',
-        captureStatus: 'complete',
+    await db.upsertEntry(
+      Entry(
+        host: '',
+        contentKind: 'unknownWebContent',
+        contentKindConfidence: 'low',
+        contentKindIsUserSet: false,
+        id: id,
+        collectionId: 'collection-1',
+        title: 'Foo Entry $id',
+        sourceUrl: 'https://x.example/guide/foo/$id',
+        urlKey: 'https://x.example/guide/foo/$id',
+        saveStatus: 'complete',
         contentPath: relative,
-        capturedAt: DateTime(2026, 7, 20),
-        detectedImageCount: 3,
-        storedImageCount: 3,
-        sequence: 1,
+        savedAt: DateTime(2026, 7, 20),
+        detectedAssetCount: 3,
+        storedAssetCount: 3,
+        entryOrder: 1,
         byteSize: 1024,
-        chapterNumber: 1,
-        chapterLabel: 'Chapter 1',
+        entryNumber: 1,
+        sourceMarker: 'Entry 1',
         readStatus: 'unread',
         progressFraction: 0,
-        progressImageIndex: 0,
-        progressOffsetInImage: 0,
+        progressPageIndex: 0,
+        progressOffsetInPage: 0,
       ),
     );
   }
 
-  Widget harness() => ProviderScope(
+  Widget harness({String entryId = 'c1'}) => ProviderScope(
     overrides: [
       databaseProvider.overrideWithValue(db),
       fileStoreProvider.overrideWithValue(store),
     ],
-    child: const MaterialApp(home: ReaderScreen(chapterId: 'c1')),
+    child: MaterialApp(home: ReaderScreen(entryId: entryId)),
   );
 
   /// Real file IO cannot complete inside the test's fake-async zone, so the
   /// load is pumped with `runAsync` windows that let the event loop turn.
-  Future<void> openReader(WidgetTester tester) async {
-    await tester.pumpWidget(harness());
+  Future<void> openReader(WidgetTester tester, {String id = 'c1'}) async {
+    await tester.pumpWidget(harness(entryId: id));
     for (var i = 0; i < 100; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -147,14 +156,14 @@ void main() {
       tester.state<ScrollableState>(find.byType(Scrollable).first).position;
 
   testWidgets('opens at the saved anchor, not at the top', (tester) async {
-    await tester.runAsync(seedChapter);
-    await db.writeChapterReading(
+    await tester.runAsync(seedEntry);
+    await db.writeEntryReading(
       'c1',
-      ChaptersCompanion(
+      EntriesCompanion(
         readStatus: const Value('inProgress'),
         progressFraction: const Value(0.45),
-        progressImageIndex: const Value(1),
-        progressOffsetInImage: const Value(0.25),
+        progressPageIndex: const Value(1),
+        progressOffsetInPage: const Value(0.25),
         lastReadAt: Value(DateTime(2026, 7, 26)),
         progressUpdatedAt: Value(DateTime(2026, 7, 26)),
       ),
@@ -171,7 +180,7 @@ void main() {
   testWidgets('a lifecycle change flushes without waiting for the debounce', (
     tester,
   ) async {
-    await tester.runAsync(seedChapter);
+    await tester.runAsync(seedEntry);
     await openReader(tester);
 
     await tester.drag(find.byType(ListView), const Offset(0, -900));
@@ -182,14 +191,14 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump(const Duration(milliseconds: 100));
 
-    final chapter = (await db.chapterById('c1'))!;
+    final entry = (await db.entryById('c1'))!;
     expect(
-      chapter.progressUpdatedAt,
+      entry.progressUpdatedAt,
       isNotNull,
       reason: 'the position was written on backgrounding, not 2s later',
     );
-    expect(chapter.progressFraction, greaterThan(0));
-    expect(chapter.readStatus, 'inProgress');
+    expect(entry.progressFraction, greaterThan(0));
+    expect(entry.readStatus, 'inProgress');
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump(const Duration(seconds: 3)); // drain the debounce timer
@@ -198,7 +207,7 @@ void main() {
   testWidgets('termination during a fling never fakes a completion', (
     tester,
   ) async {
-    await tester.runAsync(seedChapter);
+    await tester.runAsync(seedEntry);
     await openReader(tester);
 
     // Straight to the bottom…
@@ -208,13 +217,13 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump(const Duration(milliseconds: 100));
 
-    final chapter = (await db.chapterById('c1'))!;
+    final entry = (await db.entryById('c1'))!;
     expect(
-      chapter.readStatus,
+      entry.readStatus,
       isNot('completed'),
-      reason: 'reaching the end for an instant is not reading the chapter',
+      reason: 'reaching the end for an instant is not reading the entry',
     );
-    expect(chapter.completedAt, isNull);
+    expect(entry.completedAt, isNull);
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump(const Duration(seconds: 3));
@@ -223,7 +232,7 @@ void main() {
   testWidgets('staying past the threshold for the dwell completes', (
     tester,
   ) async {
-    await tester.runAsync(seedChapter);
+    await tester.runAsync(seedEntry);
     await openReader(tester);
 
     final position = scrollPosition(tester);
@@ -237,25 +246,25 @@ void main() {
     position.jumpTo(position.maxScrollExtent - 1);
     await tester.pump(const Duration(milliseconds: 50));
 
-    final chapter = (await db.chapterById('c1'))!;
-    expect(chapter.readStatus, 'completed');
-    expect(chapter.completedAt, isNotNull);
+    final entry = (await db.entryById('c1'))!;
+    expect(entry.readStatus, 'completed');
+    expect(entry.completedAt, isNotNull);
 
     await tester.pump(const Duration(seconds: 3));
   });
 
-  testWidgets('a finished chapter re-read from the top stays at 100%', (
+  testWidgets('a finished entry re-read from the top stays at 100%', (
     tester,
   ) async {
-    await tester.runAsync(seedChapter);
-    await db.writeChapterReading(
+    await tester.runAsync(seedEntry);
+    await db.writeEntryReading(
       'c1',
-      ChaptersCompanion(
+      EntriesCompanion(
         readStatus: const Value('completed'),
         completedAt: Value(DateTime(2026, 7, 25)),
         progressFraction: const Value(1),
-        progressImageIndex: const Value(2),
-        progressOffsetInImage: const Value(0.9),
+        progressPageIndex: const Value(2),
+        progressOffsetInPage: const Value(0.9),
       ),
     );
 
@@ -268,15 +277,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(seconds: 3)); // let the debounce fire
 
-    final chapter = (await db.chapterById('c1'))!;
-    expect(chapter.readStatus, 'completed');
+    final entry = (await db.entryById('c1'))!;
+    expect(entry.readStatus, 'completed');
     expect(
-      chapter.progressFraction,
+      entry.progressFraction,
       1,
       reason: 'finished means 100%, whatever the scroll says',
     );
     expect(
-      chapter.progressImageIndex,
+      entry.progressPageIndex,
       0,
       reason: 'the anchor still follows, so resuming lands where they are',
     );
@@ -285,7 +294,7 @@ void main() {
   testWidgets('progress readout is live; persistence stays debounced (M12)', (
     tester,
   ) async {
-    await tester.runAsync(seedChapter);
+    await tester.runAsync(seedEntry);
     await openReader(tester);
 
     // At the top: 0%, panel 1. The reader chrome shows the percentage and the
@@ -311,7 +320,7 @@ void main() {
 
     // …and the database has NOT been written yet: the visible state leads,
     // the persisted state follows on the debounce.
-    final beforeDebounce = (await db.chapterById('c1'))!;
+    final beforeDebounce = (await db.entryById('c1'))!;
     expect(
       beforeDebounce.progressUpdatedAt,
       isNull,
@@ -320,36 +329,57 @@ void main() {
 
     // After the debounce elapses the same value is persisted.
     await tester.pump(const Duration(seconds: 3));
-    final afterDebounce = (await db.chapterById('c1'))!;
+    final afterDebounce = (await db.entryById('c1'))!;
     expect(afterDebounce.progressUpdatedAt, isNotNull);
-    expect(afterDebounce.progressImageIndex, 1);
+    expect(afterDebounce.progressPageIndex, 1);
   });
 
-  testWidgets('wrong manifest dimensions are repaired from the files on open', (
+  // The repair-on-open pass is gone: a version-1 library decodes page dimensions
+  // out of the stored bytes when it saves, so there is nothing to reconcile
+  // afterwards, and re-reading every file on every open to fix manifests this
+  // build never wrote would be migration machinery for a shape no library has.
+  //
+  // What survives is the case that pass also covered: a file whose header the
+  // decoder could not read. The manifest then holds the *page's own claim* about
+  // the size — a layout assertion, not a pixel fact. Panels sized from it laid
+  // out at the wrong aspect ratio, which is what "the saved page looks squashed"
+  // was.
+  testWidgets('geometry follows verified dimensions, never an unverified claim', (
     tester,
   ) async {
-    // The manifest lies (square panels); the files are 800x1200.
+    // Identical manifests — three 800x4000 panels — differing only in whether
+    // the save path could decode those numbers out of the bytes.
     await tester.runAsync(
-      () => seedChapter(manifestHeight: 800, verified: false),
+      () => seedEntry(id: 'verified', manifestHeight: 4000, verified: true),
     );
-    await openReader(tester);
+    await tester.runAsync(
+      () => seedEntry(id: 'claimed', manifestHeight: 4000, verified: false),
+    );
 
-    // Layout must use the FILE dimensions: 3 panels x 1200, not x 800.
+    await openReader(tester, id: 'verified');
+    final fromVerified = scrollPosition(tester).maxScrollExtent;
+    await tester.pump(const Duration(seconds: 3));
+
+    // Tear the first reader down before opening the second. `openReader` waits
+    // for "a ListView exists", which the previous reader still satisfies — so
+    // without this the second measurement is the first one again, and the test
+    // passes for both a correct and a broken implementation.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    await openReader(tester, id: 'claimed');
+    final fromClaim = scrollPosition(tester).maxScrollExtent;
+
+    // The verified pages are 5x as tall as they are wide, so they must produce a
+    // markedly taller document than the fallback box an unverifiable file gets.
     expect(
-      scrollPosition(tester).maxScrollExtent,
-      greaterThan(2000),
-      reason: 'geometry built from repaired dimensions',
+      fromVerified,
+      greaterThan(fromClaim * 1.5),
+      reason:
+          'an unverified 4000px claim must not dictate layout, or an '
+          'undecodable file decides the shape of the page '
+          '(verified=$fromVerified, claimed=$fromClaim)',
     );
-
-    final manifest = (await tester.runAsync(
-      () => store.readManifest('library/series-1/chapters/c1'),
-    ))!;
-    for (final asset in manifest.storedAssets) {
-      expect(asset.width, 800);
-      expect(asset.height, 1200);
-      expect(asset.dimensionsVerified, isTrue);
-      expect(asset.domHeight, 800, reason: 'the old claim kept as diagnostic');
-    }
     await tester.pump(const Duration(seconds: 3));
   });
 }

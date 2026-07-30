@@ -5,48 +5,48 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
-import '../capture/capture_job.dart';
+import '../save/save_run.dart';
 import 'database.dart';
 import 'file_store.dart';
 
-/// Removing offline files is NOT deletion. The chapter row survives with its
+/// Removing offline files is NOT deletion. The entry row survives with its
 /// source URL, ordering, reading progress, read marks, timestamps and
 /// discovery metadata — only the bytes under `library/…` go, and
 /// `offlineRemovedAt` records that the *user* chose this (unlike files the
 /// system lost, which stay an error state).
 ///
 /// Two paths:
-///  - [removeOffline] — soft: the chapter directory is renamed into
+///  - [removeOffline] — soft: the entry directory is renamed into
 ///    `tmp/undo-<id>` and can be restored until [UndoHandle.finalize] runs
 ///    (a few seconds later, or at next startup via the existing staging
 ///    sweep). This is what the reader flow and manual selection use, and
 ///    what makes the toast's Undo honest.
 ///  - [removeOfflineNow] — hard: for queued bulk work, where an undo window
-///    per chapter would be theatre.
+///    per entry would be theatre.
 class CleanupService {
   CleanupService({
     required this.db,
     required this.fileStore,
-    this.captureJob,
+    this.saveRun,
     this.undoWindow = const Duration(seconds: 6),
   });
 
   final AppDatabase db;
   final FileStore fileStore;
 
-  /// Optional: without it, the "in use by the running capture" lock simply
-  /// cannot fire. The chapter's own `capturing` status still protects it.
-  final CaptureJobController? captureJob;
+  /// Optional: without it, the "in use by the running save" lock simply
+  /// cannot fire. The entry's own `saving` status still protects it.
+  final SaveRunController? saveRun;
   final Duration undoWindow;
 
-  /// The chapter currently open in the reader, if any. Set by the reader
+  /// The entry currently open in the reader, if any. Set by the reader
   /// screen; cleanup refuses to touch it.
-  final ValueNotifier<String?> openReaderChapterId = ValueNotifier(null);
+  final ValueNotifier<String?> openReaderEntryId = ValueNotifier(null);
 
   /// Bumped once per removal batch that actually freed something.
   ///
-  /// Removal happens from five places (series selection, whole series, the
-  /// Storage screen, the finished-chapter flow, the queue). Anything showing
+  /// Removal happens from five places (collection selection, whole collection, the
+  /// Storage screen, the finished-entry flow, the queue). Anything showing
   /// a storage figure listens here instead of every one of those call sites
   /// remembering to refresh it.
   final ValueNotifier<int> removals = ValueNotifier(0);
@@ -55,53 +55,53 @@ class CleanupService {
     if (removed > 0) removals.value++;
   }
 
-  /// Why a chapter cannot be removed right now, or null when it can.
+  /// Why an entry cannot be removed right now, or null when it can.
   ///
-  /// Locked chapters are *kept*, never errors: bulk operations skip them and
+  /// Locked entries are *kept*, never errors: bulk operations skip them and
   /// say so, selection UI shows them as locked.
-  Future<String?> lockReasonFor(Chapter chapter) async {
-    if (chapter.id == openReaderChapterId.value) {
+  Future<String?> lockReasonFor(Entry entry) async {
+    if (entry.id == openReaderEntryId.value) {
       return 'open in the reader';
     }
-    if (chapter.captureStatus == 'capturing') {
-      return 'being captured';
+    if (entry.saveStatus == 'saving') {
+      return 'being saved';
     }
-    final job = captureJob;
-    if (job != null &&
-        job.isRunning &&
-        chapter.sourceUrl.isNotEmpty &&
-        Uri.tryParse(job.progress.currentUrl)?.path ==
-            Uri.tryParse(chapter.sourceUrl)?.path) {
-      return 'in use by the running capture';
+    final run = saveRun;
+    if (run != null &&
+        run.isRunning &&
+        entry.sourceUrl.isNotEmpty &&
+        Uri.tryParse(run.progress.currentUrl)?.path ==
+            Uri.tryParse(entry.sourceUrl)?.path) {
+      return 'in use by the running save';
     }
     return null;
   }
 
-  bool isRemovable(Chapter c) =>
+  bool isRemovable(Entry c) =>
       c.contentPath != null &&
-      (c.captureStatus == 'complete' || c.captureStatus == 'partial');
+      (c.saveStatus == 'complete' || c.saveStatus == 'partial');
 
-  /// Soft-remove [chapterIds]; locked/non-offline chapters are skipped and
+  /// Soft-remove [entryIds]; locked/non-offline entries are skipped and
   /// reported. Returns a handle carrying freed bytes and the undo.
-  Future<CleanupResult> removeOffline(List<String> chapterIds) async {
+  Future<CleanupResult> removeOffline(List<String> entryIds) async {
     final undoable = <_UndoEntry>[];
     var freed = 0;
     var removed = 0;
     final kept = <String>[];
 
-    for (final id in chapterIds) {
-      final chapter = await db.chapterById(id);
-      if (chapter == null || !isRemovable(chapter)) continue;
-      final lock = await lockReasonFor(chapter);
+    for (final id in entryIds) {
+      final entry = await db.entryById(id);
+      if (entry == null || !isRemovable(entry)) continue;
+      final lock = await lockReasonFor(entry);
       if (lock != null) {
-        kept.add('${chapter.chapterLabel ?? chapter.title} ($lock)');
+        kept.add('${entry.sourceMarker ?? entry.title} ($lock)');
         continue;
       }
 
-      final srcDir = Directory(fileStore.resolve(chapter.contentPath!));
+      final srcDir = Directory(fileStore.resolve(entry.contentPath!));
       if (!srcDir.existsSync()) {
         // Files already gone: just record the state honestly.
-        await _writeRemoved(chapter);
+        await _writeRemoved(entry);
         removed++;
         continue;
       }
@@ -110,12 +110,10 @@ class CleanupService {
       );
       if (undoDir.existsSync()) undoDir.deleteSync(recursive: true);
       undoDir.parent.createSync(recursive: true);
-      final bytes = chapter.byteSize;
+      final bytes = entry.byteSize;
       srcDir.renameSync(undoDir.path);
-      await _writeRemoved(chapter);
-      undoable.add(
-        _UndoEntry(chapter: chapter, undoDir: undoDir, bytes: bytes),
-      );
+      await _writeRemoved(entry);
+      undoable.add(_UndoEntry(entry: entry, undoDir: undoDir, bytes: bytes));
       freed += bytes;
       removed++;
     }
@@ -133,32 +131,47 @@ class CleanupService {
     );
   }
 
-  /// Hard-remove, for bulk queue work. [onProgress] fires per chapter with
+  /// Hard-remove, for bulk queue work. [onProgress] fires per entry with
   /// (processed, freedBytes so far).
+  ///
+  /// [shouldContinue] is asked **between entries** and is the only place this
+  /// loop can be stopped. Each entry's removal — delete the directory, then
+  /// clear the row's file fields — is atomic from the outside: an entry is
+  /// either still offline or cleanly marked removed, never half of both. So a
+  /// stop at an entry boundary is genuinely safe, which is what lets the
+  /// Activity screen offer Cancel on a running cleanup and mean it (D64).
+  /// Everything already removed stays removed; removal is not a transaction
+  /// and was never presented as one.
   Future<CleanupResult> removeOfflineNow(
-    List<String> chapterIds, {
+    List<String> entryIds, {
     void Function(int processed, int freedBytes)? onProgress,
+    bool Function()? shouldContinue,
   }) async {
     var freed = 0;
     var removed = 0;
     var processed = 0;
+    var stoppedEarly = false;
     final kept = <String>[];
-    for (final id in chapterIds) {
+    for (final id in entryIds) {
+      if (shouldContinue != null && !shouldContinue()) {
+        stoppedEarly = true;
+        break;
+      }
       processed++;
-      final chapter = await db.chapterById(id);
-      if (chapter == null || !isRemovable(chapter)) continue;
-      final lock = await lockReasonFor(chapter);
+      final entry = await db.entryById(id);
+      if (entry == null || !isRemovable(entry)) continue;
+      final lock = await lockReasonFor(entry);
       if (lock != null) {
-        kept.add('${chapter.chapterLabel ?? chapter.title} ($lock)');
+        kept.add('${entry.sourceMarker ?? entry.title} ($lock)');
         continue;
       }
       try {
-        await fileStore.deleteChapterContent(chapter.contentPath!);
-        await _writeRemoved(chapter);
-        freed += chapter.byteSize;
+        await fileStore.deleteEntryContent(entry.contentPath!);
+        await _writeRemoved(entry);
+        freed += entry.byteSize;
         removed++;
       } catch (e) {
-        kept.add('${chapter.chapterLabel ?? chapter.title} ($e)');
+        kept.add('${entry.sourceMarker ?? entry.title} ($e)');
       }
       onProgress?.call(processed, freed);
     }
@@ -168,14 +181,15 @@ class CleanupService {
       freedBytes: freed,
       keptLocked: kept,
       undo: UndoHandle._(this, const []),
+      stoppedEarly: stoppedEarly,
     );
   }
 
   /// Everything the row must keep is untouched by construction: the write
   /// names ONLY the fields that change.
-  Future<void> _writeRemoved(Chapter chapter) => db.writeChapterReading(
-    chapter.id,
-    ChaptersCompanion(
+  Future<void> _writeRemoved(Entry entry) => db.writeEntryReading(
+    entry.id,
+    EntriesCompanion(
       contentPath: const Value(null),
       byteSize: const Value(0),
       offlineRemovedAt: Value(DateTime.now()),
@@ -183,15 +197,15 @@ class CleanupService {
   );
 
   Future<void> _restore(_UndoEntry entry) async {
-    final target = Directory(fileStore.resolve(entry.chapter.contentPath!));
+    final target = Directory(fileStore.resolve(entry.entry.contentPath!));
     if (entry.undoDir.existsSync() && !target.existsSync()) {
       target.parent.createSync(recursive: true);
       entry.undoDir.renameSync(target.path);
     }
-    await db.writeChapterReading(
-      entry.chapter.id,
-      ChaptersCompanion(
-        contentPath: Value(entry.chapter.contentPath),
+    await db.writeEntryReading(
+      entry.entry.id,
+      EntriesCompanion(
+        contentPath: Value(entry.entry.contentPath),
         byteSize: Value(entry.bytes),
         offlineRemovedAt: const Value(null),
       ),
@@ -205,14 +219,20 @@ class CleanupResult {
     required this.freedBytes,
     required this.keptLocked,
     required this.undo,
+    this.stoppedEarly = false,
   });
 
   final int removed;
   final int freedBytes;
 
-  /// Human lines for chapters skipped because they were in use.
+  /// Human lines for entries skipped because they were in use.
   final List<String> keptLocked;
   final UndoHandle undo;
+
+  /// The batch was asked to stop and did, at an entry boundary. The entries
+  /// it never reached still have their files — the summary must say so rather
+  /// than read like a completed sweep.
+  final bool stoppedEarly;
 
   bool get canUndo => undo._entries.isNotEmpty && !undo._finalized;
 }
@@ -256,30 +276,30 @@ class UndoHandle {
 
 class _UndoEntry {
   const _UndoEntry({
-    required this.chapter,
+    required this.entry,
     required this.undoDir,
     required this.bytes,
   });
 
-  final Chapter chapter;
+  final Entry entry;
   final Directory undoDir;
   final int bytes;
 }
 
-/// What a series does with a finished chapter's downloaded files when the
+/// What a collection does with a finished entry's downloaded files when the
 /// reader moves forward (D37).
 ///
-/// Persisted on the library item itself — `library_items.finished_cleanup` —
-/// because the decision belongs to the series being read. There is no global
-/// default: a series that has not been asked stores null, and null is a
+/// Persisted on the library item itself — `collections.cleanup_preference` —
+/// because the decision belongs to the collection being read. There is no global
+/// default: a collection that has not been asked stores null, and null is a
 /// question, not a value.
-enum SeriesCleanupPref { remove, keep }
+enum CollectionCleanupPreference { remove, keep }
 
 /// Parses a stored value. Null, empty and anything unrecognised all read as
 /// "not decided yet", so the user is asked instead of a wrong guess being
 /// applied to their files.
-SeriesCleanupPref? seriesCleanupFromName(String? name) {
-  for (final value in SeriesCleanupPref.values) {
+CollectionCleanupPreference? collectionCleanupFromName(String? name) {
+  for (final value in CollectionCleanupPreference.values) {
     if (value.name == name) return value;
   }
   return null;

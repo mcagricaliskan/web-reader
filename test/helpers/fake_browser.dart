@@ -4,7 +4,7 @@ import 'package:web_reader/core/url_utils.dart';
 
 /// A [BrowserController] whose "pages" are literal [PageProbe]s.
 ///
-/// Lets the capture job loop and the update checker run headless in unit
+/// Lets the save run loop and the update checker run headless in unit
 /// tests: navigation just moves a pointer, probes return the fixture for the
 /// current URL. Asset bytes still come over real HTTP (the tests stand up a
 /// local server), so the downloader path is exercised for real.
@@ -95,9 +95,9 @@ class FakeBrowser extends BrowserController {
   Future<void> stopSelection() async {}
 }
 
-/// A settled chapter page: [imageUrls] all loaded, one optional rel=next
+/// A settled entry page: [imageUrls] all loaded, one optional rel=next
 /// link, plus whatever [extraLinks] the test wants in the way.
-PageProbe chapterProbe({
+PageProbe entryProbe({
   required String url,
   required String title,
   required List<String> imageUrls,
@@ -130,7 +130,7 @@ PageProbe chapterProbe({
     ],
     links: [
       if (nextHref != null)
-        PageLink(href: nextHref, rel: 'next', text: 'Next Chapter'),
+        PageLink(href: nextHref, rel: 'next', text: 'Next Entry'),
       ...extraLinks,
     ],
   );

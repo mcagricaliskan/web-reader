@@ -1,21 +1,23 @@
 import 'dart:convert';
 
-/// Capture outcome for a chapter. `complete` is only ever written after every
+/// Save outcome for an entry. `complete` is only ever written after every
 /// required asset is on disk and verified.
-enum CaptureStatus { capturing, complete, partial, failed }
+enum SaveStatus { saving, complete, partial, failed }
 
-CaptureStatus captureStatusFromName(String? name) => CaptureStatus.values
-    .firstWhere((s) => s.name == name, orElse: () => CaptureStatus.failed);
+SaveStatus saveStatusFromName(String? name) => SaveStatus.values.firstWhere(
+  (s) => s.name == name,
+  orElse: () => SaveStatus.failed,
+);
 
-enum AssetStatus { pending, downloading, stored, failed }
+enum AssetStatus { pending, fetching, stored, failed }
 
 AssetStatus assetStatusFromName(String? name) => AssetStatus.values.firstWhere(
   (s) => s.name == name,
   orElse: () => AssetStatus.failed,
 );
 
-class AssetEntry {
-  const AssetEntry({
+class EntryAsset {
+  const EntryAsset({
     required this.index,
     required this.sourceUrl,
     required this.status,
@@ -30,7 +32,7 @@ class AssetEntry {
     this.error,
   });
 
-  factory AssetEntry.fromJson(Map<String, dynamic> json) => AssetEntry(
+  factory EntryAsset.fromJson(Map<String, dynamic> json) => EntryAsset(
     index: (json['index'] as num).toInt(),
     sourceUrl: json['sourceUrl'] as String,
     status: assetStatusFromName(json['status'] as String?),
@@ -50,7 +52,7 @@ class AssetEntry {
   final String sourceUrl;
   final AssetStatus status;
 
-  /// Relative to the chapter directory, e.g. `assets/001.png`. Never absolute:
+  /// Relative to the entry directory, e.g. `assets/001.png`. Never absolute:
   /// the iOS app-container path changes between installs.
   final String? relativePath;
   final String? mimeType;
@@ -75,7 +77,7 @@ class AssetEntry {
 
   bool get isStored => status == AssetStatus.stored && relativePath != null;
 
-  AssetEntry copyWith({
+  EntryAsset copyWith({
     AssetStatus? status,
     String? relativePath,
     String? mimeType,
@@ -86,7 +88,7 @@ class AssetEntry {
     int? domHeight,
     bool? dimensionsVerified,
     String? error,
-  }) => AssetEntry(
+  }) => EntryAsset(
     index: index,
     sourceUrl: sourceUrl,
     status: status ?? this.status,
@@ -117,111 +119,171 @@ class AssetEntry {
   };
 }
 
-/// Self-describing chapter package descriptor, written into the chapter
-/// directory. It is what lets the app reconcile files against the database
-/// after a crash — and what would let an export work without the database.
-class ChapterManifest {
-  const ChapterManifest({
+/// Self-describing entry package descriptor, written into the entry directory.
+///
+/// This is also where an entry's **pages** live: [assets] is the ordered page
+/// list, next to the bytes it describes, rather than a second copy in SQLite
+/// that could disagree with the files. It is what lets the app reconcile files
+/// against the database after a crash, and what would let an export work
+/// without the database at all.
+class EntryManifest {
+  const EntryManifest({
     required this.schemaVersion,
-    required this.chapterId,
-    required this.libraryItemId,
+    required this.entryId,
     required this.sourceUrl,
     required this.title,
-    required this.capturedAt,
+    required this.savedAt,
     required this.status,
-    required this.detectedImageCount,
-    required this.storedImageCount,
+    required this.detectedAssetCount,
+    required this.storedAssetCount,
     required this.assets,
+    this.collectionId,
     this.canonicalUrl,
     this.nextUrl,
-    this.sequence,
+    this.entryOrder,
     this.statusReason,
+    this.contentKind,
+    this.contentKindConfidence,
+    this.contentKindIsUserSet,
+    this.host,
+    this.publishedAt,
+    this.sourceMarker,
+    this.entryNumber,
   });
 
-  factory ChapterManifest.fromJson(Map<String, dynamic> json) =>
-      ChapterManifest(
-        schemaVersion: (json['schemaVersion'] as num).toInt(),
-        chapterId: json['chapterId'] as String,
-        libraryItemId: json['libraryItemId'] as String,
-        sourceUrl: json['sourceUrl'] as String,
-        canonicalUrl: json['canonicalUrl'] as String?,
-        title: json['title'] as String,
-        capturedAt: DateTime.parse(json['capturedAt'] as String),
-        status: captureStatusFromName(json['status'] as String?),
-        statusReason: json['statusReason'] as String?,
-        detectedImageCount: (json['detectedImageCount'] as num).toInt(),
-        storedImageCount: (json['storedImageCount'] as num).toInt(),
-        nextUrl: json['nextUrl'] as String?,
-        sequence: (json['sequence'] as num?)?.toInt(),
-        assets: (json['assets'] as List<dynamic>)
-            .map(
-              (e) => AssetEntry.fromJson(Map<String, dynamic>.from(e as Map)),
-            )
-            .toList(),
-      );
+  factory EntryManifest.fromJson(Map<String, dynamic> json) => EntryManifest(
+    schemaVersion: (json['schemaVersion'] as num).toInt(),
+    entryId: json['entryId'] as String,
+    collectionId: json['collectionId'] as String?,
+    sourceUrl: json['sourceUrl'] as String,
+    host: json['host'] as String?,
+    canonicalUrl: json['canonicalUrl'] as String?,
+    title: json['title'] as String,
+    savedAt: DateTime.parse(json['savedAt'] as String),
+    status: saveStatusFromName(json['status'] as String?),
+    statusReason: json['statusReason'] as String?,
+    detectedAssetCount: (json['detectedAssetCount'] as num).toInt(),
+    storedAssetCount: (json['storedAssetCount'] as num).toInt(),
+    nextUrl: json['nextUrl'] as String?,
+    entryOrder: (json['entryOrder'] as num?)?.toInt(),
+    contentKind: json['contentKind'] as String?,
+    contentKindConfidence: json['contentKindConfidence'] as String?,
+    contentKindIsUserSet: json['contentKindIsUserSet'] as bool?,
+    publishedAt: json['publishedAt'] == null
+        ? null
+        : DateTime.tryParse(json['publishedAt'] as String),
+    sourceMarker: json['sourceMarker'] as String?,
+    entryNumber: (json['entryNumber'] as num?)?.toDouble(),
+    assets: (json['assets'] as List<dynamic>)
+        .map((e) => EntryAsset.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList(),
+  );
 
-  factory ChapterManifest.decode(String jsonText) =>
-      ChapterManifest.fromJson(jsonDecode(jsonText) as Map<String, dynamic>);
+  factory EntryManifest.decode(String jsonText) =>
+      EntryManifest.fromJson(jsonDecode(jsonText) as Map<String, dynamic>);
 
   static const int currentSchemaVersion = 1;
 
   final int schemaVersion;
-  final String chapterId;
-  final String libraryItemId;
+  final String entryId;
+
+  /// Null for a standalone entry. The manifest records the same nullable
+  /// relationship the schema does, so a recovered entry stays standalone
+  /// instead of being adopted by whichever collection happens to be nearby.
+  final String? collectionId;
   final String sourceUrl;
+
+  /// Source domain, for attribution when the database row is gone.
+  final String? host;
   final String? canonicalUrl;
   final String title;
-  final DateTime capturedAt;
-  final CaptureStatus status;
+  final DateTime savedAt;
+  final SaveStatus status;
   final String? statusReason;
-  final int detectedImageCount;
-  final int storedImageCount;
+  final int detectedAssetCount;
+  final int storedAssetCount;
   final String? nextUrl;
-  final int? sequence;
-  final List<AssetEntry> assets;
+  final int? entryOrder;
 
-  List<AssetEntry> get storedAssets =>
+  /// The detected content shape at save time (`ContentKind.name`), how much it
+  /// was trusted, and whether a person set it. Recorded rather than re-derived:
+  /// a guess made later, with no page to look at, would be weaker than the one
+  /// the save already made.
+  final String? contentKind;
+  final String? contentKindConfidence;
+  final bool? contentKindIsUserSet;
+
+  /// Publication date, only when the page stated one unambiguously.
+  final DateTime? publishedAt;
+
+  /// The marker the source printed, kept verbatim, and the number it carried.
+  final String? sourceMarker;
+  final double? entryNumber;
+
+  /// The entry's ordered pages. `index` is reading order.
+  final List<EntryAsset> assets;
+
+  /// How many pages this entry has. The honest count comes from the files.
+  int get pageCount => storedAssets.length;
+
+  List<EntryAsset> get storedAssets =>
       assets.where((a) => a.isStored).toList(growable: false);
 
   Map<String, dynamic> toJson() => {
     'schemaVersion': schemaVersion,
-    'chapterId': chapterId,
-    'libraryItemId': libraryItemId,
+    'entryId': entryId,
+    if (collectionId != null) 'collectionId': collectionId,
     'sourceUrl': sourceUrl,
+    if (host != null) 'host': host,
     if (canonicalUrl != null) 'canonicalUrl': canonicalUrl,
     'title': title,
-    'capturedAt': capturedAt.toUtc().toIso8601String(),
+    'savedAt': savedAt.toUtc().toIso8601String(),
     'status': status.name,
     if (statusReason != null) 'statusReason': statusReason,
-    'detectedImageCount': detectedImageCount,
-    'storedImageCount': storedImageCount,
+    'detectedAssetCount': detectedAssetCount,
+    'storedAssetCount': storedAssetCount,
     if (nextUrl != null) 'nextUrl': nextUrl,
-    if (sequence != null) 'sequence': sequence,
+    if (entryOrder != null) 'entryOrder': entryOrder,
+    if (contentKind != null) 'contentKind': contentKind,
+    if (contentKindConfidence != null)
+      'contentKindConfidence': contentKindConfidence,
+    if (contentKindIsUserSet == true) 'contentKindIsUserSet': true,
+    if (publishedAt != null)
+      'publishedAt': publishedAt!.toUtc().toIso8601String(),
+    if (sourceMarker != null) 'sourceMarker': sourceMarker,
+    if (entryNumber != null) 'entryNumber': entryNumber,
     'assets': assets.map((a) => a.toJson()).toList(),
   };
 
   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
 
-  ChapterManifest copyWith({
-    CaptureStatus? status,
+  EntryManifest copyWith({
+    SaveStatus? status,
     String? statusReason,
-    int? storedImageCount,
+    int? storedAssetCount,
     String? nextUrl,
-    List<AssetEntry>? assets,
-  }) => ChapterManifest(
+    List<EntryAsset>? assets,
+  }) => EntryManifest(
     schemaVersion: schemaVersion,
-    chapterId: chapterId,
-    libraryItemId: libraryItemId,
+    entryId: entryId,
+    collectionId: collectionId,
     sourceUrl: sourceUrl,
     canonicalUrl: canonicalUrl,
     title: title,
-    capturedAt: capturedAt,
+    savedAt: savedAt,
     status: status ?? this.status,
     statusReason: statusReason ?? this.statusReason,
-    detectedImageCount: detectedImageCount,
-    storedImageCount: storedImageCount ?? this.storedImageCount,
+    detectedAssetCount: detectedAssetCount,
+    storedAssetCount: storedAssetCount ?? this.storedAssetCount,
     nextUrl: nextUrl ?? this.nextUrl,
-    sequence: sequence,
+    entryOrder: entryOrder,
+    contentKind: contentKind,
+    contentKindConfidence: contentKindConfidence,
+    contentKindIsUserSet: contentKindIsUserSet,
+    host: host,
+    publishedAt: publishedAt,
+    sourceMarker: sourceMarker,
+    entryNumber: entryNumber,
     assets: assets ?? this.assets,
   );
 }

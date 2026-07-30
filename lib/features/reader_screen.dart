@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../capture/capture_preflight.dart';
+import '../save/save_preflight.dart';
 import '../core/config.dart';
 import '../providers.dart';
 import '../reading/reading_position.dart';
@@ -15,12 +15,11 @@ import '../storage/cleanup.dart';
 import '../storage/database.dart';
 import '../storage/file_store.dart';
 import '../storage/manifest.dart';
-import '../storage/manifest_repair.dart';
 import '../ui/palette.dart';
-import 'capture_queue_ui.dart';
+import 'save_queue_ui.dart';
 import 'cleanup_dialogs.dart';
 import 'library_screen.dart' show formatRelative;
-import 'series_detail_screen.dart' show sortChaptersForReading;
+import 'collection_detail_screen.dart' show sortEntriesForReading;
 
 /// How long the reader waits before writing a scroll position.
 ///
@@ -33,7 +32,7 @@ const Duration kProgressSaveInterval = Duration(seconds: 2);
 /// instead of under it (design: a 104px lead-in).
 const double kReaderTopSpacer = 104;
 
-/// The partial-capture banner scrolls with the content, so its height is part
+/// The partial-save banner scrolls with the content, so its height is part
 /// of the leading extent. Fixed rather than measured: the copy is short and
 /// known, and a variable leading extent would make the restore offset
 /// unknowable before layout — which is exactly what lets the reader open AT
@@ -42,16 +41,20 @@ const double kPartialBannerExtent = 88;
 
 /// How long the transient reader notice stays on screen.
 ///
-/// Deliberately inside [CleanupService.undoWindow] (6s), so Undo is still real
-/// for the whole time the notice offers it. Lengthening this without
-/// lengthening that window would put a dead button on screen.
-const Duration kReaderNoticeDuration = Duration(seconds: 5);
+/// Two seconds: it reports something that has already happened and offers one
+/// optional way out, so it is read at a glance and then gone. A notice that
+/// outstays the glance competes with the page the reader came here for.
+///
+/// Deliberately inside [CleanupService.undoWindow], so Undo is still real for
+/// the whole time the notice offers it. Lengthening this past that window would
+/// put a dead button on screen.
+const Duration kReaderNoticeDuration = Duration(seconds: 2);
 
 /// Where the floating reader notice sits above the bottom chrome (a 48px
 /// control row plus its padding) — the same band the jump chip uses, and it is
 /// added to the safe-area inset rather than assuming one: Android's
 /// three-button navigation bar reports ~48px there, enough to push the chrome
-/// up under a fixed offset and cover the chapter controls.
+/// up under a fixed offset and cover the entry controls.
 const double kReaderNoticeInset = 104;
 
 /// Vertical image reader over **local files only**.
@@ -60,9 +63,9 @@ const double kReaderNoticeInset = 104;
 /// the reader says so. Falling back to the source would make "offline" a lie
 /// that only surfaces once the network is gone.
 class ReaderScreen extends ConsumerStatefulWidget {
-  const ReaderScreen({super.key, required this.chapterId});
+  const ReaderScreen({super.key, required this.entryId});
 
-  final String chapterId;
+  final String entryId;
 
   @override
   ConsumerState<ReaderScreen> createState() => _ReaderScreenState();
@@ -73,7 +76,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   ScrollController? _scrollController;
   Future<_ReaderData>? _future;
 
-  ChapterLayout? _layout;
+  EntryLayout? _layout;
 
   /// The live position, updated on every scroll event. The footer listens to
   /// this directly (M12) so the visible percentage moves *while* scrolling;
@@ -89,7 +92,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// offset conversion goes through this, in both directions.
   double _leadingExtent = kReaderTopSpacer;
 
-  /// Where the chapter was restored to, so the jump chip can offer a way
+  /// Where the entry was restored to, so the jump chip can offer a way
   /// back once the reader has wandered off. The position is what the chip
   /// scrolls to (the anchor is what restore actually used); the fraction is
   /// what it shows.
@@ -100,10 +103,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   DateTime? _pastThresholdSince;
   bool _completed = false;
   bool _restored = false;
-  String? _chapterId;
+  String? _entryId;
 
-  /// The series this chapter belongs to — the destination of the swipe-back.
-  String? _seriesId;
+  /// The collection this entry belongs to — the destination of the swipe-back.
+  String? _collectionId;
 
   /// Held in a field, not read through `ref`, because the last flush runs
   /// from [dispose] — where Riverpod forbids `ref`. Reading it there threw,
@@ -114,7 +117,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// The transient notice on screen, or null when there is none.
   ///
   /// Screen state and nothing else: never written to the database, never
-  /// restored. It is dropped when the chapter changes, when the app leaves the
+  /// restored. It is dropped when the entry changes, when the app leaves the
   /// foreground, when the user closes it, and with the screen itself — so a
   /// notice can only ever be seen once, for as long as its own timeout.
   _ReaderNotice? _notice;
@@ -124,11 +127,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// inheriting the timeout already half spent.
   int _noticeSeq = 0;
 
-  /// The series whose cleanup question is on screen, or null when none is.
+  /// The collection whose cleanup question is on screen, or null when none is.
   ///
-  /// Screen state, and the reason a burst of "next chapter" taps cannot open a
+  /// Screen state, and the reason a burst of "next entry" taps cannot open a
   /// second dialog or race two decisions into the database.
-  String? _cleanupAskSeriesId;
+  String? _cleanupAskCollectionId;
 
   static const _policy = kDefaultCompletionPolicy;
 
@@ -138,11 +141,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     WidgetsBinding.instance.addObserver(this);
     _reading = ref.read(readingRepositoryProvider);
     _cleanup = ref.read(cleanupProvider);
-    _chapterId = widget.chapterId;
-    // The open chapter is locked against offline-file removal for as long
+    _entryId = widget.entryId;
+    // The open entry is locked against offline-file removal for as long
     // as this screen exists.
-    _cleanup.openReaderChapterId.value = widget.chapterId;
-    _future = _load(widget.chapterId);
+    _cleanup.openReaderEntryId.value = widget.entryId;
+    _future = _load(widget.entryId);
   }
 
   @override
@@ -153,8 +156,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     unawaited(_flush());
     _scrollController?.dispose();
     _livePosition.dispose();
-    if (_cleanup.openReaderChapterId.value == _chapterId) {
-      _cleanup.openReaderChapterId.value = null;
+    if (_cleanup.openReaderEntryId.value == _entryId) {
+      _cleanup.openReaderEntryId.value = null;
     }
     super.dispose();
   }
@@ -204,68 +207,70 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _clearNotice();
     await undo();
     if (!mounted) return;
-    _showNotice('Chapter restored', icon: Icons.undo);
+    // Parallel to the removal copy, and equally short: the verb first, the same
+    // noun after it, so the pair reads as one action and its reversal.
+    _showNotice('Restored downloads', icon: Icons.undo);
   }
 
   // --- loading -------------------------------------------------------------
 
-  Future<_ReaderData> _load(String chapterId) async {
+  Future<_ReaderData> _load(String entryId) async {
     final db = ref.read(databaseProvider);
     final store = ref.read(fileStoreProvider);
     final reading = _reading;
 
-    final chapter = await db.chapterById(chapterId);
-    if (chapter == null) {
-      return const _ReaderData.unavailable('This chapter is no longer listed.');
+    final entry = await db.entryById(entryId);
+    if (entry == null) {
+      return const _ReaderData.unavailable('This entry is no longer listed.');
     }
-    final relative = chapter.contentPath;
-    if (relative == null && chapter.offlineRemovedAt != null) {
+    final relative = entry.contentPath;
+    if (relative == null && entry.offlineRemovedAt != null) {
       // The USER removed these files. That is a state, not a failure —
-      // nothing gets demoted, and the copy says "capture again", not
+      // nothing gets demoted, and the copy says "save again", not
       // "something went wrong".
       return _ReaderData.unavailable(
-        'You removed this chapter\'s offline files. It\'s still in your '
-        'library with your reading history — capture it again to read it '
+        'You removed this entry\'s offline files. It\'s still in your '
+        'library with your reading history — save it again to read it '
         'here.',
         filesGone: true,
         removedByUser: true,
         unavailableMeta:
-            'removed ${formatRelative(chapter.offlineRemovedAt)}'
-            '${chapter.detectedImageCount > 0 ? ' · ${chapter.detectedImageCount} panels' : ''}',
-        unavailableChapter: chapter,
+            'removed ${formatRelative(entry.offlineRemovedAt)}'
+            '${entry.detectedAssetCount > 0 ? ' · ${entry.detectedAssetCount} pages' : ''}',
+        unavailableEntry: entry,
       );
     }
-    if (relative == null || !store.chapterExists(relative)) {
-      await db.markChapterContentMissing(chapter.id);
+    if (relative == null || !store.entryExists(relative)) {
+      await db.markEntryContentMissing(entry.id);
       return _ReaderData.unavailable(
-        'The local files for "${chapter.title}" are gone. The chapter is '
+        'The local files for "${entry.title}" are gone. The entry is '
         'still listed, but it is not available offline.',
         filesGone: true,
-        unavailableMeta: '0 of ${chapter.detectedImageCount} files present',
-        unavailableChapter: chapter,
+        unavailableMeta: '0 of ${entry.detectedAssetCount} files present',
+        unavailableEntry: entry,
       );
     }
 
     var manifest = await store.readManifest(relative);
     if (manifest == null) {
       return const _ReaderData.unavailable(
-        'The chapter package is unreadable (missing manifest).',
+        'The entry package is unreadable (missing manifest).',
       );
     }
 
-    // Older manifests carry DOM-reported dimensions, which can disagree with
-    // the files (placeholder boxes, probe timing). Verify against the stored
-    // bytes before building any geometry from them — each file is read once,
-    // ever, and progress anchors survive because panel count is unchanged.
-    final repair = await repairManifestDimensions(store, relative, manifest);
-    manifest = repair.manifest;
-    if (repair.didRepair) {
-      debugPrint(
-        '[reader] corrected ${repair.correctedCount} panel dimension(s) '
-        'from stored files for ${chapter.id}',
-      );
-    }
-
+    // Page geometry is built **only** from dimensions decoded out of the stored
+    // bytes at save time (`dimensionsVerified`). There is no repair pass: a
+    // version-1 library records verified dimensions when it saves, and re-reading
+    // every file on every open to fix manifests this build never wrote would be
+    // migration machinery for a shape no library has.
+    //
+    // What can still happen is a file whose header the decoder does not
+    // understand. Then the manifest holds the *page's own claim* about the size,
+    // which is a layout assertion and not a pixel fact — panels sized from it
+    // laid out at the wrong aspect ratio, which is what "the saved page looks
+    // squashed" was. Such a page gets no recorded size at all, so the reader
+    // falls back to a fixed box and crops from the top rather than stretching.
+    //
     // Manifest order is DOM order, which is reading order.
     final pages = <_ReaderPage>[];
     for (final asset in manifest.storedAssets) {
@@ -274,62 +279,70 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         _ReaderPage(
           file: file,
           exists: file.existsSync(),
-          width: asset.width,
-          height: asset.height,
+          width: asset.dimensionsVerified ? asset.width : null,
+          height: asset.dimensionsVerified ? asset.height : null,
         ),
       );
     }
 
-    final siblings = sortChaptersForReading(
-      (await db.chaptersForItem(chapter.libraryItemId))
-          .where(
-            (c) =>
-                c.contentPath != null &&
-                (c.captureStatus == 'complete' || c.captureStatus == 'partial'),
-          )
-          .toList(),
-    );
+    // A standalone entry has no siblings: there is no previous or next, and the
+    // reader says so rather than showing an empty strip where controls were.
+    final collectionId = entry.collectionId;
+    final siblings = collectionId == null
+        ? const <Entry>[]
+        : sortEntriesForReading(
+            (await db.entriesForCollection(collectionId))
+                .where(
+                  (c) =>
+                      c.contentPath != null &&
+                      (c.saveStatus == 'complete' || c.saveStatus == 'partial'),
+                )
+                .toList(),
+          );
 
-    await reading.markOpened(chapter.id);
-    await db.touchLibraryItem(chapter.libraryItemId);
+    await reading.markOpened(entry.id);
+    if (collectionId != null) await db.touchCollection(collectionId);
 
-    _position = reading.positionOf(chapter);
-    _completed = chapter.readStatus == ReadStatus.completed.name;
-    _seriesId = chapter.libraryItemId;
+    _position = reading.positionOf(entry);
+    _completed = entry.readStatus == ReadStatus.completed.name;
+    _collectionId = entry.collectionId;
 
     return _ReaderData(
-      chapter: chapter,
+      entry: entry,
       manifest: manifest,
       pages: pages,
       siblings: siblings,
     );
   }
 
-  // --- finished-chapter cleanup ---------------------------------------------
+  // --- finished-entry cleanup ---------------------------------------------
 
-  /// The chapter being left, when this transition qualifies for the
-  /// finished-chapter cleanup flow — otherwise null.
+  /// The entry being left, when this transition qualifies for the
+  /// finished-entry cleanup flow — otherwise null.
   ///
   /// Every condition here is a guard the spec names: only a *completed*
-  /// chapter, only *forward* movement to a different chapter, only when the
+  /// entry, only *forward* movement to a different entry, only when the
   /// files actually exist locally, only when nothing else is using them, and
   /// only when the target is genuinely openable. Closing the reader, moving
-  /// backwards, re-opening the same chapter, a partially-read chapter, or one
+  /// backwards, re-opening the same entry, a partially-read entry, or one
   /// with no local files all fall through to null.
-  Future<Chapter?> _finishedChapterLeavingFor(Chapter target) async {
-    final leavingId = _chapterId;
+  Future<Entry?> _finishedEntryLeavingFor(Entry target) async {
+    final leavingId = _entryId;
     if (leavingId == null || leavingId == target.id) return null;
     if (!_completed) return null;
 
     final db = ref.read(databaseProvider);
-    final leaving = await db.chapterById(leavingId);
+    final leaving = await db.entryById(leavingId);
     if (leaving == null) return null;
     if (leaving.readStatus != ReadStatus.completed.name) return null;
     if (!_cleanup.isRemovable(leaving)) return null;
 
-    // Forward only: reading order, not tap order.
-    final ordered = sortChaptersForReading(
-      await db.chaptersForItem(leaving.libraryItemId),
+    // Forward only: reading order, not tap order. A standalone entry has no
+    // reading order to move forward through, so the flow does not apply.
+    final leavingCollectionId = leaving.collectionId;
+    if (leavingCollectionId == null) return null;
+    final ordered = sortEntriesForReading(
+      await db.entriesForCollection(leavingCollectionId),
     );
     final from = ordered.indexWhere((c) => c.id == leaving.id);
     final to = ordered.indexWhere((c) => c.id == target.id);
@@ -340,61 +353,75 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return leaving;
   }
 
-  /// Apply the series' cleanup decision to the chapter just left behind, and
-  /// ask for it once if the series has none (D37).
+  /// Apply the collection's cleanup decision to the entry just left behind, and
+  /// ask for it once if the collection has none (D37).
   ///
-  /// The series is taken from the chapter being left and captured *before* any
-  /// await, so a decision can only ever be written to the series it was asked
-  /// about — even if the reader has moved on, or moved to another series,
+  /// The collection is taken from the entry being left and saved *before* any
+  /// await, so a decision can only ever be written to the collection it was asked
+  /// about — even if the reader has moved on, or moved to another collection,
   /// while the dialog was open.
-  Future<void> _afterFinished(Chapter leaving) async {
+  Future<void> _afterFinished(Entry leaving) async {
     final db = ref.read(databaseProvider);
-    final seriesId = leaving.libraryItemId;
-    final item = await db.libraryItemById(seriesId);
+    // Only reachable for an entry inside a collection: the cleanup decision is
+    // a per-collection preference, and a standalone entry has no collection to
+    // record it on. `_finishedEntryLeavingFor` already returned null for those.
+    final collectionId = leaving.collectionId;
+    if (collectionId == null) return;
+    final item = await db.collectionById(collectionId);
     if (item == null) return;
 
-    var decision = seriesCleanupFromName(item.finishedCleanup);
+    var decision = collectionCleanupFromName(item.cleanupPreference);
     if (decision == null) {
       // One question at a time. A second transition arriving while the dialog
       // is open must not stack a duplicate or race a conflicting write; it
       // keeps its files and asks nothing, and the answer being given now
       // covers every transition after it.
-      if (_cleanupAskSeriesId != null || !mounted) return;
-      _cleanupAskSeriesId = seriesId;
+      if (_cleanupAskCollectionId != null || !mounted) return;
+      _cleanupAskCollectionId = collectionId;
       try {
-        decision = await showSeriesCleanupDialog(
+        decision = await showCollectionCleanupDialog(
           context: context,
-          seriesName: item.userTitle ?? item.title,
+          collectionName: item.userTitle ?? item.title,
         );
       } finally {
-        _cleanupAskSeriesId = null;
+        _cleanupAskCollectionId = null;
       }
       // Dismissed without saving: nothing is stored and nothing is removed.
       // The question comes back on the next eligible transition.
       if (decision == null) return;
-      await db.setSeriesFinishedCleanup(seriesId, decision.name);
+      await db.setCollectionCleanupPreference(collectionId, decision.name);
     }
-    if (decision == SeriesCleanupPref.remove) await _removeFinished(leaving);
+    if (decision == CollectionCleanupPreference.remove) {
+      await _removeFinished(leaving);
+    }
   }
 
   /// Remove and offer an undo. A failure here never blocks reading — the new
-  /// chapter is already open; the worst case is that files stay.
+  /// entry is already open; the worst case is that files stay.
   ///
-  /// The notice is deliberately minimal: which chapter it was is obvious (the
+  /// The notice is deliberately minimal: which entry it was is obvious (the
   /// user just left it) and how many megabytes came back is not a decision
-  /// anyone makes mid-read. What matters for five seconds is that something was
-  /// removed and that it can be put back.
-  Future<void> _removeFinished(Chapter leaving) async {
+  /// anyone makes mid-read. All that matters, for the moment it is up, is that
+  /// something was removed and that it can be put back.
+  ///
+  /// The copy names the *downloads*, never the entry. Removing offline files is
+  /// not deleting an entry — the row, the reading position and the history all
+  /// survive — so "Removed previous entry" would say the opposite of what
+  /// happened. It is the short form of the phrase the cleanup question already
+  /// uses ("Keep downloaded files"), so the answer and its consequence read as
+  /// one thing, and it is the longest of the honest phrasings that still sets
+  /// on one line at 320pt.
+  Future<void> _removeFinished(Entry leaving) async {
     try {
       final result = await _cleanup.removeOffline([leaving.id]);
       if (!mounted || result.removed == 0) return;
       _showNotice(
-        'Previous chapter removed offline',
+        'Removed downloads',
         icon: Icons.delete_outline,
         undo: result.canUndo ? result.undo.undo : null,
       );
     } catch (e) {
-      debugPrint('[cleanup] finished-chapter removal failed: $e');
+      debugPrint('[cleanup] finished-entry removal failed: $e');
     }
   }
 
@@ -406,7 +433,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// image decodes — which is what lets the reader open *at* the position
   /// rather than visibly jumping there afterwards.
   ScrollController _controllerFor(_ReaderData data, double viewportWidth) {
-    final layout = ChapterLayout(
+    final layout = EntryLayout(
       viewportWidth: viewportWidth,
       panels: [for (final p in data.pages) (width: p.width, height: p.height)],
     );
@@ -476,7 +503,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   Future<void> _flush() async {
-    final id = _chapterId;
+    final id = _entryId;
     if (id == null || _layout == null) return;
     _saveTimer?.cancel();
     _saveTimer = null;
@@ -492,7 +519,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   // --- actions -------------------------------------------------------------
 
   Future<void> _toggleRead() async {
-    final id = _chapterId;
+    final id = _entryId;
     if (id == null) return;
     final reading = _reading;
     // A debounced save queued before the tap would land after it and write
@@ -511,22 +538,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (mounted) setState(() {});
   }
 
-  /// Save first, then move. Losing the position of the chapter you are leaving
+  /// Save first, then move. Losing the position of the entry you are leaving
   /// is the obvious way to get this wrong.
-  Future<void> _goTo(Chapter target) async {
+  Future<void> _goTo(Entry target) async {
     await _flush();
-    final leaving = await _finishedChapterLeavingFor(target);
+    final leaving = await _finishedEntryLeavingFor(target);
     _saveTimer?.cancel();
     _scrollController?.removeListener(_onScroll);
-    // The lock follows the reader: the chapter being LEFT is no longer open,
-    // and the one arriving is. Without this the chapter just finished stays
+    // The lock follows the reader: the entry being LEFT is no longer open,
+    // and the one arriving is. Without this the entry just finished stays
     // locked against its own cleanup.
-    _cleanup.openReaderChapterId.value = target.id;
+    _cleanup.openReaderEntryId.value = target.id;
     setState(() {
-      // Anything the last transition had to say is about a chapter that is no
+      // Anything the last transition had to say is about an entry that is no
       // longer on screen. A new removal will post its own notice.
       _notice = null;
-      _chapterId = target.id;
+      _entryId = target.id;
       _restored = false;
       _layout = null;
       _completed = false;
@@ -534,13 +561,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _position = ReadingPosition.start;
       _future = _load(target.id);
     });
-    // Navigation is secured (the new chapter is already loading and the lock
-    // has moved) before anything is removed — the chapter the user is now
+    // Navigation is secured (the new entry is already loading and the lock
+    // has moved) before anything is removed — the entry the user is now
     // looking at can never be the one cleaned up.
     if (leaving != null) unawaited(_afterFinished(leaving));
   }
 
-  // --- leaving for the episode list ----------------------------------------
+  // --- leaving for the entry list ----------------------------------------
 
   /// Accumulated travel of the drag currently in flight, used to decide
   /// whether it was meant horizontally.
@@ -577,26 +604,26 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         (velocity.dx >= _kSwipeVelocity &&
             velocity.dx.abs() > velocity.dy.abs() * _kSwipeRatio);
     if (!decisive) return;
-    unawaited(_leaveToSeries());
+    unawaited(_leaveToCollection());
   }
 
-  /// Swipe right: back to this series' episode list.
+  /// Swipe right: back to this collection's entry list.
   ///
   /// The position is flushed **before** navigating — this is a way out of the
   /// reader like any other, and losing the last few seconds of scroll because
   /// the user left by gesture rather than by button would be indefensible.
   ///
-  /// Where it lands is the same either way. If the episode list is already the
+  /// Where it lands is the same either way. If the entry list is already the
   /// route underneath, pop onto it; otherwise (opened from Continue Reading,
   /// Activity, a deep link) replace the reader with it. Both leave exactly one
-  /// episode-list route on the stack, so repeated in-and-out never piles up.
-  Future<void> _leaveToSeries() async {
-    final seriesId = _seriesId;
-    if (seriesId == null) return;
+  /// entry-list route on the stack, so repeated in-and-out never piles up.
+  Future<void> _leaveToCollection() async {
+    final collectionId = _collectionId;
+    if (collectionId == null) return;
     await _flush();
     if (!mounted) return;
 
-    final target = '/series/$seriesId';
+    final target = '/collection/$collectionId';
     final matches = GoRouter.of(
       context,
     ).routerDelegate.currentConfiguration.matches;
@@ -616,38 +643,38 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// that offering a way back is useful rather than confusing.
   bool _showJump = false;
 
-  /// Bring a chapter back that has no local files — the same queued capture
+  /// Bring an entry back that has no local files — the same queued save
   /// as anywhere else, so it shows up in Activity like any other run.
-  Future<void> _captureAgain(Chapter chapter) async {
+  Future<void> _saveAgain(Entry entry) async {
     final result = await ref
         .read(taskQueueProvider)
-        .enqueueCapture(
-          startUrl: chapter.sourceUrl,
-          chapterLimit: 1,
-          libraryItemId: chapter.libraryItemId,
+        .enqueueSave(
+          startUrl: entry.sourceUrl,
+          entryLimit: 1,
+          collectionId: entry.collectionId,
           policy: DuplicatePolicy.replaceAll,
-          range: CaptureRangeMode.currentChapter,
+          range: SaveScope.currentPageOnly,
         );
     if (!mounted) return;
     showQueuedConfirmation(context, result);
   }
 
-  /// Re-capture this chapter to fill in the panels a partial capture missed.
+  /// Re-save this entry to fill in the panels a partial save missed.
   /// The queue owns the work; the Browser is where it becomes visible.
   Future<void> _retryMissing(_ReaderData data) async {
-    final chapter = data.chapter;
-    if (chapter == null) return;
+    final entry = data.entry;
+    if (entry == null) return;
     final result = await ref
         .read(taskQueueProvider)
-        .enqueueCapture(
-          startUrl: chapter.sourceUrl,
-          chapterLimit: 1,
-          libraryItemId: chapter.libraryItemId,
+        .enqueueSave(
+          startUrl: entry.sourceUrl,
+          entryLimit: 1,
+          collectionId: entry.collectionId,
           policy: DuplicatePolicy.retryPartial,
-          range: CaptureRangeMode.currentChapter,
+          range: SaveScope.currentPageOnly,
         );
     if (!mounted) return;
-    showQueuedConfirmation(context, result, what: 'missing panels');
+    showQueuedConfirmation(context, result, what: 'missing pages');
   }
 
   @override
@@ -660,7 +687,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       // black borders read as part of the artwork.
       backgroundColor: ReaderColors.canvas,
       // The notice sits outside the FutureBuilder: it is posted as the *next*
-      // chapter starts loading, and rebuilding it with the page would restart
+      // entry starts loading, and rebuilding it with the page would restart
       // its countdown (or flicker it away) on every load state.
       body: Stack(
         children: [
@@ -676,6 +703,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 text: notice.text,
                 icon: notice.icon,
                 duration: kReaderNoticeDuration,
+                // Two seconds is not a reachable window with a screen reader:
+                // getting to the Undo takes longer than the notice lasts. The
+                // same exception the cleanup snack bar already makes — and the
+                // notice is still dropped by an entry change, by leaving the
+                // app, and by the Dismiss button, so it cannot become permanent.
+                persist:
+                    MediaQuery.maybeOf(context)?.accessibleNavigation ?? false,
                 actionLabel: notice.undo == null ? null : 'Undo',
                 onAction: notice.undo == null
                     ? null
@@ -697,20 +731,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         }
         final data = snapshot.data;
         if (data == null || data.unavailableReason != null) {
-          final missing = data?.unavailableChapter;
+          final missing = data?.unavailableEntry;
           return _Unavailable(
-            message: data?.unavailableReason ?? 'Could not open the chapter.',
+            message: data?.unavailableReason ?? 'Could not open the entry.',
             filesGone: data?.filesGone ?? false,
             removedByUser: data?.removedByUser ?? false,
             meta: data?.unavailableMeta,
-            onCaptureAgain: missing == null
-                ? null
-                : () => _captureAgain(missing),
+            onSaveAgain: missing == null ? null : () => _saveAgain(missing),
           );
         }
         if (data.pages.isEmpty) {
           return const _Unavailable(
-            message: 'This chapter has no stored images.',
+            message: 'This entry has no stored images.',
           );
         }
 
@@ -718,7 +750,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         final width = MediaQuery.of(context).size.width;
         final controller = _controllerFor(data, width);
 
-        final partial = manifest.status == CaptureStatus.partial;
+        final partial = manifest.status == SaveStatus.partial;
         _leadingExtent =
             kReaderTopSpacer + (partial ? kPartialBannerExtent : 0);
 
@@ -744,23 +776,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 // ListView's running estimate of total extent and leave the
                 // scrollable's own maxScrollExtent short of the real bottom.
                 padding: const EdgeInsets.only(top: kReaderTopSpacer),
-                // One trailing row for the end-of-chapter block, plus the
+                // One trailing row for the end-of-entry block, plus the
                 // partial banner when there is one.
                 itemCount: data.pages.length + 1 + (partial ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (partial && index == 0) {
                     return _PartialBanner(
-                      stored: manifest.storedImageCount,
-                      detected: manifest.detectedImageCount,
+                      stored: manifest.storedAssetCount,
+                      detected: manifest.detectedAssetCount,
                       reason: manifest.statusReason,
                       onRetry: () => _retryMissing(data),
                     );
                   }
                   final panel = index - (partial ? 1 : 0);
                   if (panel == data.pages.length) {
-                    return _EndOfChapter(
+                    return _EndOfEntry(
                       data: data,
-                      chapterId: _chapterId!,
+                      entryId: _entryId!,
                       onGoTo: _goTo,
                     );
                   }
@@ -793,7 +825,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             _ReaderChrome(
               visible: _chromeVisible,
               data: data,
-              chapterId: _chapterId!,
+              entryId: _entryId!,
               completed: _completed,
               position: _livePosition,
               panelCount: data.pages.length,
@@ -807,8 +839,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 }
 
-/// The overlaid reader chrome: a top bar that identifies the chapter and owns
-/// the read toggle, and a bottom bar with chapter movement and position.
+/// The overlaid reader chrome: a top bar that identifies the entry and owns
+/// the read toggle, and a bottom bar with entry movement and position.
 ///
 /// Both fade rather than reflow, so toggling them never moves a single panel —
 /// the reader must not jump under the reader's thumb.
@@ -820,7 +852,7 @@ class _ReaderChrome extends StatelessWidget {
   const _ReaderChrome({
     required this.visible,
     required this.data,
-    required this.chapterId,
+    required this.entryId,
     required this.completed,
     required this.position,
     required this.panelCount,
@@ -830,23 +862,23 @@ class _ReaderChrome extends StatelessWidget {
 
   final bool visible;
   final _ReaderData data;
-  final String chapterId;
+  final String entryId;
   final bool completed;
   final ValueListenable<ReadingPosition> position;
   final int panelCount;
-  final Future<void> Function(Chapter) onGoTo;
+  final Future<void> Function(Entry) onGoTo;
   final VoidCallback onToggleRead;
 
   @override
   Widget build(BuildContext context) {
     final siblings = data.siblings;
-    final index = siblings.indexWhere((c) => c.id == chapterId);
+    final index = siblings.indexWhere((c) => c.id == entryId);
     final previous = index > 0 ? siblings[index - 1] : null;
     final next = (index >= 0 && index + 1 < siblings.length)
         ? siblings[index + 1]
         : null;
     final insets = MediaQuery.paddingOf(context);
-    final chapter = data.chapter;
+    final entry = data.entry;
 
     return IgnorePointer(
       ignoring: !visible,
@@ -888,7 +920,7 @@ class _ReaderChrome extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            chapter?.chapterLabel ?? chapter?.title ?? 'Reader',
+                            entry?.sourceMarker ?? entry?.title ?? 'Reader',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -898,7 +930,7 @@ class _ReaderChrome extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            chapter?.title ?? '',
+                            entry?.title ?? '',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -937,7 +969,7 @@ class _ReaderChrome extends StatelessWidget {
                 child: Row(
                   children: [
                     IconButton(
-                      tooltip: 'Previous saved chapter',
+                      tooltip: 'Previous saved entry',
                       icon: const Icon(Icons.skip_previous, size: 22),
                       color: ReaderColors.ink,
                       disabledColor: ReaderColors.inkDisabled,
@@ -989,7 +1021,7 @@ class _ReaderChrome extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                      tooltip: 'Next saved chapter',
+                      tooltip: 'Next saved entry',
                       icon: const Icon(Icons.skip_next, size: 22),
                       color: ReaderColors.ink,
                       disabledColor: ReaderColors.inkDisabled,
@@ -1051,23 +1083,23 @@ class _ReadPill extends StatelessWidget {
   );
 }
 
-/// What happens after the last panel: the chapter is over, and the next one is
+/// What happens after the last panel: the entry is over, and the next one is
 /// one tap away. "Continue" skips ahead to the next thing actually unread.
-class _EndOfChapter extends StatelessWidget {
-  const _EndOfChapter({
+class _EndOfEntry extends StatelessWidget {
+  const _EndOfEntry({
     required this.data,
-    required this.chapterId,
+    required this.entryId,
     required this.onGoTo,
   });
 
   final _ReaderData data;
-  final String chapterId;
-  final Future<void> Function(Chapter) onGoTo;
+  final String entryId;
+  final Future<void> Function(Entry) onGoTo;
 
   @override
   Widget build(BuildContext context) {
     final siblings = data.siblings;
-    final index = siblings.indexWhere((c) => c.id == chapterId);
+    final index = siblings.indexWhere((c) => c.id == entryId);
     final next = (index >= 0 && index + 1 < siblings.length)
         ? siblings[index + 1]
         : null;
@@ -1076,7 +1108,7 @@ class _EndOfChapter extends StatelessWidget {
         .where((c) => c.readStatus != ReadStatus.completed.name)
         .firstOrNull;
     final target = nextUnread ?? next;
-    final label = data.chapter?.chapterLabel ?? data.chapter?.title ?? '';
+    final label = data.entry?.sourceMarker ?? data.entry?.title ?? '';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 26, 20, 110),
@@ -1106,7 +1138,7 @@ class _EndOfChapter extends StatelessWidget {
                 ),
               ),
               child: Text(
-                'Next chapter · ${target.chapterLabel ?? target.title}',
+                'Next entry · ${target.sourceMarker ?? target.title}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1142,7 +1174,7 @@ class _PanelView extends StatelessWidget {
       );
     }
 
-    // Decode at display width, not full resolution: a 60-panel chapter would
+    // Decode at display width, not full resolution: a 60-panel entry would
     // otherwise be hundreds of MB of bitmaps.
     final dpr = MediaQuery.of(context).devicePixelRatio;
     final decodeWidth = (MediaQuery.of(context).size.width * dpr).round();
@@ -1181,7 +1213,7 @@ class _PanelView extends StatelessWidget {
   }
 }
 
-/// The partial-capture banner. It scrolls away with the content rather than
+/// The partial-save banner. It scrolls away with the content rather than
 /// occupying a permanent band, and its height is a fixed constant because the
 /// restore offset is computed from it before any layout happens.
 class _PartialBanner extends StatelessWidget {
@@ -1224,7 +1256,7 @@ class _PartialBanner extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Partial capture — $stored of $detected images',
+                    'Partial save — $stored of $detected images',
                     style: const TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
@@ -1233,7 +1265,7 @@ class _PartialBanner extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '$missing panel${missing == 1 ? ' is' : 's are'} '
+                    '$missing page${missing == 1 ? ' is' : 's are'} '
                     'missing${reason == null ? '' : ' ($reason)'}. '
                     'You can read the rest now.',
                     maxLines: 2,
@@ -1299,6 +1331,11 @@ class _ReaderNotice {
 ///
 /// It owns exactly one controller and no timers, and the controller goes with
 /// the widget.
+///
+/// It is drawn from the same tokens as the app's snack bars — [AppPalette]'s
+/// toast surface, ink and accent, the snack bar theme's 14px radius and 13px
+/// body — because it is the same kind of object. The only thing it does not
+/// share is the messenger.
 class _TransientNotice extends StatefulWidget {
   const _TransientNotice({
     super.key,
@@ -1306,6 +1343,7 @@ class _TransientNotice extends StatefulWidget {
     required this.icon,
     required this.duration,
     required this.onDismissed,
+    this.persist = false,
     this.actionLabel,
     this.onAction,
   });
@@ -1313,6 +1351,10 @@ class _TransientNotice extends StatefulWidget {
   final String text;
   final IconData icon;
   final Duration duration;
+
+  /// Wait for the Dismiss button instead of timing out. Set only for assistive
+  /// navigation, where [duration] is shorter than reaching the action takes.
+  final bool persist;
 
   /// Called once, when the notice is finished with itself — the timeout ran
   /// out, or the user closed it. The owner drops it from the tree.
@@ -1327,6 +1369,18 @@ class _TransientNotice extends StatefulWidget {
 
 class _TransientNoticeState extends State<_TransientNotice>
     with SingleTickerProviderStateMixin {
+  /// How long the notice takes to fade in, and again to fade out.
+  ///
+  /// A fixed duration rather than a fraction of [widget.duration]: the fade is
+  /// a property of the animation, not of how long the message is worth reading,
+  /// and a percentage silently re-times itself whenever the duration moves.
+  static const _fade = Duration(milliseconds: 140);
+
+  /// Both interactive boxes, at the size the rest of the app gives a tappable
+  /// glyph (`kHeaderActionSize`). Not that constant itself: it is scoped to the
+  /// screen-header row and must stay free to move with it.
+  static const _actionSize = 40.0;
+
   late final AnimationController _timeout;
   bool _closed = false;
 
@@ -1336,8 +1390,10 @@ class _TransientNoticeState extends State<_TransientNotice>
     _timeout = AnimationController(vsync: this, duration: widget.duration)
       ..addStatusListener((status) {
         if (status == AnimationStatus.completed) _close();
-      })
-      ..forward();
+      });
+    // Left at rest when persisting, so nothing is counting down and the
+    // hairline has nothing to show.
+    if (!widget.persist) _timeout.forward();
   }
 
   @override
@@ -1360,44 +1416,60 @@ class _TransientNoticeState extends State<_TransientNotice>
     widget.onAction?.call();
   }
 
+  /// Fades in over the first [_fade] and out over the last, so the notice
+  /// neither appears nor vanishes as a hard cut. Capped at a third of the
+  /// timeout each way, so a very short duration still has a moment at full
+  /// opacity rather than being one continuous fade.
+  double _opacityAt(double t) {
+    final ms = widget.duration.inMilliseconds;
+    if (ms <= 0) return 1;
+    final fade = (_fade.inMilliseconds / ms).clamp(0.001, 1 / 3);
+    final value = t < fade ? t / fade : (t > 1 - fade ? (1 - t) / fade : 1.0);
+    return value.clamp(0.0, 1.0);
+  }
+
   @override
   Widget build(BuildContext context) {
     // The reader is a permanently dark surface whatever the app appearance is,
     // so the notice reads from the dark palette rather than the ambient one.
     const palette = AppPalette.dark;
 
+    // The app's own transient-surface radius (`snackBarTheme`), so the reader's
+    // notice and every snack bar elsewhere read as the same object on two
+    // screens.
+    final radius = BorderRadius.circular(14);
+
     return AnimatedBuilder(
       animation: _timeout,
       builder: (context, _) {
-        // Fades in over the first moments and out over the last, so it neither
-        // appears nor vanishes as a hard cut.
         final t = _timeout.value;
-        final opacity = t < 0.06 ? t / 0.06 : (t > 0.94 ? (1 - t) / 0.06 : 1.0);
         return Opacity(
-          opacity: opacity.clamp(0.0, 1.0),
+          opacity: widget.persist ? 1 : _opacityAt(t),
           child: Material(
             color: palette.toastSurface,
-            borderRadius: BorderRadius.circular(12),
-            elevation: 8,
-            shadowColor: Colors.black,
+            borderRadius: radius,
+            elevation: 6,
+            shadowColor: palette.shadow,
             clipBehavior: Clip.antiAlias,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(13, 10, 6, 10),
+                  padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
                   child: Row(
                     children: [
-                      Icon(widget.icon, size: 18, color: palette.toastAccent),
+                      Icon(widget.icon, size: 19, color: palette.toastAccent),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           widget.text,
-                          maxLines: 2,
+                          // One line, always: the copy is two words, and a
+                          // notice that changes height between messages reads
+                          // as two different components.
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 12.5,
-                            height: 1.35,
+                            fontSize: 13,
                             color: palette.toastInk,
                           ),
                         ),
@@ -1406,30 +1478,28 @@ class _TransientNoticeState extends State<_TransientNotice>
                         const SizedBox(width: 6),
                         TextButton(
                           onPressed: _act,
+                          // Only the colour is overridden; the label's size and
+                          // weight are the app's text-button type. The shorter
+                          // the notice, the more the action has to be hit first
+                          // time.
                           style: TextButton.styleFrom(
                             foregroundColor: palette.toastAccent,
                             padding: const EdgeInsets.symmetric(horizontal: 10),
-                            minimumSize: const Size(0, 34),
+                            minimumSize: const Size(0, _actionSize),
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
-                          child: Text(
-                            widget.actionLabel!,
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                          child: Text(widget.actionLabel!),
                         ),
                       ],
                       IconButton(
                         tooltip: 'Dismiss',
                         onPressed: _close,
-                        icon: const Icon(Icons.close, size: 17),
+                        icon: const Icon(Icons.close, size: 18),
                         color: palette.inkFaint,
                         visualDensity: VisualDensity.compact,
                         constraints: const BoxConstraints.tightFor(
-                          width: 34,
-                          height: 34,
+                          width: _actionSize,
+                          height: _actionSize,
                         ),
                         padding: EdgeInsets.zero,
                       ),
@@ -1439,19 +1509,21 @@ class _TransientNoticeState extends State<_TransientNotice>
                 // The timeout, made visible: a hairline that empties as the
                 // notice runs out. Painted directly rather than with
                 // LinearProgressIndicator, whose Material 3 track and stop dot
-                // read as progress towards something.
-                SizedBox(
-                  height: 2,
-                  width: double.infinity,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: FractionallySizedBox(
-                      widthFactor: (1 - t).clamp(0.0, 1.0),
-                      heightFactor: 1,
-                      child: ColoredBox(color: palette.toastAccent),
+                // read as progress towards something. Absent when persisting,
+                // where there is no countdown to draw.
+                if (!widget.persist)
+                  SizedBox(
+                    height: 2,
+                    width: double.infinity,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: (1 - t).clamp(0.0, 1.0),
+                        heightFactor: 1,
+                        child: ColoredBox(color: palette.toastAccent),
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
           ),
@@ -1511,7 +1583,7 @@ class _JumpToSavedChip extends StatelessWidget {
   }
 }
 
-/// The chapter cannot be shown. When its files are gone this is the state the
+/// The entry cannot be shown. When its files are gone this is the state the
 /// user actually hits — the row is still in the library, the position is still
 /// saved, and the only thing missing is the bytes.
 class _Unavailable extends StatelessWidget {
@@ -1520,7 +1592,7 @@ class _Unavailable extends StatelessWidget {
     this.filesGone = false,
     this.removedByUser = false,
     this.meta,
-    this.onCaptureAgain,
+    this.onSaveAgain,
   });
 
   final String message;
@@ -1534,8 +1606,8 @@ class _Unavailable extends StatelessWidget {
   /// "0 of 41 files present").
   final String? meta;
 
-  /// Offered when the chapter can be brought back.
-  final VoidCallback? onCaptureAgain;
+  /// Offered when the entry can be brought back.
+  final VoidCallback? onSaveAgain;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -1556,7 +1628,7 @@ class _Unavailable extends StatelessWidget {
             Text(
               removedByUser
                   ? 'Not available offline'
-                  : 'The files for this chapter are gone',
+                  : 'The files for this entry are gone',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 18,
@@ -1571,9 +1643,9 @@ class _Unavailable extends StatelessWidget {
               removedByUser
                   ? message
                   : filesGone
-                  ? 'The chapter is still listed, but its images are not on '
+                  ? 'The entry is still listed, but its images are not on '
                         'the device any more. Your reading position is kept — '
-                        'capture it again to read it.'
+                        'save it again to read it.'
                   : message,
               textAlign: TextAlign.center,
               style: const TextStyle(
@@ -1600,9 +1672,9 @@ class _Unavailable extends StatelessWidget {
             builder: (context) => Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (onCaptureAgain != null) ...[
+                if (onSaveAgain != null) ...[
                   FilledButton(
-                    onPressed: onCaptureAgain,
+                    onPressed: onSaveAgain,
                     style: FilledButton.styleFrom(
                       backgroundColor: ReaderColors.chipSurface,
                       foregroundColor: ReaderColors.chipInk,
@@ -1611,7 +1683,7 @@ class _Unavailable extends StatelessWidget {
                         vertical: 12,
                       ),
                     ),
-                    child: const Text('Capture again'),
+                    child: const Text('Save again'),
                   ),
                   const SizedBox(width: 9),
                 ],
@@ -1625,7 +1697,7 @@ class _Unavailable extends StatelessWidget {
                       vertical: 12,
                     ),
                   ),
-                  child: const Text('Back to series'),
+                  child: const Text('Back to collection'),
                 ),
               ],
             ),
@@ -1652,7 +1724,7 @@ class _ReaderPage {
 
 class _ReaderData {
   const _ReaderData({
-    required this.chapter,
+    required this.entry,
     required this.manifest,
     required this.pages,
     this.siblings = const [],
@@ -1660,21 +1732,21 @@ class _ReaderData {
        filesGone = false,
        removedByUser = false,
        unavailableMeta = null,
-       unavailableChapter = null;
+       unavailableEntry = null;
 
   const _ReaderData.unavailable(
     this.unavailableReason, {
     this.filesGone = false,
     this.removedByUser = false,
     this.unavailableMeta,
-    this.unavailableChapter,
-  }) : chapter = null,
+    this.unavailableEntry,
+  }) : entry = null,
        manifest = null,
        pages = const [],
        siblings = const [];
 
-  final Chapter? chapter;
-  final ChapterManifest? manifest;
+  final Entry? entry;
+  final EntryManifest? manifest;
   final List<_ReaderPage> pages;
 
   /// The row is intact but its images are not on the device any more.
@@ -1686,11 +1758,11 @@ class _ReaderData {
   /// One line of fact for the unavailable state.
   final String? unavailableMeta;
 
-  /// The row behind an unavailable chapter, so it can be captured again.
-  final Chapter? unavailableChapter;
+  /// The row behind an unavailable entry, so it can be saved again.
+  final Entry? unavailableEntry;
 
-  /// Locally readable chapters of the same series, in reading order.
-  final List<Chapter> siblings;
+  /// Locally readable entries of the same collection, in reading order.
+  final List<Entry> siblings;
   final String? unavailableReason;
 }
 

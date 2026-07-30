@@ -6,7 +6,7 @@ import 'device_storage.dart';
 ///
 /// Free space moves slowly relative to how often the Library rebuilds, and a
 /// platform channel round-trip per rebuild is exactly the cost this provider
-/// exists to avoid. Explicit refreshes after a capture or a cleanup can
+/// exists to avoid. Explicit refreshes after a save or a cleanup can
 /// override it — those are the moments the number actually changed.
 const Duration kCapacityRefreshInterval = Duration(minutes: 2);
 
@@ -39,10 +39,10 @@ class DeviceCapacityController extends AsyncNotifier<DeviceCapacity> {
 
   /// Re-read the device's capacity.
   ///
-  /// Throttled unless [force]: a twenty-chapter capture would otherwise fire
+  /// Throttled unless [force]: a twenty-entry save would otherwise fire
   /// twenty channel calls for a number that moves by a rounding error each
   /// time. Callers that know the disk just changed materially — a cleanup, a
-  /// finished capture — pass [force].
+  /// finished save — pass [force].
   Future<void> refresh({bool force = false}) async {
     final last = _lastRead;
     if (!force &&

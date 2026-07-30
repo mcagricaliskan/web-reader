@@ -7,18 +7,6 @@ import 'browser_url.dart';
 
 const _uuid = Uuid();
 
-/// The address seeded on a clean install, so Browser Home is never an empty
-/// grid on first run.
-const kDefaultSavedSiteUrl = 'https://www.google.com/';
-const kDefaultSavedSiteTitle = 'Google';
-
-/// Marks the settings row that records "the default was seeded once".
-///
-/// Kept as a setting rather than inferred from the table: once the user
-/// removes Google, the table looks exactly like a fresh install, and
-/// re-seeding it there would make the row impossible to delete (D54).
-const kSavedSiteSeedKey = 'browser.savedSites.seeded';
-
 /// What a save attempt did.
 enum SaveSiteOutcome { created, updated, duplicate }
 
@@ -45,34 +33,14 @@ class SavedSitesRepository {
 
   Future<List<SavedSite>> all() => db.allSavedSites();
 
-  /// Seed the default entry, exactly once per installation.
-  ///
-  /// Skipped when the seed already ran, and also when an equivalent entry
-  /// exists already — a development database that was saving Google by hand
-  /// must not end up with two.
-  Future<void> seedDefaultIfNeeded() async {
-    if (await db.setting(kSavedSiteSeedKey) == 'true') return;
-    final existing = await db.savedSiteByUrlKey(
-      normalizeUrl(kDefaultSavedSiteUrl),
-    );
-    if (existing == null) {
-      final now = DateTime.now();
-      await db.upsertSavedSite(
-        SavedSite(
-          id: _uuid.v4(),
-          url: kDefaultSavedSiteUrl,
-          urlKey: normalizeUrl(kDefaultSavedSiteUrl),
-          host: Uri.parse(kDefaultSavedSiteUrl).host,
-          title: kDefaultSavedSiteTitle,
-          createdAt: now,
-          updatedAt: now,
-          orderIndex: 0,
-          isDefault: true,
-        ),
-      );
-    }
-    await db.setSetting(kSavedSiteSeedKey, 'true');
-  }
+  // There is deliberately no seeding routine here.
+  //
+  // The list starts empty and stays empty until the user puts something in it.
+  // A pre-seeded site is a recommendation the app is not entitled to make; it
+  // also cannot be removed permanently without a flag to remember the removal,
+  // and a "supported starting point" is exactly how a neutral reading tool
+  // acquires a provider catalogue by accident. The empty state explains how to
+  // add one instead.
 
   Future<SavedSite?> findByUrl(String url) =>
       db.savedSiteByUrlKey(normalizeUrl(url));
@@ -140,7 +108,6 @@ class SavedSitesRepository {
       createdAt: now,
       updatedAt: now,
       orderIndex: await db.nextSavedSiteOrderIndex(),
-      isDefault: false,
     );
     await db.upsertSavedSite(site);
     return SaveSiteResult(SaveSiteOutcome.created, site);

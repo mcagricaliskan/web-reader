@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:web_reader/capture/capture_job.dart';
-import 'package:web_reader/capture/capture_preflight.dart';
-import 'package:web_reader/capture/capture_state.dart';
+import 'package:web_reader/save/save_run.dart';
+import 'package:web_reader/save/save_preflight.dart';
+import 'package:web_reader/save/save_state.dart';
 import 'package:web_reader/core/config.dart';
 import 'package:web_reader/reading/reading_position.dart';
 import 'package:web_reader/reading/reading_repository.dart';
@@ -17,7 +17,7 @@ import 'package:drift/native.dart';
 import '../tool/fixture/fixture_site.dart';
 import 'helpers/fake_browser.dart';
 
-/// Duplicates met DURING a running multi-chapter session.
+/// Duplicates met DURING a running multi-entry session.
 ///
 /// The whole loop runs for real — preflight, prompt, engine, downloads over a
 /// local HTTP server, atomic replacement — only the WebView is faked.
@@ -26,14 +26,14 @@ void main() {
   late Directory root;
   late FileStore store;
   late FakeBrowser browser;
-  late CaptureJobController job;
+  late SaveRunController run;
   late HttpServer server;
   late String assetBase;
 
   const host = 'https://x.example';
-  String chapterUrl(int n) => '$host/manga/foo/$n';
+  String entryUrl(int n) => '$host/guide/foo/$n';
 
-  const config = CaptureConfig(
+  const config = SaveConfig(
     scrollDelay: Duration.zero,
     quietPeriod: Duration.zero,
     requiredStableChecks: 1,
@@ -42,9 +42,9 @@ void main() {
     domReadyTimeout: Duration(seconds: 2),
     maxAssetWait: Duration(seconds: 2),
     downloadRetries: 0,
-    cooldownBetweenChapters: Duration.zero,
-    maxChaptersPerJob: 6,
-    maxSkippedPerJob: 4,
+    cooldownBetweenEntries: Duration.zero,
+    maxEntriesPerRun: 6,
+    maxSkippedPerRun: 4,
   );
 
   setUpAll(() async {
@@ -60,7 +60,7 @@ void main() {
       req.response.headers.contentType = ContentType('image', 'png');
       req.response.add(
         panelPng(
-          chapter: int.parse(match.group(1)!),
+          entry: int.parse(match.group(1)!),
           index: int.parse(match.group(2)!),
         ),
       );
@@ -81,7 +81,7 @@ void main() {
       p.join(root.path, FileStore.tmpFolderName),
     ).createSync(recursive: true);
     browser = FakeBrowser();
-    job = CaptureJobController(
+    run = SaveRunController(
       browser: browser,
       db: db,
       fileStore: store,
@@ -94,81 +94,87 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  /// Chapter pages 1..[count]; each links rel=next to its successor.
+  /// Entry pages 1..[count]; each links rel=next to its successor.
   void servePages(int count) {
     for (var n = 1; n <= count; n++) {
       browser.addPage(
-        chapterUrl(n),
-        chapterProbe(
-          url: chapterUrl(n),
-          title: 'Foo Chapter $n',
+        entryUrl(n),
+        entryProbe(
+          url: entryUrl(n),
+          title: 'Foo Entry $n',
           imageUrls: [for (var i = 1; i <= 3; i++) '$assetBase/img/$n/$i.png'],
-          nextHref: n < count ? chapterUrl(n + 1) : null,
+          nextHref: n < count ? entryUrl(n + 1) : null,
         ),
       );
     }
   }
 
-  Future<void> seedSeries() => db.upsertLibraryItem(
-    LibraryItem(
+  Future<void> seedCollection() => db.upsertCollection(
+    Collection(
+      contentKind: 'unknownWebContent',
+      sequenceKind: 'none',
+      orderingBasis: 'discoveryOrder',
+      shapeConfidence: 'low',
       lifecycle: 'active',
-      id: 'series-1',
+      id: 'collection-1',
       title: 'Foo',
-      sourceUrl: '$host/manga/foo',
+      sourceUrl: '$host/guide/foo',
       host: 'x.example',
-      seriesKey: '/manga/foo',
+      collectionKey: '/guide/foo',
       createdAt: DateTime(2026, 7, 1),
     ),
   );
 
-  /// A committed, complete (or partial) local chapter with real files.
-  Future<void> seedCaptured(int n, {String status = 'complete'}) async {
+  /// A committed, complete (or partial) local entry with real files.
+  Future<void> seedSaved(int n, {String status = 'complete'}) async {
     final id = 'c$n';
-    final staging = await store.beginChapter(
-      libraryItemId: 'series-1',
-      chapterId: id,
+    final staging = await store.beginEntry(
+      collectionId: 'collection-1',
+      entryId: id,
     );
     await staging
         .assetFile('001.png')
-        .writeAsBytes(panelPng(chapter: n, index: 1));
+        .writeAsBytes(panelPng(entry: n, index: 1));
     final relative = await store.commit(
       staging,
-      ChapterManifest(
+      EntryManifest(
         schemaVersion: 1,
-        chapterId: id,
-        libraryItemId: 'series-1',
-        sourceUrl: chapterUrl(n),
-        title: 'Foo Chapter $n',
-        capturedAt: DateTime(2026, 7, 10),
-        status: status == 'partial'
-            ? CaptureStatus.partial
-            : CaptureStatus.complete,
-        detectedImageCount: 3,
-        storedImageCount: status == 'partial' ? 1 : 3,
+        entryId: id,
+        collectionId: 'collection-1',
+        sourceUrl: entryUrl(n),
+        title: 'Foo Entry $n',
+        savedAt: DateTime(2026, 7, 10),
+        status: status == 'partial' ? SaveStatus.partial : SaveStatus.complete,
+        detectedAssetCount: 3,
+        storedAssetCount: status == 'partial' ? 1 : 3,
         assets: const [],
       ),
     );
-    await db.upsertChapter(
-      Chapter(
+    await db.upsertEntry(
+      Entry(
+        host: '',
+        contentKind: 'unknownWebContent',
+        contentKindConfidence: 'low',
+        contentKindIsUserSet: false,
         id: id,
-        libraryItemId: 'series-1',
-        title: 'Foo Chapter $n',
-        sourceUrl: chapterUrl(n),
-        urlKey: chapterUrl(n),
-        captureStatus: status,
+        collectionId: 'collection-1',
+        title: 'Foo Entry $n',
+        sourceUrl: entryUrl(n),
+        urlKey: entryUrl(n),
+        saveStatus: status,
         contentPath: relative,
-        capturedAt: DateTime(2026, 7, 10),
-        detectedImageCount: 3,
-        storedImageCount: status == 'partial' ? 1 : 3,
-        nextSourceUrl: chapterUrl(n + 1),
-        sequence: n,
+        savedAt: DateTime(2026, 7, 10),
+        detectedAssetCount: 3,
+        storedAssetCount: status == 'partial' ? 1 : 3,
+        nextSourceUrl: entryUrl(n + 1),
+        entryOrder: n,
         byteSize: 128,
-        chapterNumber: n.toDouble(),
-        chapterLabel: 'Chapter $n',
+        entryNumber: n.toDouble(),
+        sourceMarker: 'Entry $n',
         readStatus: 'unread',
         progressFraction: 0,
-        progressImageIndex: 0,
-        progressOffsetInImage: 0,
+        progressPageIndex: 0,
+        progressOffsetInPage: 0,
       ),
     );
   }
@@ -184,29 +190,30 @@ void main() {
     }
   }
 
-  Future<void> runJob(
-    Future<void> run, {
+  Future<void> awaitRun(
+    Future<void> pending, {
     Duration timeout = const Duration(seconds: 60),
-  }) => run.timeout(timeout);
+  }) => pending.timeout(timeout);
 
-  test('a duplicate met after new captures pauses and asks', () async {
-    await seedSeries();
-    await seedCaptured(2);
+  test('a duplicate met after new saves pauses and asks', () async {
+    await seedCollection();
+    await seedSaved(2);
     servePages(3);
-    browser.setUrl(chapterUrl(1));
+    browser.setUrl(entryUrl(1));
 
     var prompts = 0;
-    final run = job.start(
-      chapterLimit: 2,
-      startUrl: chapterUrl(1),
+    final running = run.start(
+      range: SaveScope.fixedCount,
+      entryLimit: 2,
+      startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
 
-    await until(() => job.pendingDuplicate != null);
+    await until(() => run.pendingDuplicate != null);
     prompts++;
-    final request = job.pendingDuplicate!;
-    expect(request.state, ChapterLocalState.complete);
-    expect(request.chapter!.id, 'c2');
+    final request = run.pendingDuplicate!;
+    expect(request.state, EntryLocalState.complete);
+    expect(request.entry!.id, 'c2');
     expect(
       request.availableActions,
       contains(DuplicateChoiceAction.redownload),
@@ -214,73 +221,74 @@ void main() {
     expect(
       request.availableActions,
       isNot(contains(DuplicateChoiceAction.retryMissing)),
-      reason: 'a complete chapter has no missing files to retry',
+      reason: 'a complete entry has no missing files to retry',
     );
     expect(
-      job.progress.state,
-      CaptureState.awaitingSelection,
-      reason: 'the job is holding, not downloading',
+      run.progress.state,
+      SaveState.awaitingSelection,
+      reason: 'the run is holding, not downloading',
     );
 
     // Skip once, without making it a session policy.
-    job.resolveDuplicate(const DuplicateChoice(DuplicateChoiceAction.skip));
-    await runJob(run);
+    run.resolveDuplicate(const DuplicateChoice(DuplicateChoiceAction.skip));
+    await awaitRun(running);
 
     expect(prompts, 1);
-    expect(job.sessionDuplicateDecision, SessionDuplicateDecision.ask);
-    final chapters = await db.allChapters();
-    expect(chapters.length, 3, reason: 'ch1 + seeded ch2 + ch3');
+    expect(run.sessionDuplicateDecision, SessionDuplicateDecision.ask);
+    final entries = await db.allEntries();
+    expect(entries.length, 3, reason: 'ch1 + seeded ch2 + ch3');
     expect(
-      chapters.where((c) => c.urlKey == chapterUrl(2)).single.capturedAt,
+      entries.where((c) => c.urlKey == entryUrl(2)).single.savedAt,
       DateTime(2026, 7, 10),
-      reason: 'the skipped chapter was not touched',
+      reason: 'the skipped entry was not touched',
     );
-    expect(job.progress.storedChapters, 2, reason: 'requested 2 new, got 2');
-    expect(job.progress.skippedChapters, 1);
+    expect(run.progress.storedEntries, 2, reason: 'requested 2 new, got 2');
+    expect(run.progress.skippedEntries, 1);
   });
 
   test('"use this choice" skips every later complete duplicate', () async {
-    await seedSeries();
-    await seedCaptured(2);
-    await seedCaptured(3);
+    await seedCollection();
+    await seedSaved(2);
+    await seedSaved(3);
     servePages(4);
-    browser.setUrl(chapterUrl(1));
+    browser.setUrl(entryUrl(1));
 
     var prompts = 0;
     DuplicateRequest? lastPrompt;
-    job.addListener(() {
-      final pending = job.pendingDuplicate;
+    run.addListener(() {
+      final pending = run.pendingDuplicate;
       if (pending != null && !identical(pending, lastPrompt)) {
         prompts++;
         lastPrompt = pending;
       }
     });
 
-    final run = job.start(
-      chapterLimit: 2,
-      startUrl: chapterUrl(1),
+    final running = run.start(
+      range: SaveScope.fixedCount,
+      entryLimit: 2,
+      startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
 
-    await until(() => job.pendingDuplicate != null);
-    job.resolveDuplicate(
+    await until(() => run.pendingDuplicate != null);
+    run.resolveDuplicate(
       const DuplicateChoice(DuplicateChoiceAction.skip, applyToSession: true),
     );
-    await runJob(run);
+    await awaitRun(running);
 
-    expect(prompts, 1, reason: 'chapter 3 must not ask again');
+    expect(prompts, 1, reason: 'entry 3 must not ask again');
     expect(
-      job.sessionDuplicateDecision,
+      run.sessionDuplicateDecision,
       SessionDuplicateDecision.skipCompleteForSession,
     );
-    expect(job.progress.storedChapters, 2, reason: 'ch1 and ch4');
-    expect(job.progress.skippedChapters, 2);
-    expect((await db.allChapters()).length, 4);
+    expect(run.progress.storedEntries, 2, reason: 'ch1 and ch4');
+    expect(run.progress.skippedEntries, 2);
+    expect((await db.allEntries()).length, 4);
   });
 
   test('re-download once replaces files but keeps reading progress', () async {
-    await seedSeries();
-    await seedCaptured(2);
+    await seedCollection();
+    await seedSaved(2);
     servePages(2);
     final reading = ReadingRepository(db);
     await reading.saveProgress(
@@ -288,123 +296,127 @@ void main() {
       const ReadingPosition(fraction: 0.6, imageIndex: 1, offsetInImage: 0.3),
       completed: true,
     );
-    final before = (await db.chapterById('c2'))!;
-    browser.setUrl(chapterUrl(2));
+    final before = (await db.entryById('c2'))!;
+    browser.setUrl(entryUrl(2));
 
-    final run = job.start(
-      chapterLimit: 1,
-      startUrl: chapterUrl(2),
+    final running = run.start(
+      range: SaveScope.fixedCount,
+      entryLimit: 1,
+      startUrl: entryUrl(2),
       policy: DuplicatePolicy.ask,
     );
-    await until(() => job.pendingDuplicate != null);
-    job.resolveDuplicate(
+    await until(() => run.pendingDuplicate != null);
+    run.resolveDuplicate(
       const DuplicateChoice(DuplicateChoiceAction.redownload),
     );
-    await runJob(run);
+    await awaitRun(running);
 
-    final rows = (await db.allChapters())
-        .where((c) => c.urlKey == chapterUrl(2))
+    final rows = (await db.allEntries())
+        .where((c) => c.urlKey == entryUrl(2))
         .toList();
     expect(rows, hasLength(1), reason: 'no duplicate row');
     final after = rows.single;
     expect(after.id, 'c2');
-    expect(after.storedImageCount, 3, reason: 'files genuinely re-fetched');
+    expect(after.storedAssetCount, 3, reason: 'files genuinely re-fetched');
     expect(after.readStatus, 'completed');
-    expect(after.progressImageIndex, 1);
+    expect(after.progressPageIndex, 1);
     expect(after.completedAt, before.completedAt);
-    expect(job.sessionDuplicateDecision, SessionDuplicateDecision.ask);
+    expect(run.sessionDuplicateDecision, SessionDuplicateDecision.ask);
   });
 
   test('"use this choice" re-downloads every later duplicate', () async {
-    await seedSeries();
-    await seedCaptured(1);
-    await seedCaptured(2);
+    await seedCollection();
+    await seedSaved(1);
+    await seedSaved(2);
     servePages(2);
-    browser.setUrl(chapterUrl(1));
+    browser.setUrl(entryUrl(1));
 
     var prompts = 0;
     DuplicateRequest? lastPrompt;
-    job.addListener(() {
-      final pending = job.pendingDuplicate;
+    run.addListener(() {
+      final pending = run.pendingDuplicate;
       if (pending != null && !identical(pending, lastPrompt)) {
         prompts++;
         lastPrompt = pending;
       }
     });
 
-    final run = job.start(
-      chapterLimit: 2,
-      startUrl: chapterUrl(1),
+    final running = run.start(
+      range: SaveScope.fixedCount,
+      entryLimit: 2,
+      startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
-    await until(() => job.pendingDuplicate != null);
-    job.resolveDuplicate(
+    await until(() => run.pendingDuplicate != null);
+    run.resolveDuplicate(
       const DuplicateChoice(
         DuplicateChoiceAction.redownload,
         applyToSession: true,
       ),
     );
-    await runJob(run);
+    await awaitRun(running);
 
     expect(prompts, 1);
     expect(
-      job.sessionDuplicateDecision,
+      run.sessionDuplicateDecision,
       SessionDuplicateDecision.replaceCompleteForSession,
     );
-    for (final c in await db.allChapters()) {
-      expect(c.storedImageCount, 3, reason: '${c.title} was re-captured');
+    for (final c in await db.allEntries()) {
+      expect(c.storedAssetCount, 3, reason: '${c.title} was re-saved');
     }
-    expect((await db.allChapters()).length, 2, reason: 'still two rows');
+    expect((await db.allEntries()).length, 2, reason: 'still two rows');
   });
 
-  test('Stop capture ends the job cleanly and is never a policy', () async {
-    await seedSeries();
-    await seedCaptured(1);
+  test('Stop save ends the run cleanly and is never a policy', () async {
+    await seedCollection();
+    await seedSaved(1);
     servePages(2);
-    browser.setUrl(chapterUrl(1));
+    browser.setUrl(entryUrl(1));
 
-    final run = job.start(
-      chapterLimit: 2,
-      startUrl: chapterUrl(1),
+    final running = run.start(
+      range: SaveScope.fixedCount,
+      entryLimit: 2,
+      startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
-    await until(() => job.pendingDuplicate != null);
-    job.resolveDuplicate(
+    await until(() => run.pendingDuplicate != null);
+    run.resolveDuplicate(
       const DuplicateChoice(
-        DuplicateChoiceAction.stopCapture,
+        DuplicateChoiceAction.stopSave,
         // Even asked-for, stop must not become a session decision.
         applyToSession: true,
       ),
     );
-    await runJob(run);
+    await awaitRun(running);
 
-    expect(job.progress.state, CaptureState.cancelled);
-    expect(job.progress.storedChapters, 0);
-    expect(job.sessionDuplicateDecision, SessionDuplicateDecision.ask);
-    expect(job.sessionPartialDecision, SessionPartialDecision.ask);
+    expect(run.progress.state, SaveState.cancelled);
+    expect(run.progress.storedEntries, 0);
+    expect(run.sessionDuplicateDecision, SessionDuplicateDecision.ask);
+    expect(run.sessionPartialDecision, SessionPartialDecision.ask);
   });
 
-  test('a partial chapter offers repair choices, not complete ones', () async {
-    await seedSeries();
-    await seedCaptured(2, status: 'partial');
+  test('a partial entry offers repair choices, not complete ones', () async {
+    await seedCollection();
+    await seedSaved(2, status: 'partial');
     servePages(2);
-    browser.setUrl(chapterUrl(1));
+    browser.setUrl(entryUrl(1));
 
-    final run = job.start(
-      chapterLimit: 2,
-      startUrl: chapterUrl(1),
+    final running = run.start(
+      range: SaveScope.fixedCount,
+      entryLimit: 2,
+      startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
-    await until(() => job.pendingDuplicate != null);
-    final request = job.pendingDuplicate!;
-    expect(request.state, ChapterLocalState.partial);
+    await until(() => run.pendingDuplicate != null);
+    final request = run.pendingDuplicate!;
+    expect(request.state, EntryLocalState.partial);
     expect(
       request.availableActions,
       containsAll([
         DuplicateChoiceAction.retryMissing,
-        DuplicateChoiceAction.restartChapter,
+        DuplicateChoiceAction.restartEntry,
         DuplicateChoiceAction.skip,
-        DuplicateChoiceAction.stopCapture,
+        DuplicateChoiceAction.stopSave,
       ]),
     );
     expect(
@@ -412,32 +424,35 @@ void main() {
       isNot(contains(DuplicateChoiceAction.redownload)),
     );
 
-    job.resolveDuplicate(
+    run.resolveDuplicate(
       const DuplicateChoice(DuplicateChoiceAction.retryMissing),
     );
-    await runJob(run);
+    await awaitRun(running);
 
-    final fixed = (await db.chapterById('c2'))!;
-    expect(fixed.captureStatus, 'complete');
-    expect(fixed.storedImageCount, 3);
+    final fixed = (await db.entryById('c2'))!;
+    expect(fixed.saveStatus, 'complete');
+    expect(fixed.storedAssetCount, 3);
   });
 
-  test('session decisions survive an interrupted-job resume', () async {
-    await seedSeries();
-    await seedCaptured(1);
-    await seedCaptured(2);
+  test('session decisions survive an interrupted-run resume', () async {
+    await seedCollection();
+    await seedSaved(1);
+    await seedSaved(2);
     servePages(3);
-    browser.setUrl(chapterUrl(1));
+    browser.setUrl(entryUrl(1));
 
     // What an interrupted run that had answered "skip for session" leaves.
-    await db.upsertJob(
-      CaptureJob(
-        rangeMode: 'fixedCount',
-        id: 'job-interrupted',
-        startUrl: chapterUrl(1),
-        currentUrl: chapterUrl(1),
-        requestedChapters: 1,
-        completedChapters: 0,
+    await db.upsertRun(
+      SaveRun(
+        visitedCanonicals: '',
+        includeImages: true,
+        origin: 'queue',
+        scope: 'fixedCount',
+        id: 'run-interrupted',
+        startUrl: entryUrl(1),
+        currentUrl: entryUrl(1),
+        requestedEntries: 1,
+        completedEntries: 0,
         state: 'navigating',
         visitedUrls: '',
         duplicatePolicy: 'ask',
@@ -449,111 +464,115 @@ void main() {
     );
 
     var prompted = false;
-    job.addListener(() {
-      if (job.pendingDuplicate != null) prompted = true;
+    run.addListener(() {
+      if (run.pendingDuplicate != null) prompted = true;
     });
 
-    final resumable = (await db.findResumableJob())!;
-    await runJob(job.resumeJob(resumable));
+    final resumable = (await db.findResumableRun())!;
+    await awaitRun(run.resumeRun(resumable));
 
     expect(prompted, isFalse, reason: 'the session already answered');
     expect(
-      job.sessionDuplicateDecision,
+      run.sessionDuplicateDecision,
       SessionDuplicateDecision.skipCompleteForSession,
     );
-    expect(job.progress.storedChapters, 1, reason: 'ch3 captured');
-    expect(job.progress.skippedChapters, 2);
+    expect(run.progress.storedEntries, 1, reason: 'ch3 saved');
+    expect(run.progress.skippedEntries, 2);
   });
 
-  test('a new job starts back at "ask"', () async {
-    await seedSeries();
+  test('a new run starts back at "ask"', () async {
+    await seedCollection();
     servePages(1);
-    browser.setUrl(chapterUrl(1));
+    browser.setUrl(entryUrl(1));
 
-    await runJob(
-      job.start(
-        chapterLimit: 1,
-        startUrl: chapterUrl(1),
+    await awaitRun(
+      run.start(
+        range: SaveScope.fixedCount,
+        entryLimit: 1,
+        startUrl: entryUrl(1),
         policy: DuplicatePolicy.ask,
         sessionDuplicate: SessionDuplicateDecision.replaceCompleteForSession,
       ),
     );
     expect(
-      job.sessionDuplicateDecision,
+      run.sessionDuplicateDecision,
       SessionDuplicateDecision.replaceCompleteForSession,
     );
 
     // The next start resets: a session decision is not a preference.
-    browser.setUrl(chapterUrl(1));
-    final run = job.start(
-      chapterLimit: 1,
-      startUrl: chapterUrl(1),
+    browser.setUrl(entryUrl(1));
+    final running = run.start(
+      range: SaveScope.fixedCount,
+      entryLimit: 1,
+      startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
-    await until(() => job.pendingDuplicate != null || !job.isRunning);
-    expect(job.sessionDuplicateDecision, SessionDuplicateDecision.ask);
-    if (job.pendingDuplicate != null) {
-      job.resolveDuplicate(const DuplicateChoice(DuplicateChoiceAction.skip));
+    await until(() => run.pendingDuplicate != null || !run.isRunning);
+    expect(run.sessionDuplicateDecision, SessionDuplicateDecision.ask);
+    if (run.pendingDuplicate != null) {
+      run.resolveDuplicate(const DuplicateChoice(DuplicateChoiceAction.skip));
     }
-    await runJob(run);
+    await awaitRun(running);
   });
 
-  test(
-    'the requested count means new captures, and the report says so',
-    () async {
-      await seedSeries();
-      await seedCaptured(2);
-      await seedCaptured(3);
-      servePages(4);
-      browser.setUrl(chapterUrl(1));
+  test('the requested count means new saves, and the report says so', () async {
+    await seedCollection();
+    await seedSaved(2);
+    await seedSaved(3);
+    servePages(4);
+    browser.setUrl(entryUrl(1));
 
-      await runJob(
-        job.start(
-          chapterLimit: 2,
-          startUrl: chapterUrl(1),
-          policy: DuplicatePolicy.ask,
-          sessionDuplicate: SessionDuplicateDecision.skipCompleteForSession,
-        ),
-      );
-
-      expect(job.progress.storedChapters, 2, reason: 'ch1 and ch4 are new');
-      expect(job.progress.skippedChapters, 2);
-      expect(job.progress.requestedChapters, 2);
-      expect(
-        job.progress.message,
-        allOf(
-          contains('Requested 2 new'),
-          contains('captured 2'),
-          contains('skipped 2 existing'),
-          contains('traversed 4'),
-        ),
-      );
-    },
-  );
-
-  test('skipping cannot become an unbounded crawl', () async {
-    await seedSeries();
-    for (var n = 1; n <= 6; n++) {
-      await seedCaptured(n);
-    }
-    servePages(6);
-    browser.setUrl(chapterUrl(1));
-
-    await runJob(
-      job.start(
-        chapterLimit: 1,
-        startUrl: chapterUrl(1),
+    await awaitRun(
+      run.start(
+        range: SaveScope.fixedCount,
+        entryLimit: 2,
+        startUrl: entryUrl(1),
         policy: DuplicatePolicy.ask,
         sessionDuplicate: SessionDuplicateDecision.skipCompleteForSession,
       ),
     );
 
-    expect(job.progress.storedChapters, 0);
+    expect(run.progress.storedEntries, 2, reason: 'ch1 and ch4 are new');
+    expect(run.progress.skippedEntries, 2);
+    expect(run.progress.requestedEntries, 2);
     expect(
-      job.progress.skippedChapters,
-      config.maxSkippedPerJob,
+      run.progress.message,
+      allOf(
+        contains('Requested 2 new'),
+        contains('saved 2'),
+        contains('skipped 2 existing'),
+        contains('traversed 4'),
+      ),
+    );
+  });
+
+  test('skipping cannot become an unbounded crawl', () async {
+    await seedCollection();
+    for (var n = 1; n <= 6; n++) {
+      await seedSaved(n);
+    }
+    servePages(6);
+    browser.setUrl(entryUrl(1));
+
+    await awaitRun(
+      run.start(
+        range: SaveScope.fixedCount,
+        entryLimit: 1,
+        startUrl: entryUrl(1),
+        policy: DuplicatePolicy.ask,
+        sessionDuplicate: SessionDuplicateDecision.skipCompleteForSession,
+      ),
+    );
+
+    expect(run.progress.storedEntries, 0);
+    expect(
+      run.progress.skippedEntries,
+      config.maxSkippedPerRun,
       reason: 'the skip bound ends the walk',
     );
-    expect(job.log.join('\n'), contains('stopping rather than crawling'));
+    expect(
+      run.log.join('\n'),
+      contains('stopping rather than walking further'),
+    );
   });
 }

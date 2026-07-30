@@ -1,13 +1,13 @@
 import 'package:drift/drift.dart' show Value;
 
-import '../features/series_detail_screen.dart' show sortChaptersForReading;
+import '../features/collection_detail_screen.dart' show sortEntriesForReading;
 import '../storage/database.dart';
 import 'reading_position.dart';
 
-/// Reads and writes reading state, and keeps the series pointers honest.
+/// Reads and writes reading state, and keeps the collection pointers honest.
 ///
-/// The invariant everything else leans on: **capture never touches reading
-/// state, and reading never touches capture state.** A chapter can be
+/// The invariant everything else leans on: **save never touches reading
+/// state, and reading never touches save state.** An entry can be
 /// re-downloaded and stay exactly where the user was.
 class ReadingRepository {
   ReadingRepository(this.db);
@@ -42,56 +42,59 @@ class ReadingRepository {
     return result;
   }
 
-  // --- reading a chapter ---------------------------------------------------
+  // --- reading an entry ---------------------------------------------------
 
-  /// Opening a chapter records that it was opened. It does **not** mark it
+  /// Opening an entry records that it was opened. It does **not** mark it
   /// read — that would make "I glanced at it" indistinguishable from "I
   /// finished it".
-  Future<void> markOpened(String chapterId) => _serialized(() async {
-    final chapter = await db.chapterById(chapterId);
-    if (chapter == null) return;
+  Future<void> markOpened(String entryId) => _serialized(() async {
+    final entry = await db.entryById(entryId);
+    if (entry == null) return;
     final now = DateTime.now();
 
-    await db.writeChapterReading(
-      chapterId,
-      ChaptersCompanion(
-        firstOpenedAt: Value(chapter.firstOpenedAt ?? now),
+    await db.writeEntryReading(
+      entryId,
+      EntriesCompanion(
+        firstOpenedAt: Value(entry.firstOpenedAt ?? now),
         lastReadAt: Value(now),
-        // A completed chapter that is reopened stays completed until the user
+        // A completed entry that is reopened stays completed until the user
         // says otherwise.
         readStatus: Value(
-          chapter.readStatus == ReadStatus.completed.name
-              ? chapter.readStatus
+          entry.readStatus == ReadStatus.completed.name
+              ? entry.readStatus
               : ReadStatus.inProgress.name,
         ),
       ),
     );
-    await _refreshSeries(chapter.libraryItemId, openedChapterId: chapterId);
+    await _refreshCollectionPointers(
+      entry.collectionId,
+      openedEntryId: entryId,
+    );
   });
 
   Future<void> saveProgress(
-    String chapterId,
+    String entryId,
     ReadingPosition position, {
     bool completed = false,
   }) => _serialized(() async {
-    final chapter = await db.chapterById(chapterId);
-    if (chapter == null) return;
+    final entry = await db.entryById(entryId);
+    if (entry == null) return;
     final now = DateTime.now();
 
-    final alreadyCompleted = chapter.readStatus == ReadStatus.completed.name;
+    final alreadyCompleted = entry.readStatus == ReadStatus.completed.name;
     final becomesCompleted = completed || alreadyCompleted;
 
-    await db.writeChapterReading(
-      chapterId,
-      ChaptersCompanion(
-        // The anchor keeps following the scroll — resuming a finished chapter
+    await db.writeEntryReading(
+      entryId,
+      EntriesCompanion(
+        // The anchor keeps following the scroll — resuming a finished entry
         // still lands where the reader actually is — but the *fraction* obeys
         // the completed-is-100% rule.
         progressFraction: Value(
           becomesCompleted ? 1.0 : position.fraction.clamp(0.0, 1.0),
         ),
-        progressImageIndex: Value(position.imageIndex),
-        progressOffsetInImage: Value(position.offsetInImage.clamp(0.0, 1.0)),
+        progressPageIndex: Value(position.imageIndex),
+        progressOffsetInPage: Value(position.offsetInImage.clamp(0.0, 1.0)),
         lastReadAt: Value(now),
         progressUpdatedAt: Value(now),
         readStatus: Value(
@@ -100,46 +103,52 @@ class ReadingRepository {
               : ReadStatus.inProgress.name,
         ),
         completedAt: Value(
-          becomesCompleted ? (chapter.completedAt ?? now) : null,
+          becomesCompleted ? (entry.completedAt ?? now) : null,
         ),
       ),
     );
-    await _refreshSeries(chapter.libraryItemId, openedChapterId: chapterId);
+    await _refreshCollectionPointers(
+      entry.collectionId,
+      openedEntryId: entryId,
+    );
   });
 
   /// Explicit "I have read this", regardless of where the scroll is.
-  Future<void> markRead(String chapterId) => _serialized(() async {
-    final chapter = await db.chapterById(chapterId);
-    if (chapter == null) return;
+  Future<void> markRead(String entryId) => _serialized(() async {
+    final entry = await db.entryById(entryId);
+    if (entry == null) return;
     final now = DateTime.now();
-    await db.writeChapterReading(
-      chapterId,
-      ChaptersCompanion(
+    await db.writeEntryReading(
+      entryId,
+      EntriesCompanion(
         readStatus: Value(ReadStatus.completed.name),
-        completedAt: Value(chapter.completedAt ?? now),
+        completedAt: Value(entry.completedAt ?? now),
         lastReadAt: Value(now),
-        // Jump the bar to the end so a manually-read chapter does not still
+        // Jump the bar to the end so a manually-read entry does not still
         // look half finished.
         progressFraction: const Value(1),
       ),
     );
-    await _refreshSeries(chapter.libraryItemId, openedChapterId: chapterId);
+    await _refreshCollectionPointers(
+      entry.collectionId,
+      openedEntryId: entryId,
+    );
   });
 
   /// Explicit "I have not read this".
   ///
   /// Keeps the *anchor*: the user is saying it is unfinished, not that they
   /// were never there, so resuming still lands where they got to. The
-  /// fraction, though, is dropped back to zero when the chapter was
+  /// fraction, though, is dropped back to zero when the entry was
   /// completed — completion had forced it to 100% (see [readProgressFor]), so
-  /// leaving it there would show a full bar on a chapter marked unread.
-  Future<void> markUnread(String chapterId) => _serialized(() async {
-    final chapter = await db.chapterById(chapterId);
-    if (chapter == null) return;
-    final wasCompleted = chapter.readStatus == ReadStatus.completed.name;
-    await db.writeChapterReading(
-      chapterId,
-      ChaptersCompanion(
+  /// leaving it there would show a full bar on an entry marked unread.
+  Future<void> markUnread(String entryId) => _serialized(() async {
+    final entry = await db.entryById(entryId);
+    if (entry == null) return;
+    final wasCompleted = entry.readStatus == ReadStatus.completed.name;
+    await db.writeEntryReading(
+      entryId,
+      EntriesCompanion(
         readStatus: const Value('unread'),
         completedAt: const Value(null),
         progressFraction: wasCompleted ? const Value(0) : const Value.absent(),
@@ -148,51 +157,37 @@ class ReadingRepository {
         progressUpdatedAt: Value(DateTime.now()),
       ),
     );
-    await _refreshSeries(chapter.libraryItemId);
+    await _refreshCollectionPointers(entry.collectionId);
   });
 
-  /// Bring existing rows in line with the completed-is-100% rule.
-  ///
-  /// Rows written before the rule existed can hold a completed chapter at any
-  /// fraction. Runs at boot beside [repairSeriesReadingState]; a no-op once
-  /// there is nothing left to fix.
-  Future<int> repairCompletedProgress() => _serialized(() async {
-    var fixed = 0;
-    for (final chapter in await db.allChapters()) {
-      if (chapter.readStatus != ReadStatus.completed.name) continue;
-      if (chapter.progressFraction >= 1) continue;
-      await db.writeChapterReading(
-        chapter.id,
-        const ChaptersCompanion(progressFraction: Value(1)),
-      );
-      fixed++;
-    }
-    return fixed;
-  });
-
-  ReadingPosition positionOf(Chapter chapter) => ReadingPosition(
-    fraction: chapter.progressFraction,
-    imageIndex: chapter.progressImageIndex,
-    offsetInImage: chapter.progressOffsetInImage,
+  ReadingPosition positionOf(Entry entry) => ReadingPosition(
+    fraction: entry.progressFraction,
+    imageIndex: entry.progressPageIndex,
+    offsetInImage: entry.progressOffsetInPage,
   );
 
-  // --- series pointers -----------------------------------------------------
+  // --- collection pointers -----------------------------------------------------
 
-  /// Recompute a series' denormalised reading pointers from its chapters.
+  /// Recompute a collection's denormalised reading pointers from its entries.
   ///
-  /// Cheap (one series' rows) and always correct, so it runs after every
-  /// change rather than being incrementally patched — incremental pointer
-  /// maths is exactly the sort of thing that drifts out of sync.
-  Future<void> _refreshSeries(
-    String libraryItemId, {
-    String? openedChapterId,
+  /// Cheap (one collection's rows) and always correct, so it runs after every
+  /// change rather than being incrementally patched — incremental pointer maths
+  /// is exactly the sort of thing that drifts out of sync. A null
+  /// [collectionId] is an ordinary case, not an error: standalone entries have
+  /// no pointers to refresh.
+  Future<void> _refreshCollectionPointers(
+    String? collectionId, {
+    String? openedEntryId,
   }) async {
-    final chapters = await db.chaptersForItem(libraryItemId);
-    if (chapters.isEmpty) return;
+    // A standalone entry has no collection to point at. Its own reading columns
+    // are the whole record, and they were just written by the caller.
+    if (collectionId == null) return;
+    final entries = await db.entriesForCollection(collectionId);
+    if (entries.isEmpty) return;
 
     DateTime? lastRead;
-    Chapter? lastCompleted;
-    for (final c in chapters) {
+    Entry? lastCompleted;
+    for (final c in entries) {
       final at = c.lastReadAt;
       if (at != null && (lastRead == null || at.isAfter(lastRead))) {
         lastRead = at;
@@ -208,15 +203,15 @@ class ReadingRepository {
       }
     }
 
-    // The most recently opened chapter, unless this call names one.
-    String? lastOpened = openedChapterId;
+    // The most recently opened entry, unless this call names one.
+    String? lastOpened = openedEntryId;
     if (lastOpened == null) {
       DateTime? newest;
-      for (final c in chapters) {
+      for (final c in entries) {
         final at = c.lastReadAt;
         if (at == null) continue;
         // `!isBefore` rather than `isAfter`: two writes can land in the same
-        // millisecond, and on a tie the later chapter in reading order is the
+        // millisecond, and on a tie the later entry in reading order is the
         // one the reader is actually on.
         if (newest == null || !at.isBefore(newest)) {
           newest = at;
@@ -225,88 +220,92 @@ class ReadingRepository {
       }
     }
 
-    await db.writeSeriesReading(
-      libraryItemId,
-      LibraryItemsCompanion(
-        lastOpenedChapterId: Value(lastOpened),
-        lastCompletedChapterId: Value(lastCompleted?.id),
+    await db.writeCollectionReading(
+      collectionId,
+      CollectionsCompanion(
+        lastOpenedEntryId: Value(lastOpened),
+        lastCompletedEntryId: Value(lastCompleted?.id),
         lastReadAt: Value(lastRead),
       ),
     );
   }
 
-  /// Rebuild every series' pointers. Runs after a migration or a bulk change.
-  Future<void> repairSeriesReadingState() async {
-    for (final item in await db.allLibraryItems()) {
-      await _refreshSeries(item.id);
+  /// Rebuild every collection's pointers from its entries.
+  ///
+  /// Not a migration: the pointers are a denormalised cache of the entry rows,
+  /// and this is the routine that makes the cache reconstructible after a bulk
+  /// operation (a batch cleanup, a re-grouping) touched many rows at once.
+  Future<void> rebuildCollectionPointers() async {
+    for (final collection in await db.allCollections()) {
+      await _refreshCollectionPointers(collection.id);
     }
   }
 }
 
-/// What the library needs to know about one series' reading state.
+/// What the library needs to know about one collection's reading state.
 ///
 /// Derived rather than stored, apart from the ordering pointers: counts drift
 /// the moment an edge case is missed, and at these row counts deriving is free.
-class SeriesReadingState {
-  const SeriesReadingState({
-    required this.chapters,
-    this.currentChapter,
+class CollectionReadingState {
+  const CollectionReadingState({
+    required this.entries,
+    this.currentEntry,
     this.nextUnread,
     this.lastCompleted,
     this.lastReadAt,
   });
 
-  /// Chapters that are actually readable offline, in reading order.
-  final List<Chapter> chapters;
+  /// Entries that are actually readable offline, in reading order.
+  final List<Entry> entries;
 
-  /// The unfinished chapter to resume, if any.
-  final Chapter? currentChapter;
+  /// The unfinished entry to resume, if any.
+  final Entry? currentEntry;
 
-  /// The next readable chapter the user has not finished.
-  final Chapter? nextUnread;
-  final Chapter? lastCompleted;
+  /// The next readable entry the user has not finished.
+  final Entry? nextUnread;
+  final Entry? lastCompleted;
   final DateTime? lastReadAt;
 
-  /// What "Continue Reading" should open: the unfinished chapter, else the
+  /// What "Continue Reading" should open: the unfinished entry, else the
   /// next unread one.
-  Chapter? get continueChapter => currentChapter ?? nextUnread;
+  Entry? get continueEntry => currentEntry ?? nextUnread;
 
-  bool get hasSomethingToRead => continueChapter != null;
+  bool get hasSomethingToRead => continueEntry != null;
   bool get everOpened => lastReadAt != null;
 
   int get unreadCount =>
-      chapters.where((c) => c.readStatus != ReadStatus.completed.name).length;
+      entries.where((c) => c.readStatus != ReadStatus.completed.name).length;
 
-  bool get allCompleted => chapters.isNotEmpty && unreadCount == 0;
+  bool get allCompleted => entries.isNotEmpty && unreadCount == 0;
 
   double get currentProgress {
-    final c = currentChapter;
+    final c = currentEntry;
     return c == null
         ? 0
         : readProgressFor(readStatus: c.readStatus, stored: c.progressFraction);
   }
 }
 
-/// Work out a series' reading state from its chapters.
+/// Work out a collection's reading state from its entries.
 ///
-/// Only locally readable chapters count. A chapter known to exist on the
+/// Only locally readable entries count. An entry known to exist on the
 /// source but not stored cannot be continued into, so offering it would send
 /// the reader somewhere it cannot go.
-SeriesReadingState computeSeriesReadingState(List<Chapter> allChapters) {
-  final readable = sortChaptersForReading(
-    allChapters
+CollectionReadingState computeCollectionReadingState(List<Entry> allEntries) {
+  final readable = sortEntriesForReading(
+    allEntries
         .where(
           (c) =>
               c.contentPath != null &&
-              (c.captureStatus == 'complete' || c.captureStatus == 'partial'),
+              (c.saveStatus == 'complete' || c.saveStatus == 'partial'),
         )
         .toList(),
   );
 
-  if (readable.isEmpty) return const SeriesReadingState(chapters: []);
+  if (readable.isEmpty) return const CollectionReadingState(entries: []);
 
   DateTime? lastReadAt;
-  Chapter? lastCompleted;
+  Entry? lastCompleted;
   for (final c in readable) {
     final at = c.lastReadAt;
     if (at != null && (lastReadAt == null || at.isAfter(lastReadAt))) {
@@ -315,9 +314,9 @@ SeriesReadingState computeSeriesReadingState(List<Chapter> allChapters) {
     if (c.readStatus == ReadStatus.completed.name) lastCompleted = c;
   }
 
-  // An unfinished chapter the user actually started. Most recently read wins,
-  // so jumping back to an earlier chapter resumes there.
-  Chapter? current;
+  // An unfinished entry the user actually started. Most recently read wins,
+  // so jumping back to an earlier entry resumes there.
+  Entry? current;
   DateTime? currentRead;
   for (final c in readable) {
     if (c.readStatus != ReadStatus.inProgress.name) continue;
@@ -329,9 +328,9 @@ SeriesReadingState computeSeriesReadingState(List<Chapter> allChapters) {
     }
   }
 
-  // Otherwise the earliest chapter not yet finished — which after completing
-  // chapter 1 is chapter 2.
-  Chapter? nextUnread;
+  // Otherwise the earliest entry not yet finished — which after completing
+  // entry 1 is entry 2.
+  Entry? nextUnread;
   for (final c in readable) {
     if (c.readStatus == ReadStatus.completed.name) continue;
     if (identical(c, current)) continue;
@@ -339,9 +338,9 @@ SeriesReadingState computeSeriesReadingState(List<Chapter> allChapters) {
     break;
   }
 
-  return SeriesReadingState(
-    chapters: readable,
-    currentChapter: current,
+  return CollectionReadingState(
+    entries: readable,
+    currentEntry: current,
     nextUnread: nextUnread,
     lastCompleted: lastCompleted,
     lastReadAt: lastReadAt,

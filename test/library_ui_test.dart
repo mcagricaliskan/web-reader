@@ -7,10 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:web_reader/browser/browser_controller.dart';
-import 'package:web_reader/capture/capture_job.dart';
+import 'package:web_reader/save/save_run.dart';
 import 'package:web_reader/features/library_screen.dart';
-import 'package:web_reader/features/series_detail_screen.dart';
-import 'package:web_reader/library/series_repository.dart';
+import 'package:web_reader/features/collection_detail_screen.dart';
+import 'package:web_reader/library/collection_repository.dart';
 import 'package:web_reader/library/update_checker.dart';
 import 'package:web_reader/reading/reading_position.dart';
 import 'package:web_reader/reading/reading_repository.dart';
@@ -19,13 +19,14 @@ import 'package:web_reader/core/device_storage.dart';
 import 'package:web_reader/features/storage_screen.dart';
 import 'package:web_reader/providers.dart';
 import 'package:web_reader/ui/status_style.dart';
+import 'package:web_reader/library/content_shape.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
 
-/// The grouped library and series detail, driven as widgets.
+/// The grouped library and collection detail, driven as widgets.
 ///
 /// The offline reader is not built here (it needs a real FileStore), but the
-/// route a chapter tile pushes is asserted — the reader must stay reachable
+/// route an entry tile pushes is asserted — the reader must stay reachable
 /// through the new screens.
 void main() {
   late AppDatabase db;
@@ -40,41 +41,52 @@ void main() {
     if (harnessRoot.existsSync()) harnessRoot.deleteSync(recursive: true);
   });
 
-  const series = 'https://uzay.example/manga/efsanevi-buyu-imparatoru';
+  const collection = 'https://a.example/guide/the-long-guide';
 
-  Future<String> seedSeries({
-    String host = 'uzay.example',
-    String seriesUrl = series,
-    List<int> chapters = const [883, 884, 885],
+  Future<String> seedCollection({
+    String host = 'a.example',
+    String collectionIndexUrl = collection,
+    List<int> entries = const [883, 884, 885],
     String status = 'complete',
   }) async {
-    final repo = SeriesRepository(db);
+    final repo = CollectionRepository(db);
     String? groupId;
-    for (final n in chapters) {
-      final url = '$seriesUrl/$n-bolum-oku';
-      final title = 'Efsanevi Büyü İmparatoru $n. Bölüm - Oku';
-      final group = await repo.resolveGroup(chapterUrl: url, pageTitle: title);
+    for (final n in entries) {
+      final url = '$collectionIndexUrl/part-$n';
+      final title = 'The Long Guide $n. part - Oku';
+      final group = (await repo.resolveCollection(
+        sequence: const SequenceShape(
+          kind: SequenceKind.explicitNextPrev,
+          confidence: ShapeConfidence.high,
+        ),
+        entryUrl: url,
+        pageTitle: title,
+      ))!;
       groupId = group.id;
-      await db.upsertChapter(
-        Chapter(
+      await db.upsertEntry(
+        Entry(
+          host: '',
+          contentKind: 'unknownWebContent',
+          contentKindConfidence: 'low',
+          contentKindIsUserSet: false,
           id: 'c$n-$host',
-          libraryItemId: group.id,
+          collectionId: group.id,
           title: title,
           sourceUrl: url,
           urlKey: url,
-          captureStatus: n == chapters.last ? status : 'complete',
-          contentPath: 'library/${group.id}/chapters/c$n-$host',
-          capturedAt: DateTime(2026, 7, 20).add(Duration(days: n - 883)),
-          detectedImageCount: 6,
-          storedImageCount: status == 'partial' && n == chapters.last ? 5 : 6,
-          sequence: n - 882,
+          saveStatus: n == entries.last ? status : 'complete',
+          contentPath: 'library/${group.id}/entries/c$n-$host',
+          savedAt: DateTime(2026, 7, 20).add(Duration(days: n - 883)),
+          detectedAssetCount: 6,
+          storedAssetCount: status == 'partial' && n == entries.last ? 5 : 6,
+          entryOrder: n - 882,
           byteSize: 2048,
-          chapterNumber: n.toDouble(),
-          chapterLabel: '$n. Bölüm',
+          entryNumber: n.toDouble(),
+          sourceMarker: '$n. part',
           readStatus: 'unread',
           progressFraction: 0,
-          progressImageIndex: 0,
-          progressOffsetInImage: 0,
+          progressPageIndex: 0,
+          progressOffsetInPage: 0,
         ),
       );
     }
@@ -103,14 +115,16 @@ void main() {
       routes: [
         GoRoute(path: '/', builder: (_, _) => child),
         GoRoute(
-          path: '/series/:id',
+          path: '/collection/:id',
           builder: (context, state) {
             lastPushedRoute = state.uri.toString();
-            return SeriesDetailScreen(seriesId: state.pathParameters['id']!);
+            return CollectionDetailScreen(
+              collectionId: state.pathParameters['id']!,
+            );
           },
         ),
         GoRoute(
-          path: '/reader/:chapterId',
+          path: '/reader/:entryId',
           builder: (context, state) {
             lastPushedRoute = state.uri.toString();
             return const Scaffold(body: Text('READER'));
@@ -119,8 +133,8 @@ void main() {
         GoRoute(path: '/rules', builder: (_, _) => const SizedBox()),
       ],
     );
-    // The series detail screen reaches the update checker and the capture
-    // job (for the check/capture actions); both get inert instances over an
+    // The collection detail screen reaches the update checker and the save
+    // run (for the check/save actions); both get inert instances over an
     // unattached browser, so no WebView is ever stood up.
     final browser = BrowserController();
     return ProviderScope(
@@ -129,8 +143,8 @@ void main() {
         updateCheckerProvider.overrideWithValue(
           UpdateChecker(browser: browser, db: db),
         ),
-        captureJobProvider.overrideWithValue(
-          CaptureJobController(
+        saveRunProvider.overrideWithValue(
+          SaveRunController(
             browser: browser,
             db: db,
             fileStore: FileStore(harnessRoot),
@@ -144,131 +158,140 @@ void main() {
     );
   }
 
-  final seriesRows = find.byWidgetPredicate(
+  final collectionRows = find.byWidgetPredicate(
     (w) =>
         w.key is ValueKey<String> &&
-        (w.key! as ValueKey<String>).value.startsWith('seriesRow-'),
+        (w.key! as ValueKey<String>).value.startsWith('collectionRow-'),
   );
 
   group('grouped library screen', () {
-    screenTest('shows one row per series, not one row per chapter', (
+    screenTest('shows one row per collection, not one row per entry', (
       tester,
     ) async {
-      await seedSeries();
+      await seedCollection();
       await tester.pumpWidget(harness(const LibraryScreen()));
-      await pumpUntil(tester, find.text('Efsanevi Büyü İmparatoru'));
+      await pumpUntil(tester, find.text('The Long Guide'));
 
-      // The name also appears on the Continue card, so count the series rows
-      // instead: exactly one in All Series.
-      expect(seriesRows, findsOneWidget);
+      // The name also appears on the Continue card, so count the collection rows
+      // instead: exactly one in All Collection.
+      expect(collectionRows, findsOneWidget);
       expect(find.textContaining('3 unread'), findsOneWidget);
-      // The chapter labels belong on the detail screen, not the library list.
-      expect(find.text('Chapter 884'), findsNothing);
+      // The entry labels belong on the detail screen, not the library list.
+      expect(find.text('884. part'), findsNothing);
     });
 
-    screenTest('two series on one host appear as two rows', (tester) async {
-      await seedSeries();
-      await seedSeries(
-        seriesUrl: 'https://uzay.example/manga/baska-seri',
-        chapters: const [1, 2],
+    screenTest('two collection on one host appear as two rows', (tester) async {
+      await seedCollection();
+      await seedCollection(
+        collectionIndexUrl: 'https://a.example/guide/another-guide',
+        entries: const [1, 2],
         host: 'other',
       );
 
       await tester.pumpWidget(harness(const LibraryScreen()));
-      await pumpUntil(tester, seriesRows);
+      await pumpUntil(tester, collectionRows);
 
-      expect(seriesRows, findsNWidgets(2));
+      expect(collectionRows, findsNWidgets(2));
     });
 
-    screenTest('flags a series containing a partial chapter', (tester) async {
-      await seedSeries(status: 'partial');
+    screenTest('flags a collection containing a partial entry', (tester) async {
+      await seedCollection(status: 'partial');
       await tester.pumpWidget(harness(const LibraryScreen()));
-      await pumpUntil(tester, find.textContaining('1 chapter partial'));
+      await pumpUntil(tester, find.textContaining('1 saved item partial'));
 
-      expect(find.textContaining('1 chapter partial'), findsOneWidget);
+      expect(find.textContaining('1 saved item partial'), findsOneWidget);
     });
 
-    screenTest('opens the series detail screen on tap', (tester) async {
-      final id = await seedSeries();
+    screenTest('opens the collection detail screen on tap', (tester) async {
+      final id = await seedCollection();
       await tester.pumpWidget(harness(const LibraryScreen()));
-      await pumpUntil(tester, seriesRows);
+      await pumpUntil(tester, collectionRows);
 
       await tester.tap(
         find
-            .descendant(of: seriesRows.first, matching: find.byType(InkWell))
+            .descendant(
+              of: collectionRows.first,
+              matching: find.byType(InkWell),
+            )
             .first,
       );
-      await pumpUntil(tester, find.text('Chapter 883'));
+      await pumpUntil(tester, find.text('883. part'));
 
-      expect(lastPushedRoute, '/series/$id');
-      expect(find.text('Chapter 883'), findsOneWidget);
+      expect(lastPushedRoute, '/collection/$id');
+      expect(find.text('883. part'), findsOneWidget);
     });
   });
 
   group('continue reading', _continueReadingTests);
   group('library header alignment', _headerAlignmentTests);
 
-  /// The progress ring for one chapter row, so the read state is asserted on
+  /// The progress ring for one entry row, so the read state is asserted on
   /// the real value rather than on which icon happened to be picked.
-  ChapterProgressRing readRing(String chapterId, WidgetTester tester) =>
-      tester.widget<ChapterProgressRing>(
-        find.byKey(ValueKey('progressRing-$chapterId')),
-      );
+  EntryProgressRing readRing(String entryId, WidgetTester tester) => tester
+      .widget<EntryProgressRing>(find.byKey(ValueKey('progressRing-$entryId')));
 
-  final chapterRows = find.byWidgetPredicate(
+  final entryRows = find.byWidgetPredicate(
     (w) =>
         w.key is ValueKey<String> &&
-        (w.key! as ValueKey<String>).value.startsWith('chapterRow-'),
+        (w.key! as ValueKey<String>).value.startsWith('entryRow-'),
   );
 
-  group('series detail screen', () {
-    screenTest('lists chapters newest first by default', (tester) async {
-      final id = await seedSeries();
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, chapterRows);
+  group('collection detail screen', () {
+    screenTest('lists entries newest first by default', (tester) async {
+      final id = await seedCollection();
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
+      await pumpUntil(tester, entryRows);
 
       final labels = [
-        for (final row in tester.widgetList<InkWell>(chapterRows))
+        for (final row in tester.widgetList<InkWell>(entryRows))
           ((row.key! as ValueKey<String>).value),
       ];
       expect(labels, [
-        'chapterRow-c885-uzay.example',
-        'chapterRow-c884-uzay.example',
-        'chapterRow-c883-uzay.example',
+        'entryRow-c885-a.example',
+        'entryRow-c884-a.example',
+        'entryRow-c883-a.example',
       ], reason: 'a reader who is up to date cares about the newest end');
     });
 
-    screenTest('shows stored counts and capture status', (tester) async {
-      final id = await seedSeries(status: 'partial');
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
+    screenTest('shows stored counts and save status', (tester) async {
+      final id = await seedCollection(status: 'partial');
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
       await pumpUntil(tester, find.textContaining('5/6 images'));
 
       expect(find.textContaining('5/6 images'), findsOneWidget);
       expect(find.textContaining('6/6 images'), findsNWidgets(2));
     });
 
-    screenTest('a chapter tile opens the offline reader', (tester) async {
-      final id = await seedSeries();
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, find.text('Chapter 884'));
+    screenTest('an entry tile opens the offline reader', (tester) async {
+      final id = await seedCollection();
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
+      await pumpUntil(tester, find.text('884. part'));
 
-      await tester.tap(find.text('Chapter 884'));
+      await tester.tap(find.text('884. part'));
       await pumpUntil(tester, find.text('READER'));
 
-      expect(lastPushedRoute, '/reader/c884-uzay.example');
+      expect(lastPushedRoute, '/reader/c884-a.example');
       expect(find.text('READER'), findsOneWidget);
     });
 
     screenTest('renaming changes the heading, not the identity', (
       tester,
     ) async {
-      final id = await seedSeries();
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, find.byTooltip('Series actions'));
+      final id = await seedCollection();
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
+      await pumpUntil(tester, find.byTooltip('Collection actions'));
 
-      final before = (await db.libraryItemById(id))!;
+      final before = (await db.collectionById(id))!;
 
-      await tester.tap(find.byTooltip('Series actions'));
+      await tester.tap(find.byTooltip('Collection actions'));
       await pumpUntil(tester, find.text('Rename'));
       // The sheet slides in; tapping mid-animation lands off-screen.
       await tester.pump(const Duration(milliseconds: 400));
@@ -280,23 +303,25 @@ void main() {
 
       expect(find.text('My Shelf Name'), findsWidgets);
 
-      final after = (await db.libraryItemById(id))!;
+      final after = (await db.collectionById(id))!;
       expect(after.userTitle, 'My Shelf Name');
-      expect(after.seriesKey, before.seriesKey);
+      expect(after.collectionKey, before.collectionKey);
       expect(after.title, before.title);
       expect(after.sourceUrl, before.sourceUrl);
     });
 
-    screenTest('a chapter with no local files offers its source instead', (
+    screenTest('an entry with no local files offers its source instead', (
       tester,
     ) async {
-      final id = await seedSeries(chapters: const [883]);
-      await db.markChapterContentMissing('c883-uzay.example');
+      final id = await seedCollection(entries: const [883]);
+      await db.markEntryContentMissing('c883-a.example');
 
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, chapterRows);
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
+      await pumpUntil(tester, entryRows);
 
-      await tester.tap(chapterRows);
+      await tester.tap(entryRows);
       await tester.pumpAndSettle();
 
       expect(
@@ -305,162 +330,172 @@ void main() {
         reason: 'there is nothing to read, so the reader must not open',
       );
       expect(find.text('Open on website'), findsOneWidget);
-      expect(find.text('Add to capture queue'), findsOneWidget);
+      expect(find.text('Add to save queue'), findsOneWidget);
     });
   });
 
-  group('read vs captured are separate states (P0.2)', () {
-    screenTest('a captured, unread chapter never shows a checkmark', (
-      tester,
-    ) async {
-      final id = await seedSeries(); // three complete, all unread
+  group('read vs saved are separate states (P0.2)', () {
+    screenTest('a saved, unread entry never shows a checkmark', (tester) async {
+      final id = await seedCollection(); // three complete, all unread
 
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, find.text('Chapter 884'));
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
+      await pumpUntil(tester, find.text('884. part'));
 
       expect(
         find.byIcon(Icons.download_for_offline),
         findsWidgets,
-        reason: 'capture-complete uses the download/offline vocabulary',
+        reason: 'save-complete uses the download/offline vocabulary',
       );
       expect(
         find.descendant(
-          of: chapterRows,
+          of: entryRows,
           matching: find.byIcon(Icons.download_for_offline),
         ),
         findsNWidgets(3),
-        reason: 'capture-complete uses the download/offline vocabulary',
+        reason: 'save-complete uses the download/offline vocabulary',
       );
       expect(
-        readRing('c883-uzay.example', tester).completed,
+        readRing('c883-a.example', tester).completed,
         isFalse,
-        reason: 'an unread chapter must never render as finished',
+        reason: 'an unread entry must never render as finished',
       );
-      expect(readRing('c883-uzay.example', tester).fraction, 0);
+      expect(readRing('c883-a.example', tester).fraction, 0);
     });
 
-    screenTest('reading a chapter moves only the read indicator', (
+    screenTest('reading an entry moves only the read indicator', (
       tester,
     ) async {
-      final id = await seedSeries();
-      await ReadingRepository(db).markRead('c883-uzay.example');
+      final id = await seedCollection();
+      await ReadingRepository(db).markRead('c883-a.example');
 
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, chapterRows);
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
+      await pumpUntil(tester, entryRows);
 
-      expect(readRing('c883-uzay.example', tester).completed, isTrue);
-      expect(readRing('c884-uzay.example', tester).completed, isFalse);
+      expect(readRing('c883-a.example', tester).completed, isTrue);
+      expect(readRing('c884-a.example', tester).completed, isFalse);
       expect(
         find.descendant(
-          of: chapterRows,
+          of: entryRows,
           matching: find.byIcon(Icons.download_for_offline),
         ),
         findsNWidgets(3),
-        reason: 'capture state is untouched by reading',
+        reason: 'save state is untouched by reading',
       );
     });
 
-    screenTest('an in-progress chapter shows its percentage, not a check', (
+    screenTest('an in-progress entry shows its percentage, not a check', (
       tester,
     ) async {
-      final id = await seedSeries();
+      final id = await seedCollection();
       await ReadingRepository(db).saveProgress(
-        'c884-uzay.example',
+        'c884-a.example',
         const ReadingPosition(fraction: 0.42, imageIndex: 2),
       );
 
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
       await pumpUntil(tester, find.text('42%'));
 
       expect(find.text('42%'), findsOneWidget);
-      expect(readRing('c884-uzay.example', tester).completed, isFalse);
+      expect(readRing('c884-a.example', tester).completed, isFalse);
       expect(
-        readRing('c884-uzay.example', tester).fraction,
+        readRing('c884-a.example', tester).fraction,
         closeTo(0.42, 0.01),
         reason: 'the ring shows the real value, not a bucketed icon',
       );
     });
 
-    screenTest('the series card counts unread offline chapters', (
+    screenTest('the collection card counts unread offline entries', (
       tester,
     ) async {
-      final id = await seedSeries();
+      final id = await seedCollection();
       await tester.pumpWidget(harness(const LibraryScreen()));
       await pumpUntil(tester, find.textContaining('3 unread'));
       expect(find.textContaining('3 unread'), findsOneWidget);
 
-      await ReadingRepository(db).markRead('c883-uzay.example');
+      await ReadingRepository(db).markRead('c883-a.example');
       await pumpUntil(tester, find.textContaining('2 unread'));
       expect(find.textContaining('3 unread'), findsNothing);
       expect(id, isNotEmpty);
     });
 
-    screenTest('a chapter row inserted with no reading fields is unread', (
+    screenTest('an entry row inserted with no reading fields is unread', (
       tester,
     ) async {
       // The database default is the last line of defence: a bare insert (as
       // a migration or an old code path would produce) must come out unread.
-      final id = await seedSeries(chapters: const [883]);
+      final id = await seedCollection(entries: const [883]);
       await db
-          .into(db.chapters)
+          .into(db.entries)
           .insert(
-            ChaptersCompanion.insert(
+            EntriesCompanion.insert(
               id: 'bare',
-              libraryItemId: id,
-              title: 'Efsanevi Büyü İmparatoru 990. Bölüm',
-              sourceUrl: '$series/990-bolum-oku',
-              urlKey: '$series/990-bolum-oku',
-              captureStatus: 'complete',
-              contentPath: const Value('library/x/chapters/bare'),
-              chapterNumber: const Value(990),
-              chapterLabel: const Value('990. Bölüm'),
+              collectionId: Value(id),
+              title: 'The Long Guide 990. part',
+              sourceUrl: '$collection/part-990',
+              urlKey: '$collection/part-990',
+              saveStatus: 'complete',
+              contentPath: const Value('library/x/entries/bare'),
+              entryNumber: const Value(990),
+              sourceMarker: const Value('990. part'),
             ),
           );
 
-      expect((await db.chapterById('bare'))!.readStatus, 'unread');
+      expect((await db.entryById('bare'))!.readStatus, 'unread');
 
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
-      await pumpUntil(tester, find.text('Chapter 990'));
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
+      await pumpUntil(tester, find.text('990. part'));
       expect(readRing('bare', tester).completed, isFalse);
       expect(readRing('bare', tester).fraction, 0);
     });
   });
 
-  group('new chapters (M8)', () {
-    /// A chapter an update check discovered: known on the source, no bytes.
-    Future<void> seedKnownRemote(String groupId, int n) => db.upsertChapter(
-      Chapter(
+  group('new entries (M8)', () {
+    /// An entry an update check discovered: known on the source, no bytes.
+    Future<void> seedKnownRemote(String groupId, int n) => db.upsertEntry(
+      Entry(
+        host: '',
+        contentKind: 'unknownWebContent',
+        contentKindConfidence: 'low',
+        contentKindIsUserSet: false,
         id: 'r$n',
-        libraryItemId: groupId,
-        title: 'Efsanevi Büyü İmparatoru $n. Bölüm',
-        sourceUrl: '$series/$n-bolum-oku',
-        urlKey: '$series/$n-bolum-oku',
-        captureStatus: 'knownRemote',
-        detectedImageCount: 0,
-        storedImageCount: 0,
-        sequence: n - 882,
+        collectionId: groupId,
+        title: 'The Long Guide $n. part',
+        sourceUrl: '$collection/part-$n',
+        urlKey: '$collection/part-$n',
+        saveStatus: 'knownRemote',
+        detectedAssetCount: 0,
+        storedAssetCount: 0,
+        entryOrder: n - 882,
         byteSize: 0,
-        chapterNumber: n.toDouble(),
-        chapterLabel: '$n. Bölüm',
+        entryNumber: n.toDouble(),
+        sourceMarker: '$n. part',
         readStatus: 'unread',
         progressFraction: 0,
-        progressImageIndex: 0,
-        progressOffsetInImage: 0,
+        progressPageIndex: 0,
+        progressOffsetInPage: 0,
         discoveredAt: DateTime(2026, 7, 27),
         discoveryBasis: 'nextChain',
         discoveryConfidence: 'high',
       ),
     );
 
-    screenTest('discovered chapters show as a count on the series row', (
+    screenTest('discovered entries show as a count on the collection row', (
       tester,
     ) async {
-      final id = await seedSeries();
+      final id = await seedCollection();
       await seedKnownRemote(id, 886);
       await seedKnownRemote(id, 887);
-      await db.writeSeriesCheck(
+      await db.writeCollectionCheck(
         id,
-        LibraryItemsCompanion(
+        CollectionsCompanion(
           lastCheckAt: Value(DateTime(2026, 7, 27, 10)),
           lastCheckSuccessAt: Value(DateTime(2026, 7, 27, 10)),
           lastCheckResult: const Value('updatesAvailable'),
@@ -471,7 +506,7 @@ void main() {
       await pumpUntil(tester, find.text('2 new'));
 
       expect(find.text('2 new'), findsOneWidget);
-      // Discovered chapters must not leak into the offline count: three are
+      // Discovered entries must not leak into the offline count: three are
       // on the device, two only on the source.
       expect(find.text('3'), findsOneWidget);
     });
@@ -479,7 +514,7 @@ void main() {
     screenTest('never checked reads as "not checked yet", not zero', (
       tester,
     ) async {
-      await seedSeries();
+      await seedCollection();
       await tester.pumpWidget(harness(const LibraryScreen()));
       await pumpUntil(tester, find.text('Not checked yet'));
 
@@ -490,11 +525,11 @@ void main() {
     screenTest('a failed check is shown on the row, not hidden', (
       tester,
     ) async {
-      final id = await seedSeries();
+      final id = await seedCollection();
       await seedKnownRemote(id, 886);
-      await db.writeSeriesCheck(
+      await db.writeCollectionCheck(
         id,
-        LibraryItemsCompanion(
+        CollectionsCompanion(
           lastCheckAt: Value(DateTime(2026, 7, 27, 10)),
           lastCheckError: const Value('source unreachable'),
           lastCheckResult: const Value('failed'),
@@ -510,21 +545,23 @@ void main() {
     screenTest('the detail screen separates known-remote from saved', (
       tester,
     ) async {
-      final id = await seedSeries();
+      final id = await seedCollection();
       await seedKnownRemote(id, 886);
 
-      await tester.pumpWidget(harness(SeriesDetailScreen(seriesId: id)));
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
       await pumpUntil(tester, find.textContaining('NEW ON SOURCE'));
 
-      expect(find.textContaining('SAVED CHAPTERS · 3'), findsOneWidget);
-      expect(find.text('Chapter 886'), findsOneWidget);
-      expect(find.textContaining('Capture 1 new chapter'), findsOneWidget);
+      expect(find.textContaining('SAVED · 3'), findsOneWidget);
+      expect(find.text('886. part'), findsOneWidget);
+      expect(find.textContaining('Save 1 saved item'), findsOneWidget);
       expect(find.text('Check now'), findsOneWidget);
 
-      // The known-remote row is not a chapter row: there is nothing local to
+      // The known-remote row is not an entry row: there is nothing local to
       // read, so it never becomes tappable into the reader.
       expect(find.byKey(const ValueKey('remoteRow-r886')), findsOneWidget);
-      expect(find.byKey(const ValueKey('chapterRow-r886')), findsNothing);
+      expect(find.byKey(const ValueKey('entryRow-r886')), findsNothing);
     });
   });
 }
@@ -562,8 +599,8 @@ void _headerAlignmentTests() {
         updateCheckerProvider.overrideWithValue(
           UpdateChecker(browser: browser, db: db),
         ),
-        captureJobProvider.overrideWithValue(
-          CaptureJobController(
+        saveRunProvider.overrideWithValue(
+          SaveRunController(
             browser: browser,
             db: db,
             fileStore: FileStore(harnessRoot),
@@ -714,46 +751,54 @@ void _continueReadingTests() {
   });
   tearDown(() => db.close());
 
-  Future<void> seed({int chapters = 3, String seriesId = 's1'}) async {
-    await db.upsertLibraryItem(
-      LibraryItem(
+  Future<void> seed({int entries = 3, String collectionId = 's1'}) async {
+    await db.upsertCollection(
+      Collection(
+        contentKind: 'unknownWebContent',
+        sequenceKind: 'none',
+        orderingBasis: 'discoveryOrder',
+        shapeConfidence: 'low',
         lifecycle: 'active',
-        id: seriesId,
-        title: 'Series $seriesId',
-        sourceUrl: 'https://x.example/manga/$seriesId',
+        id: collectionId,
+        title: 'Collection $collectionId',
+        sourceUrl: 'https://x.example/guide/$collectionId',
         host: 'x.example',
-        seriesKey: '/manga/$seriesId',
+        collectionKey: '/guide/$collectionId',
         createdAt: DateTime(2026, 7, 1),
       ),
     );
-    for (var n = 1; n <= chapters; n++) {
-      await db.upsertChapter(
-        Chapter(
-          id: '$seriesId-c$n',
-          libraryItemId: seriesId,
-          title: 'Series $seriesId Chapter $n',
-          sourceUrl: 'https://x.example/manga/$seriesId/$n',
-          urlKey: 'https://x.example/manga/$seriesId/$n',
-          captureStatus: 'complete',
-          contentPath: 'library/$seriesId/chapters/$seriesId-c$n',
-          capturedAt: DateTime(2026, 7, 20),
-          detectedImageCount: 6,
-          storedImageCount: 6,
-          sequence: n,
+    for (var n = 1; n <= entries; n++) {
+      await db.upsertEntry(
+        Entry(
+          host: '',
+          contentKind: 'unknownWebContent',
+          contentKindConfidence: 'low',
+          contentKindIsUserSet: false,
+          id: '$collectionId-c$n',
+          collectionId: collectionId,
+          title: 'Collection $collectionId Entry $n',
+          sourceUrl: 'https://x.example/guide/$collectionId/$n',
+          urlKey: 'https://x.example/guide/$collectionId/$n',
+          saveStatus: 'complete',
+          contentPath: 'library/$collectionId/entries/$collectionId-c$n',
+          savedAt: DateTime(2026, 7, 20),
+          detectedAssetCount: 6,
+          storedAssetCount: 6,
+          entryOrder: n,
           byteSize: 1024,
-          chapterNumber: n.toDouble(),
-          chapterLabel: 'Chapter $n',
+          entryNumber: n.toDouble(),
+          sourceMarker: 'Part $n',
           readStatus: 'unread',
           progressFraction: 0,
-          progressImageIndex: 0,
-          progressOffsetInImage: 0,
+          progressPageIndex: 0,
+          progressOffsetInPage: 0,
         ),
       );
     }
   }
 
   // The library rows watch the update checker (for the live "Checking" chip)
-  // and the strip watches the capture job (for the waiting-for-browser
+  // and the strip watches the save run (for the waiting-for-browser
   // banner), so the harness gives them inert instances over an unattached
   // browser.
   Widget harness() => ProviderScope(
@@ -762,8 +807,8 @@ void _continueReadingTests() {
       updateCheckerProvider.overrideWithValue(
         UpdateChecker(browser: BrowserController(), db: db),
       ),
-      captureJobProvider.overrideWithValue(
-        CaptureJobController(
+      saveRunProvider.overrideWithValue(
+        SaveRunController(
           browser: BrowserController(),
           db: db,
           fileStore: FileStore(Directory.systemTemp.createTempSync('wr_cr')),
@@ -780,7 +825,7 @@ void _continueReadingTests() {
             builder: (context, state) =>
                 Scaffold(body: Text('READER ${state.pathParameters['id']}')),
           ),
-          GoRoute(path: '/series/:id', builder: (_, _) => const SizedBox()),
+          GoRoute(path: '/collection/:id', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/rules', builder: (_, _) => const SizedBox()),
         ],
       ),
@@ -804,7 +849,7 @@ void _continueReadingTests() {
   /// text rather than by a `Text.data`.
   Finder progressLine(String text) => find.text(text, findRichText: true);
 
-  testWidgets('a partly read chapter puts the series in Continue Reading', (
+  testWidgets('a partly read entry puts the collection in Continue Reading', (
     tester,
   ) async {
     await seed();
@@ -814,13 +859,13 @@ void _continueReadingTests() {
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.text('CONTINUE READING'));
 
-    // Percentage and what is left after this chapter — never a total, and
+    // Percentage and what is left after this entry — never a total, and
     // never a bar.
-    expect(progressLine('45% • 2 chapters remaining'), findsOneWidget);
+    expect(progressLine('45% • 2 saved items remaining'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsNothing);
-    expect(find.text('Chapter 1'), findsOneWidget);
+    expect(find.text('Part 1'), findsOneWidget);
 
-    final ring = tester.widget<ChapterProgressRing>(
+    final ring = tester.widget<EntryProgressRing>(
       find.byKey(const ValueKey('continueRing-s1-c1')),
     );
     expect(ring.fraction, closeTo(0.45, 0.001));
@@ -828,10 +873,10 @@ void _continueReadingTests() {
     await settleDown(tester);
   });
 
-  testWidgets('the last readable chapter says so instead of "0 remaining"', (
+  testWidgets('the last readable entry says so instead of "0 remaining"', (
     tester,
   ) async {
-    await seed(chapters: 2);
+    await seed(entries: 2);
     await reading.markRead('s1-c1');
     await reading.saveProgress('s1-c2', const ReadingPosition(fraction: 0.68));
 
@@ -839,51 +884,55 @@ void _continueReadingTests() {
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.text('CONTINUE READING'));
 
-    expect(progressLine('68% • Latest available chapter'), findsOneWidget);
+    expect(progressLine('68% • Latest saved item available'), findsOneWidget);
     await settleDown(tester);
   });
 
-  testWidgets('one later chapter is singular', (tester) async {
-    await seed(chapters: 2);
+  testWidgets('one later entry is singular', (tester) async {
+    await seed(entries: 2);
     await reading.saveProgress('s1-c1', const ReadingPosition(fraction: 0.1));
 
     usePhoneSurface(tester);
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.text('CONTINUE READING'));
 
-    expect(progressLine('10% • 1 chapter remaining'), findsOneWidget);
+    expect(progressLine('10% • 1 saved item remaining'), findsOneWidget);
     await settleDown(tester);
   });
 
-  testWidgets('the remaining count ignores chapters that are not readable', (
+  testWidgets('the remaining count ignores entries that are not readable', (
     tester,
   ) async {
-    await seed(chapters: 3);
-    // Discovered by an update check but never captured, and one whose files
+    await seed(entries: 3);
+    // Discovered by an update check but never saved, and one whose files
     // were removed: neither is something the user can open next.
-    await db.upsertChapter(
-      Chapter(
+    await db.upsertEntry(
+      Entry(
+        host: '',
+        contentKind: 'unknownWebContent',
+        contentKindConfidence: 'low',
+        contentKindIsUserSet: false,
         id: 's1-c4',
-        libraryItemId: 's1',
-        title: 'Series s1 Chapter 4',
-        sourceUrl: 'https://x.example/manga/s1/4',
-        urlKey: 'https://x.example/manga/s1/4',
-        captureStatus: 'knownRemote',
-        detectedImageCount: 0,
-        storedImageCount: 0,
-        sequence: 4,
+        collectionId: 's1',
+        title: 'Collection s1 Entry 4',
+        sourceUrl: 'https://x.example/guide/s1/4',
+        urlKey: 'https://x.example/guide/s1/4',
+        saveStatus: 'knownRemote',
+        detectedAssetCount: 0,
+        storedAssetCount: 0,
+        entryOrder: 4,
         byteSize: 0,
-        chapterNumber: 4,
-        chapterLabel: 'Chapter 4',
+        entryNumber: 4,
+        sourceMarker: '4. part',
         readStatus: 'unread',
         progressFraction: 0,
-        progressImageIndex: 0,
-        progressOffsetInImage: 0,
+        progressPageIndex: 0,
+        progressOffsetInPage: 0,
       ),
     );
-    await db.writeChapterReading(
+    await db.writeEntryReading(
       's1-c3',
-      ChaptersCompanion(
+      EntriesCompanion(
         contentPath: const Value(null),
         byteSize: const Value(0),
         offlineRemovedAt: Value(DateTime(2026, 7, 26)),
@@ -895,11 +944,11 @@ void _continueReadingTests() {
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.text('CONTINUE READING'));
 
-    expect(progressLine('20% • 1 chapter remaining'), findsOneWidget);
+    expect(progressLine('20% • 1 saved item remaining'), findsOneWidget);
     await settleDown(tester);
   });
 
-  testWidgets('tapping a Continue card opens that chapter', (tester) async {
+  testWidgets('tapping a Continue card opens that entry', (tester) async {
     await seed();
     await reading.saveProgress('s1-c1', const ReadingPosition(fraction: 0.45));
 
@@ -913,7 +962,7 @@ void _continueReadingTests() {
     await settleDown(tester);
   });
 
-  testWidgets('completing a chapter advances Continue to the next unread', (
+  testWidgets('completing an entry advances Continue to the next unread', (
     tester,
   ) async {
     await seed();
@@ -923,15 +972,15 @@ void _continueReadingTests() {
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.text('CONTINUE READING'));
 
-    expect(find.text('Chapter 2'), findsOneWidget);
-    expect(find.text('not started'), findsOneWidget);
+    expect(find.text('Part 2'), findsOneWidget);
+    expect(progressLine('0% • 1 saved item remaining'), findsOneWidget);
     await settleDown(tester);
   });
 
-  testWidgets('a fully read series says so rather than showing nothing', (
+  testWidgets('a fully read collection says so rather than showing nothing', (
     tester,
   ) async {
-    await seed(chapters: 2);
+    await seed(entries: 2);
     await reading.markRead('s1-c1');
     await reading.markRead('s1-c2');
 
@@ -939,14 +988,14 @@ void _continueReadingTests() {
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.textContaining('up to date'));
 
-    expect(find.textContaining('finished every chapter'), findsOneWidget);
+    expect(find.textContaining('finished every entry'), findsOneWidget);
     await settleDown(tester);
   });
 
-  testWidgets('marking a chapter unread makes it continuable again', (
+  testWidgets('marking an entry unread makes it continuable again', (
     tester,
   ) async {
-    await seed(chapters: 2);
+    await seed(entries: 2);
     await reading.markRead('s1-c1');
     await reading.markRead('s1-c2');
     await reading.markUnread('s1-c1');
@@ -955,29 +1004,29 @@ void _continueReadingTests() {
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.text('CONTINUE READING'));
 
-    expect(find.text('Chapter 1'), findsOneWidget);
-    expect(find.textContaining('finished every chapter'), findsNothing);
+    expect(find.text('Part 1'), findsOneWidget);
+    expect(find.textContaining('finished every entry'), findsNothing);
     await settleDown(tester);
   });
 
   testWidgets('Continue Reading orders by most recently read', (tester) async {
-    await seed(seriesId: 's1', chapters: 1);
-    await seed(seriesId: 's2', chapters: 1);
+    await seed(collectionId: 's1', entries: 1);
+    await seed(collectionId: 's2', entries: 1);
     await reading.saveProgress('s1-c1', const ReadingPosition(fraction: 0.3));
     await reading.saveProgress('s2-c1', const ReadingPosition(fraction: 0.6));
 
     // Explicit timestamps, not a real delay: `Future.delayed` inside a widget
     // test never completes until the fake clock is pumped, so waiting on wall
     // time here deadlocks before the first pump.
-    await db.writeChapterReading(
+    await db.writeEntryReading(
       's1-c1',
-      ChaptersCompanion(lastReadAt: Value(DateTime(2026, 7, 20))),
+      EntriesCompanion(lastReadAt: Value(DateTime(2026, 7, 20))),
     );
-    await db.writeChapterReading(
+    await db.writeEntryReading(
       's2-c1',
-      ChaptersCompanion(lastReadAt: Value(DateTime(2026, 7, 25))),
+      EntriesCompanion(lastReadAt: Value(DateTime(2026, 7, 25))),
     );
-    await reading.repairSeriesReadingState();
+    await reading.rebuildCollectionPointers();
 
     usePhoneSurface(tester);
     await tester.pumpWidget(harness());
@@ -989,21 +1038,21 @@ void _continueReadingTests() {
           (w.key! as ValueKey<String>).value.startsWith('continueCard-'),
     );
     expect(cards, findsNWidgets(2));
-    // The most recently read series comes first.
+    // The most recently read collection comes first.
     expect(
       find.descendant(
         of: cards.first,
-        matching: find.textContaining('Series s2'),
+        matching: find.textContaining('Collection s2'),
       ),
       findsOneWidget,
     );
     await settleDown(tester);
   });
 
-  testWidgets('one card per series, never duplicated within a section', (
+  testWidgets('one card per collection, never duplicated within a section', (
     tester,
   ) async {
-    await seed(chapters: 3);
+    await seed(entries: 3);
     await reading.saveProgress('s1-c1', const ReadingPosition(fraction: 0.2));
     await reading.saveProgress('s1-c2', const ReadingPosition(fraction: 0.4));
 
@@ -1029,17 +1078,17 @@ void _continueReadingTests() {
     usePhoneSurface(tester);
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.text('CONTINUE READING'));
-    expect(find.text('not started'), findsOneWidget);
+    expect(progressLine('0% • 2 saved items remaining'), findsOneWidget);
 
     // Same app instance, no rebuild triggered by hand.
     await reading.saveProgress('s1-c1', const ReadingPosition(fraction: 0.5));
-    await pumpUntil(tester, progressLine('50% • 2 chapters remaining'));
+    await pumpUntil(tester, progressLine('50% • 2 saved items remaining'));
 
-    expect(progressLine('50% • 2 chapters remaining'), findsOneWidget);
+    expect(progressLine('50% • 2 saved items remaining'), findsOneWidget);
     await settleDown(tester);
   });
 
-  testWidgets('captured but never opened says so rather than showing nothing', (
+  testWidgets('saved but never opened says so rather than showing nothing', (
     tester,
   ) async {
     await seed();
@@ -1047,51 +1096,60 @@ void _continueReadingTests() {
     await tester.pumpWidget(harness());
     await pumpUntil(tester, find.text('CONTINUE READING'));
 
-    // Never-opened series still offer their first chapter.
-    expect(find.text('Chapter 1'), findsOneWidget);
+    // Never-opened collection still offer their first entry.
+    expect(find.text('Part 1'), findsOneWidget);
     expect(find.text('Recently Read'), findsNothing);
     await settleDown(tester);
   });
 
-  testWidgets('a series with no readable chapters gives a useful empty state', (
-    tester,
-  ) async {
-    await db.upsertLibraryItem(
-      LibraryItem(
-        lifecycle: 'active',
-        id: 's9',
-        title: 'Broken Series',
-        sourceUrl: 'https://x.example/manga/s9',
-        host: 'x.example',
-        seriesKey: '/manga/s9',
-        createdAt: DateTime(2026, 7, 1),
-      ),
-    );
-    await db.upsertChapter(
-      Chapter(
-        id: 's9-c1',
-        libraryItemId: 's9',
-        title: 'Broken Chapter',
-        sourceUrl: 'https://x.example/manga/s9/1',
-        urlKey: 'https://x.example/manga/s9/1',
-        captureStatus: 'failed',
-        capturedAt: DateTime(2026, 7, 20),
-        detectedImageCount: 6,
-        storedImageCount: 0,
-        sequence: 1,
-        byteSize: 0,
-        readStatus: 'unread',
-        progressFraction: 0,
-        progressImageIndex: 0,
-        progressOffsetInImage: 0,
-      ),
-    );
+  testWidgets(
+    'a collection with no readable entries gives a useful empty state',
+    (tester) async {
+      await db.upsertCollection(
+        Collection(
+          contentKind: 'unknownWebContent',
+          sequenceKind: 'none',
+          orderingBasis: 'discoveryOrder',
+          shapeConfidence: 'low',
+          lifecycle: 'active',
+          id: 's9',
+          title: 'Broken Collection',
+          sourceUrl: 'https://x.example/guide/s9',
+          host: 'x.example',
+          collectionKey: '/guide/s9',
+          createdAt: DateTime(2026, 7, 1),
+        ),
+      );
+      await db.upsertEntry(
+        Entry(
+          host: '',
+          contentKind: 'unknownWebContent',
+          contentKindConfidence: 'low',
+          contentKindIsUserSet: false,
+          id: 's9-c1',
+          collectionId: 's9',
+          title: 'Broken Entry',
+          sourceUrl: 'https://x.example/guide/s9/1',
+          urlKey: 'https://x.example/guide/s9/1',
+          saveStatus: 'failed',
+          savedAt: DateTime(2026, 7, 20),
+          detectedAssetCount: 6,
+          storedAssetCount: 0,
+          entryOrder: 1,
+          byteSize: 0,
+          readStatus: 'unread',
+          progressFraction: 0,
+          progressPageIndex: 0,
+          progressOffsetInPage: 0,
+        ),
+      );
 
-    usePhoneSurface(tester);
-    await tester.pumpWidget(harness());
-    await pumpUntil(tester, find.text('CONTINUE READING'));
+      usePhoneSurface(tester);
+      await tester.pumpWidget(harness());
+      await pumpUntil(tester, find.text('CONTINUE READING'));
 
-    expect(find.text('Nothing readable yet'), findsOneWidget);
-    await settleDown(tester);
-  });
+      expect(find.text('Nothing readable yet'), findsOneWidget);
+      await settleDown(tester);
+    },
+  );
 }

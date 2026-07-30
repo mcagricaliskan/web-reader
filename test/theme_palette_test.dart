@@ -310,7 +310,7 @@ void main() {
               body: Column(
                 children: [
                   SectionLabel('SECTION'),
-                  MonogramTile(id: 'series-1', title: 'A Series'),
+                  MonogramTile(id: 'collection-1', title: 'A Collection'),
                 ],
               ),
             ),
@@ -319,8 +319,14 @@ void main() {
         final label = tester.widget<Text>(find.text('SECTION'));
         expect(label.style?.color, palette.inkMuted);
 
+        // Located through the same helper the widget uses, so renaming the
+        // fixture cannot break the assertion this test is actually about — which
+        // is the tile's colour coming from the appearance's own table.
         final tile = tester.widget<Container>(
-          find.ancestor(of: find.text('AS'), matching: find.byType(Container)),
+          find.ancestor(
+            of: find.text(monogramText('A Collection')),
+            matching: find.byType(Container),
+          ),
         );
         final tileColour = (tile.decoration as BoxDecoration).color;
         expect(
@@ -331,7 +337,7 @@ void main() {
       }
     });
 
-    test('capture and check looks are palette-driven, per appearance', () {
+    test('save and check looks are palette-driven, per appearance', () {
       final light = checkLook(
         palette: AppPalette.light,
         checking: true,

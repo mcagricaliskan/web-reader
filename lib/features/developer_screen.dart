@@ -14,7 +14,7 @@ final localResetProvider = Provider<LocalResetService>((ref) {
     db: services.db,
     fileStore: services.fileStore,
     browser: services.browser,
-    captureJob: services.captureJob,
+    saveRun: services.saveRun,
     checker: services.updateChecker,
     taskQueue: services.taskQueue,
     clearCookies: () => CookieManager.instance().deleteAllCookies(),
@@ -77,7 +77,7 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
               style: TextStyle(color: AppPalette.of(context).danger),
             ),
             subtitle: const Text(
-              'Library, captured files, reading progress, queue, rules, '
+              'Library, saved files, reading progress, queue, rules, '
               'settings and cookies',
             ),
             onTap: _busy ? null : _confirmReset,
@@ -101,7 +101,7 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
         ),
         title: const Text('Reset all local data?'),
         content: const Text(
-          'This removes your library, captured files, reading progress, '
+          'This removes your library, saved files, reading progress, '
           'settings, queue, and saved site rules from this device.',
           style: TextStyle(fontSize: 13.5, height: 1.5),
         ),

@@ -2,24 +2,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/storage/manifest.dart';
 
 void main() {
-  ChapterManifest sample() => ChapterManifest(
-    schemaVersion: ChapterManifest.currentSchemaVersion,
-    chapterId: 'chapter-1',
-    libraryItemId: 'item-1',
-    sourceUrl: 'https://x.com/chapter/1',
-    canonicalUrl: 'https://x.com/chapter/1',
-    title: 'Chapter 1',
-    capturedAt: DateTime.utc(2026, 7, 25, 12, 30),
-    status: CaptureStatus.partial,
+  EntryManifest sample() => EntryManifest(
+    schemaVersion: EntryManifest.currentSchemaVersion,
+    entryId: 'entry-1',
+    collectionId: 'item-1',
+    sourceUrl: 'https://x.example/entry/1',
+    canonicalUrl: 'https://x.example/entry/1',
+    title: 'Entry 1',
+    savedAt: DateTime.utc(2026, 7, 25, 12, 30),
+    status: SaveStatus.partial,
     statusReason: 'assetsFailed:1',
-    detectedImageCount: 3,
-    storedImageCount: 2,
-    nextUrl: 'https://x.com/chapter/2',
-    sequence: 1,
+    detectedAssetCount: 3,
+    storedAssetCount: 2,
+    nextUrl: 'https://x.example/entry/2',
+    entryOrder: 1,
     assets: const [
-      AssetEntry(
+      EntryAsset(
         index: 1,
-        sourceUrl: 'https://x.com/img/1.png',
+        sourceUrl: 'https://x.example/img/1.png',
         status: AssetStatus.stored,
         relativePath: 'assets/001.png',
         mimeType: 'image/png',
@@ -27,15 +27,15 @@ void main() {
         width: 800,
         height: 1200,
       ),
-      AssetEntry(
+      EntryAsset(
         index: 2,
-        sourceUrl: 'https://x.com/img/2.png',
+        sourceUrl: 'https://x.example/img/2.png',
         status: AssetStatus.failed,
         error: 'HTTP 503',
       ),
-      AssetEntry(
+      EntryAsset(
         index: 3,
-        sourceUrl: 'https://x.com/img/3.png',
+        sourceUrl: 'https://x.example/img/3.png',
         status: AssetStatus.stored,
         relativePath: 'assets/003.png',
         mimeType: 'image/png',
@@ -46,26 +46,26 @@ void main() {
 
   test('round-trips through JSON without losing anything', () {
     final original = sample();
-    final restored = ChapterManifest.decode(original.encode());
+    final restored = EntryManifest.decode(original.encode());
 
     expect(restored.schemaVersion, original.schemaVersion);
-    expect(restored.chapterId, original.chapterId);
-    expect(restored.libraryItemId, original.libraryItemId);
+    expect(restored.entryId, original.entryId);
+    expect(restored.collectionId, original.collectionId);
     expect(restored.sourceUrl, original.sourceUrl);
     expect(restored.canonicalUrl, original.canonicalUrl);
     expect(restored.title, original.title);
-    expect(restored.capturedAt.toUtc(), original.capturedAt.toUtc());
-    expect(restored.status, CaptureStatus.partial);
+    expect(restored.savedAt.toUtc(), original.savedAt.toUtc());
+    expect(restored.status, SaveStatus.partial);
     expect(restored.statusReason, 'assetsFailed:1');
-    expect(restored.detectedImageCount, 3);
-    expect(restored.storedImageCount, 2);
+    expect(restored.detectedAssetCount, 3);
+    expect(restored.storedAssetCount, 2);
     expect(restored.nextUrl, original.nextUrl);
-    expect(restored.sequence, 1);
+    expect(restored.entryOrder, 1);
     expect(restored.assets, hasLength(3));
   });
 
   test('preserves asset order and per-asset failure detail', () {
-    final restored = ChapterManifest.decode(sample().encode());
+    final restored = EntryManifest.decode(sample().encode());
 
     expect(restored.assets.map((a) => a.index), [1, 2, 3]);
     expect(restored.assets[1].status, AssetStatus.failed);
@@ -74,7 +74,7 @@ void main() {
   });
 
   test('storedAssets exposes only what is actually on disk, in order', () {
-    final restored = ChapterManifest.decode(sample().encode());
+    final restored = EntryManifest.decode(sample().encode());
 
     expect(restored.storedAssets.map((a) => a.relativePath), [
       'assets/001.png',
@@ -83,7 +83,7 @@ void main() {
   });
 
   test('asset paths are relative — never absolute container paths', () {
-    final restored = ChapterManifest.decode(sample().encode());
+    final restored = EntryManifest.decode(sample().encode());
 
     for (final asset in restored.storedAssets) {
       expect(asset.relativePath, isNot(startsWith('/')));
@@ -92,19 +92,19 @@ void main() {
   });
 
   test('an unknown status decodes to failed rather than throwing', () {
-    expect(captureStatusFromName('nonsense'), CaptureStatus.failed);
+    expect(saveStatusFromName('nonsense'), SaveStatus.failed);
     expect(assetStatusFromName(null), AssetStatus.failed);
   });
 
   test('copyWith promotes status without disturbing identity', () {
     final updated = sample().copyWith(
-      status: CaptureStatus.complete,
-      storedImageCount: 3,
+      status: SaveStatus.complete,
+      storedAssetCount: 3,
     );
 
-    expect(updated.status, CaptureStatus.complete);
-    expect(updated.storedImageCount, 3);
-    expect(updated.chapterId, 'chapter-1');
-    expect(updated.sequence, 1);
+    expect(updated.status, SaveStatus.complete);
+    expect(updated.storedAssetCount, 3);
+    expect(updated.entryId, 'entry-1');
+    expect(updated.entryOrder, 1);
   });
 }

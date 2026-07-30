@@ -9,7 +9,7 @@ const _uuid = Uuid();
 
 /// Who moved the WebView.
 ///
-/// The Browser has exactly one WebView, and capture, update checks and rule
+/// The Browser has exactly one WebView, and save, update checks and rule
 /// validation all drive it. The user can watch every one of those navigations
 /// happen — which is precisely why "it appeared in the address bar" cannot be
 /// the rule for what lands in History. Only [manual] does (D53).
@@ -17,10 +17,10 @@ enum NavigationSource {
   /// The user typed, tapped, or opened something themselves.
   manual,
 
-  /// A capture job walking the chapter chain.
-  captureAutomation,
+  /// A save run walking the entry chain.
+  saveAutomation,
 
-  /// An update check reading a series index.
+  /// An update check reading a collection index.
   updateCheck,
 
   /// App-driven navigation that is not a user destination (about:blank, a
@@ -102,7 +102,7 @@ class HistoryRepository {
   /// Returns the row that now represents this visit, or null when nothing was
   /// recorded. Every exclusion in §7 funnels through here:
   ///
-  ///  * automation of any kind — capture, checks, rule validation, internal;
+  ///  * automation of any kind — save, checks, rule validation, internal;
   ///  * anything that is not an `http(s)` page (`about:blank`, app schemes);
   ///  * loads that never completed, or that ended on an error page;
   ///  * a repeat of the same page inside [kVisitCollapseWindow], which
@@ -197,7 +197,7 @@ class HistoryRepository {
       db.countVisitsSince(range.since(now ?? DateTime.now()));
 
   /// Clear a range. Touches `browsing_history` and nothing else: saved sites,
-  /// the library, captured files, reading progress, cookies, rules and queue
+  /// the library, saved files, reading progress, cookies, rules and queue
   /// tasks all live in other tables and are never referenced here.
   Future<int> clear(HistoryClearRange range, {DateTime? now}) =>
       db.deleteVisitsSince(range.since(now ?? DateTime.now()));

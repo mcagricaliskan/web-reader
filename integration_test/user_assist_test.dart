@@ -4,7 +4,7 @@
 //
 // Uses the in-process fixture, whose `/amb/` pages offer two equally plausible
 // "next" controls and whose `/nolabel/` pages offer an icon with no rel, text
-// or aria-label. Both are cases where guessing would be wrong, so the job must
+// or aria-label. Both are cases where guessing would be wrong, so the run must
 // stop and ask — and then remember the answer.
 import 'dart:async';
 import 'dart:io';
@@ -14,12 +14,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:web_reader/app.dart';
+import 'package:web_reader/core/config.dart';
 import 'package:web_reader/browser/browser_controller.dart';
-import 'package:web_reader/capture/capture_job.dart';
-import 'package:web_reader/capture/capture_state.dart';
-import 'package:web_reader/capture/next_page.dart';
-import 'package:web_reader/capture/rule_repository.dart';
-import 'package:web_reader/capture/site_rule.dart';
+import 'package:web_reader/save/save_run.dart';
+import 'package:web_reader/save/save_state.dart';
+import 'package:web_reader/save/next_page.dart';
+import 'package:web_reader/save/page_hint_repository.dart';
+import 'package:web_reader/save/page_hint.dart';
 import 'package:web_reader/providers.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
@@ -38,8 +39,8 @@ void main() {
   late AppDatabase db;
   late FileStore fileStore;
   late BrowserController browser;
-  late CaptureJobController job;
-  late RuleRepository rules;
+  late SaveRunController run;
+  late PageHintRepository rules;
   HttpServer? server;
   late String baseUrl;
 
@@ -91,8 +92,8 @@ void main() {
       folderName: 'webread_it_user_assist_${kRunStamp}_$bootCount',
     );
     browser = BrowserController();
-    rules = RuleRepository(db);
-    job = CaptureJobController(
+    rules = PageHintRepository(db);
+    run = SaveRunController(
       browser: browser,
       db: db,
       fileStore: fileStore,
@@ -107,7 +108,7 @@ void main() {
               db: db,
               fileStore: fileStore,
               browser: browser,
-              captureJob: job,
+              saveRun: run,
             ),
           ),
         ],
@@ -118,12 +119,12 @@ void main() {
   }
 
   tearDown(() async {
-    // Stop the job and let it unwind *before* tearing down its dependencies:
-    // closing the database under a running job produces spurious failures in
+    // Stop the run and let it unwind *before* tearing down its dependencies:
+    // closing the database under a running run produces spurious failures in
     // whichever test happens to run next.
-    job.stop();
+    run.stop();
     final deadline = DateTime.now().add(const Duration(seconds: 20));
-    while (job.isRunning && DateTime.now().isBefore(deadline)) {
+    while (run.isRunning && DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     await stopFixture();
@@ -131,20 +132,20 @@ void main() {
   });
 
   testWidgets(
-    'ambiguous page: the job asks, the answer is saved, the run continues',
+    'ambiguous page: the run asks, the answer is saved, the run continues',
     (tester) async {
       await startFixture();
       await bootApp(tester);
       await browser.loadAndWait('$baseUrl/amb/1');
       await settle(tester, const Duration(seconds: 1));
 
-      unawaited(job.start(chapterLimit: 3));
+      unawaited(run.start(range: SaveScope.fixedCount, entryLimit: 3));
 
-      // Two plausible controls disagree -> the job must stop and ask.
-      await waitFor(tester, () => job.pendingSelection != null);
-      final request = job.pendingSelection!;
-      expect(request.kind, RuleKind.nextLink);
-      expect(request.prompt, 'Select the next chapter button');
+      // Two plausible controls disagree -> the run must stop and ask.
+      await waitFor(tester, () => run.pendingSelection != null);
+      final request = run.pendingSelection!;
+      expect(request.kind, HintKind.nextLink);
+      expect(request.prompt, 'Select the next entry button');
       expect(request.candidates, isNotEmpty);
       expect(
         browser.isSelecting,
@@ -158,7 +159,7 @@ void main() {
 
       // Simulate the user tapping the correct control. This is exactly the
       // payload the injected picker reports.
-      await job.submitSelection(
+      await run.submitSelection(
         SelectedElement(
           mode: 'link',
           tag: 'a',
@@ -169,34 +170,34 @@ void main() {
 
       await waitFor(
         tester,
-        () => job.progress.state.isTerminal && !job.isRunning,
+        () => run.progress.state.isTerminal && !run.isRunning,
       );
-      for (final line in job.log.reversed) {
-        debugPrint('[job] $line');
+      for (final line in run.log.reversed) {
+        debugPrint('[run] $line');
       }
 
-      // A rule was created, scoped to this series.
+      // A rule was created, scoped to this collection.
       final saved = await rules.all();
       expect(saved, hasLength(1));
-      expect(saved.single.kind, RuleKind.nextLink);
-      expect(saved.single.scope, RuleScope.series);
+      expect(saved.single.kind, HintKind.nextLink);
+      expect(saved.single.scope, HintScope.collection);
       expect(saved.single.host, '127.0.0.1');
-      expect(saved.single.seriesPath, '/amb');
+      expect(saved.single.hintPath, '/amb');
       debugPrint(
         '[assist] saved rule: host=${saved.single.host} '
-        'series=${saved.single.seriesPath} '
+        'collection=${saved.single.hintPath} '
         'signals=${saved.single.locator.signalCount} '
         'pattern=${saved.single.locator.hrefPattern}',
       );
 
       // The run continued past the ambiguous page using the answer.
-      final chapters = await db.watchAllChapters().first;
+      final entries = await db.watchAllEntries().first;
       expect(
-        chapters.length,
+        entries.length,
         greaterThanOrEqualTo(2),
-        reason: 'the job continued after the prompt',
+        reason: 'the run continued after the prompt',
       );
-      debugPrint('[assist] captured ${chapters.length} chapters');
+      debugPrint('[assist] saved ${entries.length} entries');
     },
   );
 
@@ -205,7 +206,7 @@ void main() {
     await bootApp(tester);
 
     // Pre-teach the rule, as if a previous run had asked.
-    await rules.createNextLinkRule(
+    await rules.createNextLinkHint(
       element: SelectedElement(
         mode: 'link',
         tag: 'a',
@@ -218,26 +219,26 @@ void main() {
     await browser.loadAndWait('$baseUrl/amb/1');
     await settle(tester, const Duration(seconds: 1));
 
-    unawaited(job.start(chapterLimit: 2));
+    unawaited(run.start(range: SaveScope.fixedCount, entryLimit: 2));
     await waitFor(
       tester,
-      () => job.progress.state.isTerminal && !job.isRunning,
+      () => run.progress.state.isTerminal && !run.isRunning,
       timeout: const Duration(minutes: 2),
     );
 
     expect(
-      job.pendingSelection,
+      run.pendingSelection,
       isNull,
       reason: 'a saved rule must stop the prompts — that is the point of it',
     );
     expect(
-      job.log.any((l) => l.contains('using saved next-link rule')),
+      run.log.any((l) => l.contains('using saved next-link rule')),
       isTrue,
     );
-    final chapters = await db.watchAllChapters().first;
-    expect(chapters.length, greaterThanOrEqualTo(2));
+    final entries = await db.watchAllEntries().first;
+    expect(entries.length, greaterThanOrEqualTo(2));
     debugPrint(
-      '[assist] reused rule, captured ${chapters.length} chapters, '
+      '[assist] reused rule, saved ${entries.length} entries, '
       'never prompted',
     );
   });
@@ -250,17 +251,17 @@ void main() {
     await browser.loadAndWait('$baseUrl/nolabel/1');
     await settle(tester, const Duration(seconds: 1));
 
-    unawaited(job.start(chapterLimit: 2));
-    await waitFor(tester, () => job.pendingSelection != null);
+    unawaited(run.start(range: SaveScope.fixedCount, entryLimit: 2));
+    await waitFor(tester, () => run.pendingSelection != null);
 
-    expect(job.pendingSelection!.kind, RuleKind.nextLink);
-    expect(job.progress.state, CaptureState.awaitingSelection);
-    debugPrint('[assist] nolabel asked: ${job.pendingSelection!.reason}');
+    expect(run.pendingSelection!.kind, HintKind.nextLink);
+    expect(run.progress.state, SaveState.awaitingSelection);
+    debugPrint('[assist] nolabel asked: ${run.pendingSelection!.reason}');
 
-    // Cancelling ends the job rather than guessing on.
-    await job.cancelSelection();
-    await waitFor(tester, () => !job.isRunning);
-    expect(job.progress.state, CaptureState.cancelled);
+    // Cancelling ends the run rather than guessing on.
+    await run.cancelSelection();
+    await waitFor(tester, () => !run.isRunning);
+    expect(run.progress.state, SaveState.cancelled);
     expect(await rules.all(), isEmpty, reason: 'cancelling saves no rule');
   });
 
@@ -272,31 +273,31 @@ void main() {
     await browser.loadAndWait('$baseUrl/amb/1');
     await settle(tester, const Duration(seconds: 1));
 
-    unawaited(job.start(chapterLimit: 2));
-    await waitFor(tester, () => job.pendingSelection != null);
+    unawaited(run.start(range: SaveScope.fixedCount, entryLimit: 2));
+    await waitFor(tester, () => run.pendingSelection != null);
 
     // A user tap is a strong signal about one link — not permission to leave
     // the site.
-    await job.submitSelection(
+    await run.submitSelection(
       const SelectedElement(
         mode: 'link',
         tag: 'a',
         text: 'Next',
-        href: 'https://elsewhere.example/chapter/2',
+        href: 'https://elsewhere.example/entry/2',
       ),
     );
 
     expect(
-      job.pendingSelection,
+      run.pendingSelection,
       isNotNull,
       reason: 'the prompt stays open when the selection is refused',
     );
-    expect(job.pendingSelection!.errorMessage, isNotNull);
+    expect(run.pendingSelection!.errorMessage, isNotNull);
     expect(await rules.all(), isEmpty, reason: 'no rule from a refused link');
-    debugPrint('[assist] refused: ${job.pendingSelection!.errorMessage}');
+    debugPrint('[assist] refused: ${run.pendingSelection!.errorMessage}');
 
-    await job.cancelSelection();
-    await waitFor(tester, () => !job.isRunning);
+    await run.cancelSelection();
+    await waitFor(tester, () => !run.isRunning);
   });
 
   testWidgets('automatic detection needs no prompt on the plain fixture', (
@@ -304,26 +305,26 @@ void main() {
   ) async {
     await startFixture();
     await bootApp(tester);
-    await browser.loadAndWait('$baseUrl/chapter/1');
+    await browser.loadAndWait('$baseUrl/entry/1');
     await settle(tester, const Duration(seconds: 1));
 
-    unawaited(job.start(chapterLimit: 2));
+    unawaited(run.start(range: SaveScope.fixedCount, entryLimit: 2));
     await waitFor(
       tester,
-      () => job.progress.state.isTerminal && !job.isRunning,
+      () => run.progress.state.isTerminal && !run.isRunning,
       timeout: const Duration(minutes: 3),
     );
 
     expect(
-      job.pendingSelection,
+      run.pendingSelection,
       isNull,
       reason: 'rel=next is unambiguous; asking here would be a regression',
     );
     expect(await rules.all(), isEmpty);
-    final chapters = await db.watchAllChapters().first;
-    expect(chapters.length, 2);
+    final entries = await db.watchAllEntries().first;
+    expect(entries.length, 2);
     debugPrint(
-      '[assist] fully automatic: ${chapters.length} chapters, '
+      '[assist] fully automatic: ${entries.length} entries, '
       'no rules needed',
     );
   });

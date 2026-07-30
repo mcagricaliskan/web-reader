@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'capture/capture_job.dart';
+import 'save/save_run.dart';
 import 'features/activity_screen.dart';
 import 'features/archived_screen.dart';
 import 'core/local_reset.dart';
@@ -13,8 +13,8 @@ import 'features/browser_screen.dart';
 import 'features/developer_screen.dart';
 import 'features/library_screen.dart';
 import 'features/reader_screen.dart';
-import 'features/rules_screen.dart';
-import 'features/series_detail_screen.dart';
+import 'features/page_hints_screen.dart';
+import 'features/collection_detail_screen.dart';
 import 'features/cleanup_dialogs.dart';
 import 'features/settings_screen.dart';
 import 'features/storage_screen.dart';
@@ -27,7 +27,7 @@ import 'ui/palette.dart';
 import 'ui/theme.dart';
 
 /// The browser tab keeps its WebView alive across tab switches — the session
-/// the user browsed with is the session capture runs in, so it must not be
+/// the user browsed with is the session save runs in, so it must not be
 /// rebuilt when they look at the library.
 class WebReaderApp extends ConsumerStatefulWidget {
   const WebReaderApp({super.key});
@@ -45,18 +45,21 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp> {
     routes: [
       GoRoute(path: '/', builder: (context, state) => const _Shell()),
       GoRoute(
-        path: '/reader/:chapterId',
+        path: '/reader/:entryId',
         builder: (context, state) =>
-            ReaderScreen(chapterId: state.pathParameters['chapterId']!),
+            ReaderScreen(entryId: state.pathParameters['entryId']!),
       ),
       GoRoute(
-        path: '/series/:seriesId',
-        builder: (context, state) => SeriesDetailScreen(
-          seriesId: state.pathParameters['seriesId']!,
+        path: '/collection/:collectionId',
+        builder: (context, state) => CollectionDetailScreen(
+          collectionId: state.pathParameters['collectionId']!,
           startInSelectionMode: state.uri.queryParameters['select'] == '1',
         ),
       ),
-      GoRoute(path: '/rules', builder: (context, state) => const RulesScreen()),
+      GoRoute(
+        path: '/rules',
+        builder: (context, state) => const PageHintsScreen(),
+      ),
       GoRoute(
         path: '/history',
         builder: (context, state) => const BrowserHistoryScreen(),
@@ -117,7 +120,7 @@ class _ShellState extends ConsumerState<_Shell> {
 
   // Held as fields: listeners must be removed in dispose, where Riverpod
   // forbids `ref`.
-  late final CaptureJobController _job;
+  late final SaveRunController _run;
   late final UpdateChecker _checker;
   bool _wasBusy = false;
 
@@ -134,10 +137,10 @@ class _ShellState extends ConsumerState<_Shell> {
   @override
   void initState() {
     super.initState();
-    _job = ref.read(captureJobProvider);
+    _run = ref.read(saveRunProvider);
     _checker = ref.read(updateCheckerProvider);
     _tabRequest = ref.read(shellTabRequestProvider);
-    _job.addListener(_onAutomationChanged);
+    _run.addListener(_onAutomationChanged);
     _checker.addListener(_onAutomationChanged);
     _tabRequest.addListener(_onTabRequested);
     _cleanup = ref.read(cleanupProvider);
@@ -151,7 +154,7 @@ class _ShellState extends ConsumerState<_Shell> {
 
   /// Show the Browser tab and wait for its WebView to attach.
   ///
-  /// Attachment is not the same as *rendered*: the capture engine still runs
+  /// Attachment is not the same as *rendered*: the save engine still runs
   /// its own zero-viewport guard (D32). This only guarantees the user is
   /// looking at the Browser before anything starts, so automation is never a
   /// surprise happening behind another screen.
@@ -169,7 +172,7 @@ class _ShellState extends ConsumerState<_Shell> {
 
   @override
   void dispose() {
-    _job.removeListener(_onAutomationChanged);
+    _run.removeListener(_onAutomationChanged);
     _checker.removeListener(_onAutomationChanged);
     _tabRequest.removeListener(_onTabRequested);
     _cleanup.removals.removeListener(_onStorageChanged);
@@ -181,7 +184,7 @@ class _ShellState extends ConsumerState<_Shell> {
   /// dependent phase. Downloading/saving phases and already-paused runs are
   /// deliberately excluded — the modal must not cry wolf.
   bool get _leavingBrowserIsRisky =>
-      _index == 1 && (_job.needsRenderedBrowser || _checker.isRunning);
+      _index == 1 && (_run.needsRenderedBrowser || _checker.isRunning);
 
   /// The design's leave-Browser confirmation. Returns true when navigation
   /// may proceed (either nothing was at risk, or the user chose to pause).
@@ -189,22 +192,22 @@ class _ShellState extends ConsumerState<_Shell> {
     if (!_leavingBrowserIsRisky) return true;
     final leave = await showLeaveBrowserDialog(
       context: context,
-      progressLine: _job.isRunning
-          ? _job.progressSummary
-          : 'Checking for new chapters',
+      progressLine: _run.isRunning
+          ? _run.progressSummary
+          : 'Checking for new entries',
     );
     if (!leave) return false;
     // Pause the WebView-dependent phase before anything moves. The task
     // stays active and queued work is untouched: this is a hold, not a stop.
-    if (_job.isRunning) _job.pauseForBrowserHidden();
+    if (_run.isRunning) _run.pauseForBrowserHidden();
     return true;
   }
 
   /// A widget inside a tab asked for a tab switch (e.g. "Open Browser" on a
-  /// capture that is holding on a hidden WebView).
+  /// save that is holding on a hidden WebView).
   ///
   /// Deliberately does **not** call [_onEnteredBrowser]. "Open in Browser"
-  /// arrives here having just paused a capture on purpose, and auto-resuming
+  /// arrives here having just paused a save on purpose, and auto-resuming
   /// it on the way in would restart the run one frame before the page is
   /// navigated out from under it. Only a *user-initiated* tab tap ([_select])
   /// lifts a leave-pause.
@@ -217,18 +220,18 @@ class _ShellState extends ConsumerState<_Shell> {
     }
   }
 
-  /// When a capture or update check starts, bring the Browser tab forward —
+  /// When a save or update check starts, bring the Browser tab forward —
   /// what the design's prototype does, and also load-bearing: an offstage
-  /// WKWebView throttles rAF and lazy-loading, so a capture driving a hidden
-  /// WebView (e.g. started from series detail) would stall mid-scroll.
+  /// WKWebView throttles rAF and lazy-loading, so a save driving a hidden
+  /// WebView (e.g. started from collection detail) would stall mid-scroll.
   /// Transition-edge only: once the user has seen the switch they are free to
   /// go back to the Library without the shell fighting them.
   void _onAutomationChanged() {
-    final busy = _job.isRunning || _checker.isRunning;
+    final busy = _run.isRunning || _checker.isRunning;
     if (busy && !_wasBusy && _index != 1) {
       setState(() => _index = 1);
     }
-    // Falling idle is the moment the disk actually changed: a capture just
+    // Falling idle is the moment the disk actually changed: a save just
     // wrote (or a check just did not). Re-read then, rather than polling —
     // the Library's percentage is otherwise as stale as its throttle allows.
     if (!busy && _wasBusy) {
@@ -237,13 +240,13 @@ class _ShellState extends ConsumerState<_Shell> {
     _wasBusy = busy;
   }
 
-  /// Returning to the Browser: the capture engine's own render guard does
+  /// Returning to the Browser: the save engine's own render guard does
   /// the validating (viewport, then the page it was on). Here we only lift
   /// the leave-pause; if the page changed, the engine keeps holding and the
   /// Browser shows why.
   void _onEnteredBrowser() {
-    if (_job.pauseReason == kPauseBrowserHidden) {
-      _job.resumeAfterBrowserVisible();
+    if (_run.pauseReason == kPauseBrowserHidden) {
+      _run.resumeAfterBrowserVisible();
     }
   }
 
@@ -273,7 +276,7 @@ class _ShellState extends ConsumerState<_Shell> {
         },
         child: Scaffold(
           // IndexedStack, not a swapped child: switching tabs must not
-          // dispose the WebView or a running capture dies with it.
+          // dispose the WebView or a running save dies with it.
           body: IndexedStack(
             index: _index,
             children: const [LibraryScreen(), BrowserScreen()],
@@ -312,7 +315,7 @@ class LeaveBrowserGuard extends InheritedWidget {
     return guard.confirm();
   }
 
-  /// Guarded `context.push`: confirms first when a capture needs the
+  /// Guarded `context.push`: confirms first when a save needs the
   /// Browser, then navigates. Used by every route that leaves the Browser.
   static Future<void> push(BuildContext context, String location) async {
     if (!await confirmLeave(context)) return;

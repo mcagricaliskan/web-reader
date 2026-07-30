@@ -6,15 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'browser/browser_controller.dart';
 import 'browser/history_repository.dart';
-import 'browser/saved_sites_repository.dart';
-import 'capture/capture_job.dart';
+import 'save/save_run.dart';
 import 'core/device_storage.dart';
 import 'core/startup.dart';
 import 'features/splash_screen.dart';
 import 'providers.dart';
-import 'reading/reading_repository.dart';
 import 'storage/database.dart';
-import 'library/series_repository.dart';
 import 'storage/file_store.dart';
 import 'storage/manifest.dart';
 import 'ui/palette.dart';
@@ -178,9 +175,8 @@ class AppStartup {
 
   late final List<StartupStep> steps = [
     StartupStep(label: 'Opening your library', critical: true, run: _open),
-    StartupStep(label: 'Recovering interrupted captures', run: _recover),
-    StartupStep(label: 'Repairing library records', run: _repair),
-    StartupStep(label: 'Restoring browser data', run: _browserData),
+    StartupStep(label: 'Recovering interrupted saves', run: _recover),
+    StartupStep(label: 'Tidying browsing data', run: _browserData),
     StartupStep(label: 'Checking pending tasks', run: _pendingTasks),
   ];
 
@@ -193,7 +189,7 @@ class AppStartup {
     final fileStore = _fileStore ??= await FileStore.open();
 
     final browser = BrowserController();
-    final captureJob = CaptureJobController(
+    final saveRun = SaveRunController(
       browser: browser,
       db: db,
       fileStore: fileStore,
@@ -221,10 +217,10 @@ class AppStartup {
       db: db,
       fileStore: fileStore,
       browser: browser,
-      captureJob: captureJob,
+      saveRun: saveRun,
     );
 
-    // Chapter assets are re-downloadable; a multi-GB library must not ride
+    // Entry assets are re-downloadable; a multi-GB library must not ride
     // along in every iCloud backup. Only the asset tree is excluded — the
     // database (reading state, rules, settings) stays backed up. Idempotent;
     // Android reports unsupported and that is fine. Not worth failing a boot
@@ -243,14 +239,14 @@ class AppStartup {
 
   /// Startup recovery, before the UI is interactive.
   ///
-  /// The invariant this protects: a chapter is never promoted to `complete` by
+  /// The invariant this protects: an entry is never promoted to `complete` by
   /// recovery. Anything left mid-flight is reset and re-capturable; anything
   /// whose files vanished is demoted, keeping its row.
   Future<void> _recover() async {
     final db = _db!;
     final fileStore = _fileStore!;
 
-    // A kill between "step the old chapter aside" and "move the new one in"
+    // A kill between "step the old entry aside" and "move the new one in"
     // leaves a `.previous` directory; put it back before anything reads.
     final restored = await fileStore.restoreInterruptedReplacements();
     if (restored > 0) {
@@ -260,42 +256,49 @@ class AppStartup {
     final swept = await fileStore.sweepStaging();
     if (swept > 0) debugPrint('[recovery] swept $swept staging dir(s)');
 
-    final reset = await db.resetInFlightChapters();
-    if (reset > 0) debugPrint('[recovery] reset $reset in-flight chapter(s)');
+    final reset = await db.resetInFlightEntries();
+    if (reset > 0) debugPrint('[recovery] reset $reset in-flight entry(s)');
 
     // Files on disk with no usable database row: finish the record from the
     // manifest, which describes itself.
-    for (final relative in fileStore.listCommittedChapterPaths()) {
+    for (final relative in fileStore.listCommittedEntryPaths()) {
       final manifest = await fileStore.readManifest(relative);
       if (manifest == null) continue;
-      final existing = await db.chapterById(manifest.chapterId);
+      final existing = await db.entryById(manifest.entryId);
       if (existing != null && existing.contentPath != null) continue;
-      if (manifest.status != CaptureStatus.complete &&
-          manifest.status != CaptureStatus.partial) {
+      if (manifest.status != SaveStatus.complete &&
+          manifest.status != SaveStatus.partial) {
         continue;
       }
-      debugPrint('[recovery] reconciling ${manifest.chapterId} from manifest');
-      final priorReading = await db.chapterById(manifest.chapterId);
-      await db.upsertChapter(
-        Chapter(
-          id: manifest.chapterId,
-          libraryItemId: manifest.libraryItemId,
+      debugPrint('[recovery] reconciling ${manifest.entryId} from manifest');
+      final priorReading = await db.entryById(manifest.entryId);
+      await db.upsertEntry(
+        Entry(
+          id: manifest.entryId,
+          collectionId: manifest.collectionId,
           title: manifest.title,
           sourceUrl: manifest.sourceUrl,
           urlKey: manifest.sourceUrl,
-          captureStatus: manifest.status.name,
+          host: Uri.tryParse(manifest.sourceUrl)?.host.toLowerCase() ?? '',
+          // Recovery restores what was written, and the manifest records the
+          // shape the save decided on. It never re-detects: a guess made now,
+          // against no page, would be weaker than the one already stored.
+          contentKind: manifest.contentKind ?? 'unknownWebContent',
+          contentKindConfidence: manifest.contentKindConfidence ?? 'low',
+          contentKindIsUserSet: manifest.contentKindIsUserSet ?? false,
+          saveStatus: manifest.status.name,
           contentPath: relative,
-          capturedAt: manifest.capturedAt,
-          detectedImageCount: manifest.detectedImageCount,
-          storedImageCount: manifest.storedImageCount,
+          savedAt: manifest.savedAt,
+          detectedAssetCount: manifest.detectedAssetCount,
+          storedAssetCount: manifest.storedAssetCount,
           nextSourceUrl: manifest.nextUrl,
-          sequence: manifest.sequence ?? 0,
-          byteSize: await fileStore.chapterByteSize(relative),
-          // Recovery restores the capture, never the reading position.
+          entryOrder: manifest.entryOrder ?? 0,
+          byteSize: await fileStore.entryByteSize(relative),
+          // Recovery restores the save, never the reading position.
           readStatus: priorReading?.readStatus ?? 'unread',
           progressFraction: priorReading?.progressFraction ?? 0,
-          progressImageIndex: priorReading?.progressImageIndex ?? 0,
-          progressOffsetInImage: priorReading?.progressOffsetInImage ?? 0,
+          progressPageIndex: priorReading?.progressPageIndex ?? 0,
+          progressOffsetInPage: priorReading?.progressOffsetInPage ?? 0,
           firstOpenedAt: priorReading?.firstOpenedAt,
           lastReadAt: priorReading?.lastReadAt,
           completedAt: priorReading?.completedAt,
@@ -305,33 +308,14 @@ class AppStartup {
     }
   }
 
-  /// Rows left blank or stale by an older build.
-  Future<void> _repair() async {
-    final db = _db!;
-    // Regroup captures made before series grouping existed. Reassigns rows
-    // only; no file is moved and no capture state changes, so it is safe to
-    // re-run.
-    final report = await SeriesRepository(
-      db,
-    ).backfillExistingCaptures(log: (m) => debugPrint('[library] $m'));
-    if (report.didAnything) debugPrint('[library] backfill: $report');
-
-    // The chapter's own address is what "Open on website" and "Capture again"
-    // both stand on.
-    final urls = await SeriesRepository(db).repairChapterSourceUrls();
-    if (urls > 0) debugPrint('[library] source urls repaired: $urls');
-
-    // Completed chapters written before the completed-is-100% rule can sit at
-    // any fraction. Rows only, and idempotent.
-    final fixed = await ReadingRepository(db).repairCompletedProgress();
-    if (fixed > 0) debugPrint('[reading] completed progress repaired: $fixed');
-  }
-
+  /// Browsing-data retention.
+  ///
+  /// Nothing is seeded here. The saved-sites list starts empty and stays empty
+  /// until the user puts something in it: a site the developer chose would be a
+  /// recommendation the app is not entitled to make, and a bundled starting
+  /// point is how a neutral reader acquires a provider catalogue by accident.
   Future<void> _browserData() async {
     final db = _db!;
-    // Google, once per installation — and never again once removed (D54).
-    await SavedSitesRepository(db).seedDefaultIfNeeded();
-
     final pruned = await HistoryRepository(db).prune();
     if (pruned > 0) debugPrint('[history] pruned $pruned old visit(s)');
   }

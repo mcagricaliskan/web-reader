@@ -1,10 +1,10 @@
-/// Tuning constants for autonomous capture.
+/// Tuning constants for autonomous save.
 ///
 /// Every value here is a starting point measured on the iOS Simulator against
 /// the local fixture. The Simulator's network and disk are the host Mac's, so
 /// these are optimistic — re-measure on a device before trusting them.
-class CaptureConfig {
-  const CaptureConfig({
+class SaveConfig {
+  const SaveConfig({
     this.scrollStepFraction = 0.8,
     this.scrollDelay = const Duration(milliseconds: 300),
     this.fastScrollStepViewports = 3.5,
@@ -15,7 +15,7 @@ class CaptureConfig {
     this.requiredStableChecks = 3,
     this.maxScrollIterations = 300,
     this.maxScrollPasses = 2,
-    this.maxCaptureDuration = const Duration(seconds: 150),
+    this.maxSaveDuration = const Duration(seconds: 150),
     this.maxAssetWait = const Duration(seconds: 30),
     this.domReadyTimeout = const Duration(seconds: 20),
     this.downloadRetries = 2,
@@ -26,15 +26,15 @@ class CaptureConfig {
     this.minClusterSize = 3,
     this.widthClusterTolerance = 0.12,
     this.minAssetBytes = 512,
-    this.cooldownBetweenChapters = const Duration(milliseconds: 1200),
-    this.maxChaptersPerJob = 100,
+    this.cooldownBetweenEntries = const Duration(milliseconds: 1200),
+    this.maxEntriesPerRun = 100,
     this.untilEndSafetyLimit = 150,
-    this.maxJobDuration = const Duration(minutes: 20),
-    this.untilEndJobDuration = const Duration(minutes: 45),
-    this.maxSkippedPerJob = 50,
+    this.maxRunDuration = const Duration(minutes: 20),
+    this.untilEndRunDuration = const Duration(minutes: 45),
+    this.maxSkippedPerRun = 50,
     this.minFreeSpaceToStart = 500 * 1024 * 1024,
     this.emergencyReserve = 200 * 1024 * 1024,
-    this.unknownChapterEstimate = 50 * 1024 * 1024,
+    this.unknownEntryEstimate = 50 * 1024 * 1024,
   });
 
   /// Fraction of the viewport height to advance per scroll step. Below 1.0 so
@@ -44,7 +44,7 @@ class CaptureConfig {
   final Duration scrollDelay;
 
   // --- adaptive traversal ---------------------------------------------------
-  // The audit measured scrolling at 90–98% of real capture time while the
+  // The audit measured scrolling at 90–98% of real save time while the
   // page content was often already loaded. When everything within
   // [lookaheadViewports] below the position is resolved and the document
   // height is not moving, the engine jumps [fastScrollStepViewports] per step
@@ -73,7 +73,7 @@ class CaptureConfig {
   /// A second downward pass catches lazy loaders that only fire when an
   /// element is scrolled *into* view from above.
   final int maxScrollPasses;
-  final Duration maxCaptureDuration;
+  final Duration maxSaveDuration;
   final Duration maxAssetWait;
   final Duration domReadyTimeout;
 
@@ -83,10 +83,10 @@ class CaptureConfig {
   /// Images smaller than this on either edge are chrome, not content.
   final int minImageEdge;
 
-  /// Wider-than-tall beyond this ratio is a banner, not a webtoon panel.
+  /// Wider-than-tall beyond this ratio is a banner, not a content page.
   final double maxAspectRatio;
 
-  /// Below this many candidates the page did not yield a chapter.
+  /// Below this many candidates the page did not yield an entry.
   final int minCandidates;
 
   /// A width cluster must hold at least this many images to be trusted as
@@ -97,54 +97,146 @@ class CaptureConfig {
   final double widthClusterTolerance;
 
   final int minAssetBytes;
-  final Duration cooldownBetweenChapters;
+  final Duration cooldownBetweenEntries;
 
-  /// Upper bound on a user-entered fixed chapter count. Input validation, not
-  /// a preset: the range sheet refuses anything above this.
-  final int maxChaptersPerJob;
+  /// Upper bound on a user-entered fixed entry count. Input validation, not a
+  /// preset: the save-scope sheet refuses anything above this.
+  final int maxEntriesPerRun;
 
   /// Hard safety bound for "until the end" — high enough to never masquerade
-  /// as a chapter count, low enough that a navigation loop the validator
+  /// as an entry count, low enough that a navigation loop the validator
   /// misses cannot crawl a site forever. Hitting it reports its own distinct
   /// result ("stopped at the safety limit"), never a quiet "complete".
   final int untilEndSafetyLimit;
-  final Duration maxJobDuration;
+  final Duration maxRunDuration;
 
   /// Until-end runs are legitimately long; they get a wider (still hard)
-  /// duration bound than fixed-count jobs.
-  final Duration untilEndJobDuration;
+  /// duration bound than fixed-count runs.
+  final Duration untilEndRunDuration;
 
-  /// The requested chapter count means *new capture attempts*; chapters
+  /// The requested entry count means *new save attempts*; entries
   /// skipped as already saved do not consume it. This caps how many skips a
-  /// run may walk through so a fully-captured series cannot turn a small
+  /// run may walk through so a fully-saved collection cannot turn a small
   /// request into an unbounded crawl.
-  final int maxSkippedPerJob;
+  final int maxSkippedPerRun;
 
   // --- disk-space policy ------------------------------------------------
-  // Centralised here on purpose: widgets and the job read the same numbers.
+  // Centralised here on purpose: widgets and the run read the same numbers.
 
-  /// A capture refuses to start below this much free space (bytes).
+  /// A save refuses to start below this much free space (bytes).
   final int minFreeSpaceToStart;
 
-  /// Never write into the last [emergencyReserve] bytes — a chapter that
+  /// Never write into the last [emergencyReserve] bytes — an entry that
   /// would cross it stops with a distinct disk-full error instead.
   final int emergencyReserve;
 
-  /// Planning estimate for a chapter whose size is unknown (bytes).
-  final int unknownChapterEstimate;
+  /// Planning estimate for an entry whose size is unknown (bytes).
+  final int unknownEntryEstimate;
 }
 
-/// How the user chose the capture range. Persisted (v8) so resume continues
-/// the same mode.
-enum CaptureRangeMode { currentChapter, fixedCount, untilEnd }
+/// How much the user asked to save. Persisted, so a resume continues in the
+/// same mode.
+///
+/// **The default is [currentPageOnly].** That is the product's central safety
+/// property, not a UI preference: the ordinary action saves the one page in front
+/// of the user, and every scope beyond it is chosen deliberately, shown before it
+/// starts, and bounded.
+enum SaveScope {
+  /// The page on screen. Nothing is followed.
+  currentPageOnly,
 
-CaptureRangeMode captureRangeModeFromName(String? name) =>
-    CaptureRangeMode.values.firstWhere(
-      (m) => m.name == name,
-      orElse: () => CaptureRangeMode.fixedCount,
+  /// Items the user picked from a review list.
+  selectedEntries,
+
+  /// A number of entries the user typed.
+  fixedCount,
+
+  /// Follow next-links until none is found — **with an explicit ceiling**. This
+  /// is never "unlimited": [SaveLimits] always carries a maximum entry count,
+  /// and the run reports `safetyLimitReached` distinctly if it gets there.
+  untilNoNextPage;
+
+  static SaveScope fromName(String? name) => SaveScope.values.firstWhere(
+    (m) => m.name == name,
+    // An unrecognised value reads as the *safest* scope, not the last one used.
+    orElse: () => SaveScope.currentPageOnly,
+  );
+
+  bool get isMultiEntry => this != SaveScope.currentPageOnly;
+
+  /// True when the user must state a ceiling before the run may start.
+  bool get requiresExplicitLimit => this == SaveScope.untilNoNextPage;
+}
+
+SaveScope saveScopeFromName(String? name) => SaveScope.fromName(name);
+
+/// The ceilings a multi-entry run runs under.
+///
+/// Constructed only through [SaveLimits.forScope], which cannot produce an
+/// unbounded run: `maxEntries` is always a positive number, clamped to the
+/// configured safety ceiling.
+class SaveLimits {
+  const SaveLimits._({
+    required this.maxEntries,
+    this.maxBytes,
+    this.includeImages = true,
+  });
+
+  /// The bounded limits for [scope].
+  ///
+  /// [requestedCount] is what the user typed; it is clamped rather than trusted.
+  /// For an open-ended scope with no stated count the *safety ceiling* applies —
+  /// so even a user who skips the field gets a bounded run.
+  factory SaveLimits.forScope(
+    SaveScope scope, {
+    int? requestedCount,
+    int? maxBytes,
+    bool includeImages = true,
+    SaveConfig config = kDefaultSaveConfig,
+  }) {
+    final entries = switch (scope) {
+      SaveScope.currentPageOnly => 1,
+      SaveScope.selectedEntries => (requestedCount ?? 1).clamp(
+        1,
+        config.maxEntriesPerRun,
+      ),
+      SaveScope.fixedCount => (requestedCount ?? 1).clamp(
+        1,
+        config.maxEntriesPerRun,
+      ),
+      SaveScope.untilNoNextPage =>
+        (requestedCount ?? config.untilEndSafetyLimit).clamp(
+          1,
+          config.untilEndSafetyLimit,
+        ),
+    };
+    return SaveLimits._(
+      maxEntries: entries,
+      maxBytes: maxBytes,
+      includeImages: includeImages,
     );
+  }
 
-const kDefaultCaptureConfig = CaptureConfig();
+  /// Always a positive number. There is no representation of "no limit".
+  final int maxEntries;
+
+  /// The user's storage ceiling in bytes, when they set one.
+  final int? maxBytes;
+
+  /// Whether the offline copy includes page images. Answered by the user for an
+  /// image-heavy page; true otherwise.
+  final bool includeImages;
+
+  bool get isSinglePage => maxEntries == 1;
+
+  @override
+  String toString() =>
+      '$maxEntries entries'
+      '${maxBytes == null ? '' : ', ${(maxBytes! / (1024 * 1024)).round()} MB'}'
+      '${includeImages ? '' : ', text only'}';
+}
+
+const kDefaultSaveConfig = SaveConfig();
 
 /// What the Browser's WebView holds before the user goes anywhere.
 ///

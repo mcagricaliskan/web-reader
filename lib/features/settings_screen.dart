@@ -10,6 +10,7 @@ import '../ui/status_style.dart';
 import 'appearance_selector.dart';
 import 'browser_data_dialogs.dart';
 import 'library_screen.dart' show formatBytes;
+import '../library/entry_labels.dart';
 
 /// Settings is a list of doors, not a control panel. Everything that changes
 /// behaviour lives where the behaviour is; this screen only points at the two
@@ -19,13 +20,13 @@ class SettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final rules = ref.watch(siteRulesStreamProvider).value;
+    final rules = ref.watch(pageHintsStreamProvider).value;
     final tasks = ref.watch(queueTasksProvider).value;
-    final chapters = ref.watch(chaptersStreamProvider).value;
+    final entries = ref.watch(entriesStreamProvider).value;
     final storedBytes =
-        chapters?.fold<int>(0, (sum, c) => sum + c.byteSize) ?? 0;
-    final offlineChapters =
-        chapters?.where((c) => c.contentPath != null).length ?? 0;
+        entries?.fold<int>(0, (sum, c) => sum + c.byteSize) ?? 0;
+    final offlineEntries =
+        entries?.where((c) => c.contentPath != null).length ?? 0;
 
     final savedSites = ref.watch(savedSitesProvider).value;
     final visits = ref.watch(browsingHistoryProvider).value;
@@ -104,19 +105,19 @@ class SettingsScreen extends ConsumerWidget {
             leading: const Icon(Icons.storage),
             title: const Text('Storage'),
             subtitle: Text(
-              chapters == null
+              entries == null
                   ? 'Loading…'
-                  : '${formatBytes(storedBytes)} used · $offlineChapters '
-                        'chapter${offlineChapters == 1 ? '' : 's'} offline',
+                  : '${formatBytes(storedBytes)} used · '
+                        '${kPlainEntryLabels.count(offlineEntries)} offline',
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => LeaveBrowserGuard.push(context, '/storage'),
           ),
           _SettingsNote(
-            'What happens to a finished chapter\'s downloaded files is set '
-            'per series — open a series and use Downloaded chapters.',
+            'What happens to a finished entry\'s downloaded files is set '
+            'per collection — open a collection and use Downloaded entries.',
           ),
-          const SectionLabel('CAPTURE & SOURCES'),
+          const SectionLabel('SAVING & SOURCES'),
           ListTile(
             leading: const Icon(Icons.ads_click),
             title: const Text('Saved rules'),
@@ -155,7 +156,7 @@ class SettingsScreen extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
             child: Text(
               'Everything is stored on this device. There is no account, no '
-              'sync and no background network activity — captures and update '
+              'sync and no background network activity — saves and update '
               'checks only run when you start them.',
               style: TextStyle(
                 fontSize: 13,

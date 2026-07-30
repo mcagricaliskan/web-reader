@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/browser/page_data.dart';
-import 'package:web_reader/capture/asset_downloader.dart';
-import 'package:web_reader/capture/capture_engine.dart';
-import 'package:web_reader/capture/capture_state.dart';
+import 'package:web_reader/save/asset_fetcher.dart';
+import 'package:web_reader/save/save_engine.dart';
+import 'package:web_reader/save/save_state.dart';
 import 'package:web_reader/storage/manifest.dart';
 import 'package:web_reader/core/config.dart';
 import 'package:web_reader/library/update_checker.dart';
@@ -16,14 +16,14 @@ import 'helpers/scripted_browser.dart';
 
 /// The unrendered-WebView class of bug (audit, 2026-07-27): an offstage
 /// WKWebView answers probes with real DOM data but a zero viewport and a
-/// frozen scroll position. On the real Asura page that combination made
-/// extraction accept comment avatars as chapter panels. None of that may
+/// frozen scroll position. On a long eagerly-rendered page that combination made
+/// extraction accept comment avatars as entry panels. None of that may
 /// ever reach disk.
 void main() {
   late AppDatabase db;
   late Directory root;
 
-  const config = CaptureConfig(
+  const config = SaveConfig(
     scrollDelay: Duration(milliseconds: 5),
     fastScrollDelay: Duration(milliseconds: 1),
     quietPeriod: Duration.zero,
@@ -32,7 +32,7 @@ void main() {
     maxAssetWait: Duration(milliseconds: 300),
     domReadyTimeout: Duration(seconds: 2),
     downloadRetries: 0,
-    cooldownBetweenChapters: Duration.zero,
+    cooldownBetweenEntries: Duration.zero,
   );
 
   setUp(() {
@@ -44,11 +44,11 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  CaptureEngine engine(ScriptedBrowser browser) => CaptureEngine(
+  SaveEngine engine(ScriptedBrowser browser) => SaveEngine(
     browser: browser,
     db: db,
     fileStore: FileStore(root),
-    downloader: AssetDownloader(browser: browser, config: config),
+    downloader: AssetFetcher(browser: browser, config: config),
     config: config,
   );
 
@@ -65,24 +65,24 @@ void main() {
     ],
   );
 
-  test('zero viewport pauses the capture instead of extracting', () async {
-    final states = <CaptureState>[];
+  test('zero viewport pauses the save instead of extracting', () async {
+    final states = <SaveState>[];
     final browser = ScriptedBrowser(probeBuilder: (y, _) => hiddenSurface(y))
       ..scrollMoves = false
-      ..setUrl('https://x.example/manga/foo/1');
+      ..setUrl('https://x.example/guide/foo/1');
 
-    final eng = CaptureEngine(
+    final eng = SaveEngine(
       browser: browser,
       db: db,
       fileStore: FileStore(root),
-      downloader: AssetDownloader(browser: browser, config: config),
+      downloader: AssetFetcher(browser: browser, config: config),
       config: config,
-      onProgress: (update) => states.add(update(const CaptureProgress()).state),
+      onProgress: (update) => states.add(update(const SaveProgress()).state),
     );
 
-    final run = eng.captureCurrentPage(
-      libraryItemId: 'series-1',
-      sequence: 1,
+    final run = eng.saveCurrentPage(
+      collectionId: 'collection-1',
+      entryOrder: 1,
       visitedNormalized: {},
     );
 
@@ -90,19 +90,19 @@ void main() {
     await Future<void>.delayed(const Duration(seconds: 2));
     expect(
       states,
-      contains(CaptureState.waitingForBrowser),
+      contains(SaveState.waitingForBrowser),
       reason: 'the hold must be visible to the UI',
     );
     expect(
       states,
-      isNot(contains(CaptureState.extracting)),
+      isNot(contains(SaveState.extracting)),
       reason: 'nothing may be extracted from an unrendered surface',
     );
 
     eng.cancel();
     final result = await run;
-    expect(result.status, CaptureStatus.failed);
-    expect(await db.allChapters(), isEmpty, reason: 'nothing stored');
+    expect(result.status, SaveStatus.failed);
+    expect(await db.allEntries(), isEmpty, reason: 'nothing stored');
     expect(
       Directory(root.path).listSync(recursive: true).whereType<File>(),
       isEmpty,
@@ -110,7 +110,7 @@ void main() {
     );
   });
 
-  test('surface coming back resumes and captures normally', () async {
+  test('surface coming back resumes and saves normally', () async {
     // Hidden for the first 5 probes, rendered afterwards. Downloads still
     // fail (no server), but the run must get PAST the guard and reach
     // extraction/download rather than waiting forever.
@@ -118,11 +118,11 @@ void main() {
       probeBuilder: (y, n) => n <= 5
           ? hiddenSurface(y)
           : lazyStripProbe(y: y, viewportHeight: 800, panelCount: 5),
-    )..setUrl('https://x.example/manga/foo/1');
+    )..setUrl('https://x.example/guide/foo/1');
 
-    final result = await engine(browser).captureCurrentPage(
-      libraryItemId: 'series-1',
-      sequence: 1,
+    final result = await engine(browser).saveCurrentPage(
+      collectionId: 'collection-1',
+      entryOrder: 1,
       visitedNormalized: {},
     );
 
@@ -137,12 +137,12 @@ void main() {
     () async {
       // Scrolling sees tall real panels; the final verify probe sees only
       // avatars (rendered surface, but the reader content was torn down).
-      // Extraction must refuse — never a complete chapter of avatars.
+      // Extraction must refuse — never a complete entry of avatars.
       final browser = ScriptedBrowser(
         probeBuilder: (y, n) {
           final avatarsOnly = PageProbe(
-            url: 'https://x.example/manga/foo/1',
-            title: 'Foo Chapter 1',
+            url: 'https://x.example/guide/foo/1',
+            title: 'Foo Entry 1',
             readyState: 'complete',
             documentHeight: 4000,
             viewportHeight: 800,
@@ -174,58 +174,66 @@ void main() {
                 )
               : avatarsOnly;
         },
-      )..setUrl('https://x.example/manga/foo/1');
+      )..setUrl('https://x.example/guide/foo/1');
 
-      final result = await engine(browser).captureCurrentPage(
-        libraryItemId: 'series-1',
-        sequence: 1,
+      final result = await engine(browser).saveCurrentPage(
+        collectionId: 'collection-1',
+        entryOrder: 1,
         visitedNormalized: {},
       );
 
-      expect(result.status, CaptureStatus.failed);
+      expect(result.status, SaveStatus.failed);
       expect(result.extractionFailed, isTrue, reason: 'asks the user instead');
-      expect(result.error, contains('changed under the capture'));
-      expect(await db.allChapters(), isEmpty);
+      expect(result.error, contains('changed under the save'));
+      expect(await db.allEntries(), isEmpty);
     },
   );
 
   test('the update checker holds on a hidden surface too', () async {
-    await db.upsertLibraryItem(
-      LibraryItem(
+    await db.upsertCollection(
+      Collection(
+        contentKind: 'unknownWebContent',
+        sequenceKind: 'none',
+        orderingBasis: 'discoveryOrder',
+        shapeConfidence: 'low',
         lifecycle: 'active',
         id: 's1',
         title: 'Foo',
-        sourceUrl: 'https://x.example/manga/foo',
+        sourceUrl: 'https://x.example/guide/foo',
         host: 'x.example',
-        seriesKey: '/manga/foo',
+        collectionKey: '/guide/foo',
         createdAt: DateTime(2026, 7, 1),
       ),
     );
-    await db.upsertChapter(
-      Chapter(
+    await db.upsertEntry(
+      Entry(
+        host: '',
+        contentKind: 'unknownWebContent',
+        contentKindConfidence: 'low',
+        contentKindIsUserSet: false,
         id: 'c1',
-        libraryItemId: 's1',
-        title: 'Foo Chapter 1',
-        sourceUrl: 'https://x.example/manga/foo/1',
-        urlKey: 'https://x.example/manga/foo/1',
-        captureStatus: 'complete',
-        contentPath: 'library/s1/chapters/c1',
-        capturedAt: DateTime(2026, 7, 20),
-        detectedImageCount: 3,
-        storedImageCount: 3,
-        sequence: 1,
+        collectionId: 's1',
+        title: 'Foo Entry 1',
+        sourceUrl: 'https://x.example/guide/foo/1',
+        urlKey: 'https://x.example/guide/foo/1',
+        saveStatus: 'complete',
+        contentPath: 'library/s1/entries/c1',
+        savedAt: DateTime(2026, 7, 20),
+        detectedAssetCount: 3,
+        storedAssetCount: 3,
+        entryOrder: 1,
         byteSize: 1024,
-        chapterNumber: 1,
-        chapterLabel: 'Chapter 1',
+        entryNumber: 1,
+        sourceMarker: 'Entry 1',
         readStatus: 'unread',
         progressFraction: 0,
-        progressImageIndex: 0,
-        progressOffsetInImage: 0,
+        progressPageIndex: 0,
+        progressOffsetInPage: 0,
       ),
     );
 
     final browser = ScriptedBrowser(probeBuilder: (y, _) => hiddenSurface(y))
-      ..setUrl('https://x.example/manga/foo/1');
+      ..setUrl('https://x.example/guide/foo/1');
     final checker = UpdateChecker(browser: browser, db: db);
 
     final outcome = checker.check('s1');

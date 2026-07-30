@@ -116,18 +116,18 @@ void main() {
     });
 
     test('is the automation source while something owns it', () {
-      browser.automationOwner = 'a capture job';
-      browser.navigationSource = NavigationSource.captureAutomation;
+      browser.automationOwner = 'a save run';
+      browser.navigationSource = NavigationSource.saveAutomation;
       expect(
         browser.effectiveNavigationSource,
-        NavigationSource.captureAutomation,
+        NavigationSource.saveAutomation,
       );
     });
 
     test('a forgotten assignment degrades to internal, never to manual', () {
       // The second guard: automation that failed to declare itself must not
       // land in the user's history (D53).
-      browser.automationOwner = 'a capture job';
+      browser.automationOwner = 'a save run';
       expect(browser.navigationSource, NavigationSource.manual);
       expect(browser.effectiveNavigationSource, NavigationSource.internal);
     });
@@ -255,10 +255,10 @@ void main() {
       final browser = BrowserController();
       addTearDown(browser.dispose);
       // No WebView attached, so `load` is a no-op — the point is the state.
-      final intent = await browser.open('reader://open?chapter=888');
+      final intent = await browser.open('reader://open?entry=888');
       expect(intent.isSearch, isFalse);
       expect(browser.fault!.state, BrowserPageState.externalApp);
-      expect(browser.fault!.detail, 'reader://open?chapter=888');
+      expect(browser.fault!.detail, 'reader://open?entry=888');
     });
   });
 
