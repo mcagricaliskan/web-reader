@@ -446,9 +446,9 @@ void main() {
       String state = 'queued',
       String type = 'entrySave',
     }) => QueueTask(
-      includeImages: true,
       origin: 'queue',
       id: url,
+      captureModeIsUserSet: false,
       taskType: type,
       startUrl: url,
       state: state,

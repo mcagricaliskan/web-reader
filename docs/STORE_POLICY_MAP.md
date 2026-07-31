@@ -72,18 +72,34 @@ should review the Terms and the content-rights wording before submission.
 
 **Mitigation: the capability is absent, not discouraged.** The asset fetcher
 accepts image bytes only (verified by magic number, not by `Content-Type`, which
-servers misreport). `<video>`, `<audio>` and media `<iframe>` elements are
-*counted* by the page probe so the entry can show a placeholder and a link to the
-original page — no media URL is read, and none is fetched.
+servers misreport). Media elements are *measured* by the page probe — a count,
+the largest player's laid-out area, and whether it sits in the readable region —
+so a page that is primarily a video can be recognised and refused. **No media
+URL is read, returned or stored anywhere in the codebase.**
 
-- `lib/browser/page_data.dart` → `PageMediaSignals` (counts only)
+A page classified `videoDominant` is handled explicitly rather than silently:
+the save sheet says video is not saved, and when the page carries no readable
+text the save is **refused** rather than falling back to collecting its
+thumbnails and calling that an offline copy.
+
+- `lib/browser/page_data.dart` → `PageMediaSignals` (geometry only, no URLs)
+- `lib/save/content_detection.dart` → `videoDominant`, with three guards so an
+  incidental player never triggers it
+- `lib/save/capture_mode.dart` → `CaptureMode` has **no video value**; the save
+  sheet is built from that enum, so no video option can appear
 - `lib/save/asset_fetcher.dart` → image MIME allow-list
-- `lib/save/save_run.dart` → logs "audio/video on this page is not saved"
+- `lib/save/save_run.dart` → refuses a video page with nothing readable
 
-**Gap:** the reader's unsupported-media placeholder is not built yet, and there
-is no test asserting that audio/video is never stored as an offline asset. The
-capability's absence rests on the fetcher's image-only MIME allow-list, which is
-verified by `mime_extension_test.dart`, not on a dedicated media test.
+**Tests.** `test/content_detection_test.dart` covers video-dominant
+classification, every incidental-video case that must *not* trigger it, and the
+refusal. `integration_test/text_capture_test.dart` proves the same against a
+real `<video>` element in a live WebView, including that the page's sidebar
+thumbnails are not swept up instead. The image-only MIME allow-list stays
+verified by `mime_extension_test.dart`.
+
+**Remaining gap:** there is still no test that asserts a media *byte stream*
+offered to `AssetFetcher` is rejected — the allow-list makes it unreachable by
+construction, but that is an argument rather than an assertion.
 
 ---
 

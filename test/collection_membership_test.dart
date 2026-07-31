@@ -51,6 +51,7 @@ void main() {
       contentKind: ContentKind.unknownWebContent.name,
       contentKindConfidence: ShapeConfidence.low.name,
       contentKindIsUserSet: false,
+      artifactFormat: 'imageSequence',
       saveStatus: 'complete',
       contentPath: 'library/x/$id',
       detectedAssetCount: 1,

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/save/asset_fetcher.dart';
+import 'package:web_reader/save/capture_mode.dart';
 import 'package:web_reader/save/save_engine.dart';
 import 'package:web_reader/core/config.dart';
 import 'package:web_reader/storage/database.dart';
@@ -56,6 +57,7 @@ void main() {
       collectionId: 'collection-1',
       entryOrder: 1,
       visitedNormalized: {},
+      captureMode: CaptureMode.imageSequence,
     );
   }
 

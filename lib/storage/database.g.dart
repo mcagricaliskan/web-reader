@@ -307,6 +307,17 @@ class $CollectionsTable extends Collections
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _preferredCaptureModeMeta =
+      const VerificationMeta('preferredCaptureMode');
+  @override
+  late final GeneratedColumn<String> preferredCaptureMode =
+      GeneratedColumn<String>(
+        'preferred_capture_mode',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -336,6 +347,7 @@ class $CollectionsTable extends Collections
     lifecycle,
     archivedAt,
     cleanupPreference,
+    preferredCaptureMode,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -575,6 +587,15 @@ class $CollectionsTable extends Collections
         ),
       );
     }
+    if (data.containsKey('preferred_capture_mode')) {
+      context.handle(
+        _preferredCaptureModeMeta,
+        preferredCaptureMode.isAcceptableOrUnknown(
+          data['preferred_capture_mode']!,
+          _preferredCaptureModeMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -696,6 +717,10 @@ class $CollectionsTable extends Collections
         DriftSqlType.string,
         data['${effectivePrefix}cleanup_preference'],
       ),
+      preferredCaptureMode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}preferred_capture_mode'],
+      ),
     );
   }
 
@@ -779,6 +804,16 @@ class Collection extends DataClass implements Insertable<Collection> {
   /// copy: null means "ask on the next eligible transition", and an unrecognised
   /// value reads as null, which asks rather than guessing at removal.
   final String? cleanupPreference;
+
+  /// `CaptureMode.name` the user asked to reuse for this collection, or null
+  /// while they never said.
+  ///
+  /// **A proposal, never an instruction.** Every save re-measures the page and
+  /// runs this through `CaptureCapabilities.resolve`, so a remembered "text
+  /// and images" cannot force a document out of a page that has no text — it
+  /// falls back and the run says why. An unrecognised value reads as null,
+  /// which means "detect", not "guess".
+  final String? preferredCaptureMode;
   const Collection({
     required this.id,
     required this.title,
@@ -807,6 +842,7 @@ class Collection extends DataClass implements Insertable<Collection> {
     required this.lifecycle,
     this.archivedAt,
     this.cleanupPreference,
+    this.preferredCaptureMode,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -871,6 +907,9 @@ class Collection extends DataClass implements Insertable<Collection> {
     }
     if (!nullToAbsent || cleanupPreference != null) {
       map['cleanup_preference'] = Variable<String>(cleanupPreference);
+    }
+    if (!nullToAbsent || preferredCaptureMode != null) {
+      map['preferred_capture_mode'] = Variable<String>(preferredCaptureMode);
     }
     return map;
   }
@@ -938,6 +977,9 @@ class Collection extends DataClass implements Insertable<Collection> {
       cleanupPreference: cleanupPreference == null && nullToAbsent
           ? const Value.absent()
           : Value(cleanupPreference),
+      preferredCaptureMode: preferredCaptureMode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preferredCaptureMode),
     );
   }
 
@@ -986,6 +1028,9 @@ class Collection extends DataClass implements Insertable<Collection> {
       cleanupPreference: serializer.fromJson<String?>(
         json['cleanupPreference'],
       ),
+      preferredCaptureMode: serializer.fromJson<String?>(
+        json['preferredCaptureMode'],
+      ),
     );
   }
   @override
@@ -1019,6 +1064,7 @@ class Collection extends DataClass implements Insertable<Collection> {
       'lifecycle': serializer.toJson<String>(lifecycle),
       'archivedAt': serializer.toJson<DateTime?>(archivedAt),
       'cleanupPreference': serializer.toJson<String?>(cleanupPreference),
+      'preferredCaptureMode': serializer.toJson<String?>(preferredCaptureMode),
     };
   }
 
@@ -1050,6 +1096,7 @@ class Collection extends DataClass implements Insertable<Collection> {
     String? lifecycle,
     Value<DateTime?> archivedAt = const Value.absent(),
     Value<String?> cleanupPreference = const Value.absent(),
+    Value<String?> preferredCaptureMode = const Value.absent(),
   }) => Collection(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -1100,6 +1147,9 @@ class Collection extends DataClass implements Insertable<Collection> {
     cleanupPreference: cleanupPreference.present
         ? cleanupPreference.value
         : this.cleanupPreference,
+    preferredCaptureMode: preferredCaptureMode.present
+        ? preferredCaptureMode.value
+        : this.preferredCaptureMode,
   );
   Collection copyWithCompanion(CollectionsCompanion data) {
     return Collection(
@@ -1170,6 +1220,9 @@ class Collection extends DataClass implements Insertable<Collection> {
       cleanupPreference: data.cleanupPreference.present
           ? data.cleanupPreference.value
           : this.cleanupPreference,
+      preferredCaptureMode: data.preferredCaptureMode.present
+          ? data.preferredCaptureMode.value
+          : this.preferredCaptureMode,
     );
   }
 
@@ -1202,7 +1255,8 @@ class Collection extends DataClass implements Insertable<Collection> {
           ..write('lastCheckResult: $lastCheckResult, ')
           ..write('lifecycle: $lifecycle, ')
           ..write('archivedAt: $archivedAt, ')
-          ..write('cleanupPreference: $cleanupPreference')
+          ..write('cleanupPreference: $cleanupPreference, ')
+          ..write('preferredCaptureMode: $preferredCaptureMode')
           ..write(')'))
         .toString();
   }
@@ -1236,6 +1290,7 @@ class Collection extends DataClass implements Insertable<Collection> {
     lifecycle,
     archivedAt,
     cleanupPreference,
+    preferredCaptureMode,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -1267,7 +1322,8 @@ class Collection extends DataClass implements Insertable<Collection> {
           other.lastCheckResult == this.lastCheckResult &&
           other.lifecycle == this.lifecycle &&
           other.archivedAt == this.archivedAt &&
-          other.cleanupPreference == this.cleanupPreference);
+          other.cleanupPreference == this.cleanupPreference &&
+          other.preferredCaptureMode == this.preferredCaptureMode);
 }
 
 class CollectionsCompanion extends UpdateCompanion<Collection> {
@@ -1298,6 +1354,7 @@ class CollectionsCompanion extends UpdateCompanion<Collection> {
   final Value<String> lifecycle;
   final Value<DateTime?> archivedAt;
   final Value<String?> cleanupPreference;
+  final Value<String?> preferredCaptureMode;
   final Value<int> rowid;
   const CollectionsCompanion({
     this.id = const Value.absent(),
@@ -1327,6 +1384,7 @@ class CollectionsCompanion extends UpdateCompanion<Collection> {
     this.lifecycle = const Value.absent(),
     this.archivedAt = const Value.absent(),
     this.cleanupPreference = const Value.absent(),
+    this.preferredCaptureMode = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CollectionsCompanion.insert({
@@ -1357,6 +1415,7 @@ class CollectionsCompanion extends UpdateCompanion<Collection> {
     this.lifecycle = const Value.absent(),
     this.archivedAt = const Value.absent(),
     this.cleanupPreference = const Value.absent(),
+    this.preferredCaptureMode = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        title = Value(title),
@@ -1391,6 +1450,7 @@ class CollectionsCompanion extends UpdateCompanion<Collection> {
     Expression<String>? lifecycle,
     Expression<DateTime>? archivedAt,
     Expression<String>? cleanupPreference,
+    Expression<String>? preferredCaptureMode,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1424,6 +1484,8 @@ class CollectionsCompanion extends UpdateCompanion<Collection> {
       if (lifecycle != null) 'lifecycle': lifecycle,
       if (archivedAt != null) 'archived_at': archivedAt,
       if (cleanupPreference != null) 'cleanup_preference': cleanupPreference,
+      if (preferredCaptureMode != null)
+        'preferred_capture_mode': preferredCaptureMode,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1456,6 +1518,7 @@ class CollectionsCompanion extends UpdateCompanion<Collection> {
     Value<String>? lifecycle,
     Value<DateTime?>? archivedAt,
     Value<String?>? cleanupPreference,
+    Value<String?>? preferredCaptureMode,
     Value<int>? rowid,
   }) {
     return CollectionsCompanion(
@@ -1486,6 +1549,7 @@ class CollectionsCompanion extends UpdateCompanion<Collection> {
       lifecycle: lifecycle ?? this.lifecycle,
       archivedAt: archivedAt ?? this.archivedAt,
       cleanupPreference: cleanupPreference ?? this.cleanupPreference,
+      preferredCaptureMode: preferredCaptureMode ?? this.preferredCaptureMode,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1578,6 +1642,11 @@ class CollectionsCompanion extends UpdateCompanion<Collection> {
     if (cleanupPreference.present) {
       map['cleanup_preference'] = Variable<String>(cleanupPreference.value);
     }
+    if (preferredCaptureMode.present) {
+      map['preferred_capture_mode'] = Variable<String>(
+        preferredCaptureMode.value,
+      );
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1614,6 +1683,7 @@ class CollectionsCompanion extends UpdateCompanion<Collection> {
           ..write('lifecycle: $lifecycle, ')
           ..write('archivedAt: $archivedAt, ')
           ..write('cleanupPreference: $cleanupPreference, ')
+          ..write('preferredCaptureMode: $preferredCaptureMode, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1757,6 +1827,29 @@ class $EntriesTable extends Entries with TableInfo<$EntriesTable, Entry> {
       'CHECK ("content_kind_is_user_set" IN (0, 1))',
     ),
     defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _artifactFormatMeta = const VerificationMeta(
+    'artifactFormat',
+  );
+  @override
+  late final GeneratedColumn<String> artifactFormat = GeneratedColumn<String>(
+    'artifact_format',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('imageSequence'),
+  );
+  static const VerificationMeta _captureModeMeta = const VerificationMeta(
+    'captureMode',
+  );
+  @override
+  late final GeneratedColumn<String> captureMode = GeneratedColumn<String>(
+    'capture_mode',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _saveStatusMeta = const VerificationMeta(
     'saveStatus',
@@ -2035,6 +2128,8 @@ class $EntriesTable extends Entries with TableInfo<$EntriesTable, Entry> {
     contentKind,
     contentKindConfidence,
     contentKindIsUserSet,
+    artifactFormat,
+    captureMode,
     saveStatus,
     contentPath,
     savedAt,
@@ -2166,6 +2261,24 @@ class $EntriesTable extends Entries with TableInfo<$EntriesTable, Entry> {
         contentKindIsUserSet.isAcceptableOrUnknown(
           data['content_kind_is_user_set']!,
           _contentKindIsUserSetMeta,
+        ),
+      );
+    }
+    if (data.containsKey('artifact_format')) {
+      context.handle(
+        _artifactFormatMeta,
+        artifactFormat.isAcceptableOrUnknown(
+          data['artifact_format']!,
+          _artifactFormatMeta,
+        ),
+      );
+    }
+    if (data.containsKey('capture_mode')) {
+      context.handle(
+        _captureModeMeta,
+        captureMode.isAcceptableOrUnknown(
+          data['capture_mode']!,
+          _captureModeMeta,
         ),
       );
     }
@@ -2421,6 +2534,14 @@ class $EntriesTable extends Entries with TableInfo<$EntriesTable, Entry> {
         DriftSqlType.bool,
         data['${effectivePrefix}content_kind_is_user_set'],
       )!,
+      artifactFormat: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}artifact_format'],
+      )!,
+      captureMode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}capture_mode'],
+      ),
       saveStatus: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}save_status'],
@@ -2567,6 +2688,22 @@ class Entry extends DataClass implements Insertable<Entry> {
   /// True once the user corrected the detected kind. Detection must never
   /// overwrite a human answer on a later re-save.
   final bool contentKindIsUserSet;
+
+  /// `ArtifactFormat.name`. Mirrors the entry's `manifest.json`, which stays
+  /// the authority — this copy exists so the library can describe an entry
+  /// without opening a file per row.
+  final String artifactFormat;
+
+  /// `CaptureMode.name` actually used, or null for an entry that was only ever
+  /// discovered. What was *used*, never what was requested: a run that fell
+  /// back records the fallback.
+  ///
+  /// There is deliberately no `capture_mode_is_user_set` beside it. Whether a
+  /// person picked the mode is a fact about the *save*, and it is recorded on
+  /// the run, the queue row and the entry's manifest. A fourth copy on the row
+  /// would be one more place for the same fact to drift out of agreement,
+  /// and nothing reads it that the manifest cannot answer.
+  final String? captureMode;
   final String saveStatus;
 
   /// Relative to the FileStore root. Never absolute.
@@ -2628,6 +2765,8 @@ class Entry extends DataClass implements Insertable<Entry> {
     required this.contentKind,
     required this.contentKindConfidence,
     required this.contentKindIsUserSet,
+    required this.artifactFormat,
+    this.captureMode,
     required this.saveStatus,
     this.contentPath,
     this.savedAt,
@@ -2675,6 +2814,10 @@ class Entry extends DataClass implements Insertable<Entry> {
     map['content_kind'] = Variable<String>(contentKind);
     map['content_kind_confidence'] = Variable<String>(contentKindConfidence);
     map['content_kind_is_user_set'] = Variable<bool>(contentKindIsUserSet);
+    map['artifact_format'] = Variable<String>(artifactFormat);
+    if (!nullToAbsent || captureMode != null) {
+      map['capture_mode'] = Variable<String>(captureMode);
+    }
     map['save_status'] = Variable<String>(saveStatus);
     if (!nullToAbsent || contentPath != null) {
       map['content_path'] = Variable<String>(contentPath);
@@ -2751,6 +2894,10 @@ class Entry extends DataClass implements Insertable<Entry> {
       contentKind: Value(contentKind),
       contentKindConfidence: Value(contentKindConfidence),
       contentKindIsUserSet: Value(contentKindIsUserSet),
+      artifactFormat: Value(artifactFormat),
+      captureMode: captureMode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(captureMode),
       saveStatus: Value(saveStatus),
       contentPath: contentPath == null && nullToAbsent
           ? const Value.absent()
@@ -2827,6 +2974,8 @@ class Entry extends DataClass implements Insertable<Entry> {
       contentKindIsUserSet: serializer.fromJson<bool>(
         json['contentKindIsUserSet'],
       ),
+      artifactFormat: serializer.fromJson<String>(json['artifactFormat']),
+      captureMode: serializer.fromJson<String?>(json['captureMode']),
       saveStatus: serializer.fromJson<String>(json['saveStatus']),
       contentPath: serializer.fromJson<String?>(json['contentPath']),
       savedAt: serializer.fromJson<DateTime?>(json['savedAt']),
@@ -2876,6 +3025,8 @@ class Entry extends DataClass implements Insertable<Entry> {
       'contentKind': serializer.toJson<String>(contentKind),
       'contentKindConfidence': serializer.toJson<String>(contentKindConfidence),
       'contentKindIsUserSet': serializer.toJson<bool>(contentKindIsUserSet),
+      'artifactFormat': serializer.toJson<String>(artifactFormat),
+      'captureMode': serializer.toJson<String?>(captureMode),
       'saveStatus': serializer.toJson<String>(saveStatus),
       'contentPath': serializer.toJson<String?>(contentPath),
       'savedAt': serializer.toJson<DateTime?>(savedAt),
@@ -2915,6 +3066,8 @@ class Entry extends DataClass implements Insertable<Entry> {
     String? contentKind,
     String? contentKindConfidence,
     bool? contentKindIsUserSet,
+    String? artifactFormat,
+    Value<String?> captureMode = const Value.absent(),
     String? saveStatus,
     Value<String?> contentPath = const Value.absent(),
     Value<DateTime?> savedAt = const Value.absent(),
@@ -2951,6 +3104,8 @@ class Entry extends DataClass implements Insertable<Entry> {
     contentKind: contentKind ?? this.contentKind,
     contentKindConfidence: contentKindConfidence ?? this.contentKindConfidence,
     contentKindIsUserSet: contentKindIsUserSet ?? this.contentKindIsUserSet,
+    artifactFormat: artifactFormat ?? this.artifactFormat,
+    captureMode: captureMode.present ? captureMode.value : this.captureMode,
     saveStatus: saveStatus ?? this.saveStatus,
     contentPath: contentPath.present ? contentPath.value : this.contentPath,
     savedAt: savedAt.present ? savedAt.value : this.savedAt,
@@ -3015,6 +3170,12 @@ class Entry extends DataClass implements Insertable<Entry> {
       contentKindIsUserSet: data.contentKindIsUserSet.present
           ? data.contentKindIsUserSet.value
           : this.contentKindIsUserSet,
+      artifactFormat: data.artifactFormat.present
+          ? data.artifactFormat.value
+          : this.artifactFormat,
+      captureMode: data.captureMode.present
+          ? data.captureMode.value
+          : this.captureMode,
       saveStatus: data.saveStatus.present
           ? data.saveStatus.value
           : this.saveStatus,
@@ -3096,6 +3257,8 @@ class Entry extends DataClass implements Insertable<Entry> {
           ..write('contentKind: $contentKind, ')
           ..write('contentKindConfidence: $contentKindConfidence, ')
           ..write('contentKindIsUserSet: $contentKindIsUserSet, ')
+          ..write('artifactFormat: $artifactFormat, ')
+          ..write('captureMode: $captureMode, ')
           ..write('saveStatus: $saveStatus, ')
           ..write('contentPath: $contentPath, ')
           ..write('savedAt: $savedAt, ')
@@ -3137,6 +3300,8 @@ class Entry extends DataClass implements Insertable<Entry> {
     contentKind,
     contentKindConfidence,
     contentKindIsUserSet,
+    artifactFormat,
+    captureMode,
     saveStatus,
     contentPath,
     savedAt,
@@ -3177,6 +3342,8 @@ class Entry extends DataClass implements Insertable<Entry> {
           other.contentKind == this.contentKind &&
           other.contentKindConfidence == this.contentKindConfidence &&
           other.contentKindIsUserSet == this.contentKindIsUserSet &&
+          other.artifactFormat == this.artifactFormat &&
+          other.captureMode == this.captureMode &&
           other.saveStatus == this.saveStatus &&
           other.contentPath == this.contentPath &&
           other.savedAt == this.savedAt &&
@@ -3215,6 +3382,8 @@ class EntriesCompanion extends UpdateCompanion<Entry> {
   final Value<String> contentKind;
   final Value<String> contentKindConfidence;
   final Value<bool> contentKindIsUserSet;
+  final Value<String> artifactFormat;
+  final Value<String?> captureMode;
   final Value<String> saveStatus;
   final Value<String?> contentPath;
   final Value<DateTime?> savedAt;
@@ -3252,6 +3421,8 @@ class EntriesCompanion extends UpdateCompanion<Entry> {
     this.contentKind = const Value.absent(),
     this.contentKindConfidence = const Value.absent(),
     this.contentKindIsUserSet = const Value.absent(),
+    this.artifactFormat = const Value.absent(),
+    this.captureMode = const Value.absent(),
     this.saveStatus = const Value.absent(),
     this.contentPath = const Value.absent(),
     this.savedAt = const Value.absent(),
@@ -3290,6 +3461,8 @@ class EntriesCompanion extends UpdateCompanion<Entry> {
     this.contentKind = const Value.absent(),
     this.contentKindConfidence = const Value.absent(),
     this.contentKindIsUserSet = const Value.absent(),
+    this.artifactFormat = const Value.absent(),
+    this.captureMode = const Value.absent(),
     required String saveStatus,
     this.contentPath = const Value.absent(),
     this.savedAt = const Value.absent(),
@@ -3332,6 +3505,8 @@ class EntriesCompanion extends UpdateCompanion<Entry> {
     Expression<String>? contentKind,
     Expression<String>? contentKindConfidence,
     Expression<bool>? contentKindIsUserSet,
+    Expression<String>? artifactFormat,
+    Expression<String>? captureMode,
     Expression<String>? saveStatus,
     Expression<String>? contentPath,
     Expression<DateTime>? savedAt,
@@ -3372,6 +3547,8 @@ class EntriesCompanion extends UpdateCompanion<Entry> {
         'content_kind_confidence': contentKindConfidence,
       if (contentKindIsUserSet != null)
         'content_kind_is_user_set': contentKindIsUserSet,
+      if (artifactFormat != null) 'artifact_format': artifactFormat,
+      if (captureMode != null) 'capture_mode': captureMode,
       if (saveStatus != null) 'save_status': saveStatus,
       if (contentPath != null) 'content_path': contentPath,
       if (savedAt != null) 'saved_at': savedAt,
@@ -3415,6 +3592,8 @@ class EntriesCompanion extends UpdateCompanion<Entry> {
     Value<String>? contentKind,
     Value<String>? contentKindConfidence,
     Value<bool>? contentKindIsUserSet,
+    Value<String>? artifactFormat,
+    Value<String?>? captureMode,
     Value<String>? saveStatus,
     Value<String?>? contentPath,
     Value<DateTime?>? savedAt,
@@ -3454,6 +3633,8 @@ class EntriesCompanion extends UpdateCompanion<Entry> {
       contentKindConfidence:
           contentKindConfidence ?? this.contentKindConfidence,
       contentKindIsUserSet: contentKindIsUserSet ?? this.contentKindIsUserSet,
+      artifactFormat: artifactFormat ?? this.artifactFormat,
+      captureMode: captureMode ?? this.captureMode,
       saveStatus: saveStatus ?? this.saveStatus,
       contentPath: contentPath ?? this.contentPath,
       savedAt: savedAt ?? this.savedAt,
@@ -3523,6 +3704,12 @@ class EntriesCompanion extends UpdateCompanion<Entry> {
       map['content_kind_is_user_set'] = Variable<bool>(
         contentKindIsUserSet.value,
       );
+    }
+    if (artifactFormat.present) {
+      map['artifact_format'] = Variable<String>(artifactFormat.value);
+    }
+    if (captureMode.present) {
+      map['capture_mode'] = Variable<String>(captureMode.value);
     }
     if (saveStatus.present) {
       map['save_status'] = Variable<String>(saveStatus.value);
@@ -3616,6 +3803,8 @@ class EntriesCompanion extends UpdateCompanion<Entry> {
           ..write('contentKind: $contentKind, ')
           ..write('contentKindConfidence: $contentKindConfidence, ')
           ..write('contentKindIsUserSet: $contentKindIsUserSet, ')
+          ..write('artifactFormat: $artifactFormat, ')
+          ..write('captureMode: $captureMode, ')
           ..write('saveStatus: $saveStatus, ')
           ..write('contentPath: $contentPath, ')
           ..write('savedAt: $savedAt, ')
@@ -3825,20 +4014,30 @@ class $SaveRunsTable extends SaveRuns with TableInfo<$SaveRunsTable, SaveRun> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _includeImagesMeta = const VerificationMeta(
-    'includeImages',
+  static const VerificationMeta _captureModeMeta = const VerificationMeta(
+    'captureMode',
   );
   @override
-  late final GeneratedColumn<bool> includeImages = GeneratedColumn<bool>(
-    'include_images',
+  late final GeneratedColumn<String> captureMode = GeneratedColumn<String>(
+    'capture_mode',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _captureModeIsUserSetMeta =
+      const VerificationMeta('captureModeIsUserSet');
+  @override
+  late final GeneratedColumn<bool> captureModeIsUserSet = GeneratedColumn<bool>(
+    'capture_mode_is_user_set',
     aliasedName,
     false,
     type: DriftSqlType.bool,
     requiredDuringInsert: false,
     defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("include_images" IN (0, 1))',
+      'CHECK ("capture_mode_is_user_set" IN (0, 1))',
     ),
-    defaultValue: const Constant(true),
+    defaultValue: const Constant(false),
   );
   static const VerificationMeta _pauseReasonMeta = const VerificationMeta(
     'pauseReason',
@@ -3901,7 +4100,8 @@ class $SaveRunsTable extends SaveRuns with TableInfo<$SaveRunsTable, SaveRun> {
     sessionPartialDecision,
     scope,
     maxBytes,
-    includeImages,
+    captureMode,
+    captureModeIsUserSet,
     pauseReason,
     origin,
     createdAt,
@@ -4044,12 +4244,21 @@ class $SaveRunsTable extends SaveRuns with TableInfo<$SaveRunsTable, SaveRun> {
         maxBytes.isAcceptableOrUnknown(data['max_bytes']!, _maxBytesMeta),
       );
     }
-    if (data.containsKey('include_images')) {
+    if (data.containsKey('capture_mode')) {
       context.handle(
-        _includeImagesMeta,
-        includeImages.isAcceptableOrUnknown(
-          data['include_images']!,
-          _includeImagesMeta,
+        _captureModeMeta,
+        captureMode.isAcceptableOrUnknown(
+          data['capture_mode']!,
+          _captureModeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('capture_mode_is_user_set')) {
+      context.handle(
+        _captureModeIsUserSetMeta,
+        captureModeIsUserSet.isAcceptableOrUnknown(
+          data['capture_mode_is_user_set']!,
+          _captureModeIsUserSetMeta,
         ),
       );
     }
@@ -4157,9 +4366,13 @@ class $SaveRunsTable extends SaveRuns with TableInfo<$SaveRunsTable, SaveRun> {
         DriftSqlType.int,
         data['${effectivePrefix}max_bytes'],
       ),
-      includeImages: attachedDatabase.typeMapping.read(
+      captureMode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}capture_mode'],
+      ),
+      captureModeIsUserSet: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
-        data['${effectivePrefix}include_images'],
+        data['${effectivePrefix}capture_mode_is_user_set'],
       )!,
       pauseReason: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -4230,9 +4443,19 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
   /// alongside a count for open-ended sequences.
   final int? maxBytes;
 
-  /// Whether the offline copy includes the page's images. Asked once per run,
-  /// answered by the user, never assumed.
-  final bool includeImages;
+  /// `CaptureMode.name` the run was started with — image sequence, text only,
+  /// or text and images.
+  ///
+  /// Replaced the old `include_images` boolean, which could not express the
+  /// difference between "an ordered sequence of full-size images" and "an
+  /// article with pictures in it" and which nothing ever read. Nullable
+  /// because a resume of a run started before the mode was chosen re-detects
+  /// rather than assuming one.
+  final String? captureMode;
+
+  /// Whether the user picked the mode themselves, so a resume does not quietly
+  /// re-detect over a deliberate choice.
+  final bool captureModeIsUserSet;
 
   /// Why a running save is paused (`browserHidden` today; null otherwise).
   final String? pauseReason;
@@ -4260,7 +4483,8 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
     this.sessionPartialDecision,
     required this.scope,
     this.maxBytes,
-    required this.includeImages,
+    this.captureMode,
+    required this.captureModeIsUserSet,
     this.pauseReason,
     required this.origin,
     required this.createdAt,
@@ -4305,7 +4529,10 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
     if (!nullToAbsent || maxBytes != null) {
       map['max_bytes'] = Variable<int>(maxBytes);
     }
-    map['include_images'] = Variable<bool>(includeImages);
+    if (!nullToAbsent || captureMode != null) {
+      map['capture_mode'] = Variable<String>(captureMode);
+    }
+    map['capture_mode_is_user_set'] = Variable<bool>(captureModeIsUserSet);
     if (!nullToAbsent || pauseReason != null) {
       map['pause_reason'] = Variable<String>(pauseReason);
     }
@@ -4349,7 +4576,10 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
       maxBytes: maxBytes == null && nullToAbsent
           ? const Value.absent()
           : Value(maxBytes),
-      includeImages: Value(includeImages),
+      captureMode: captureMode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(captureMode),
+      captureModeIsUserSet: Value(captureModeIsUserSet),
       pauseReason: pauseReason == null && nullToAbsent
           ? const Value.absent()
           : Value(pauseReason),
@@ -4385,7 +4615,10 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
       ),
       scope: serializer.fromJson<String>(json['scope']),
       maxBytes: serializer.fromJson<int?>(json['maxBytes']),
-      includeImages: serializer.fromJson<bool>(json['includeImages']),
+      captureMode: serializer.fromJson<String?>(json['captureMode']),
+      captureModeIsUserSet: serializer.fromJson<bool>(
+        json['captureModeIsUserSet'],
+      ),
       pauseReason: serializer.fromJson<String?>(json['pauseReason']),
       origin: serializer.fromJson<String>(json['origin']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
@@ -4416,7 +4649,8 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
       ),
       'scope': serializer.toJson<String>(scope),
       'maxBytes': serializer.toJson<int?>(maxBytes),
-      'includeImages': serializer.toJson<bool>(includeImages),
+      'captureMode': serializer.toJson<String?>(captureMode),
+      'captureModeIsUserSet': serializer.toJson<bool>(captureModeIsUserSet),
       'pauseReason': serializer.toJson<String?>(pauseReason),
       'origin': serializer.toJson<String>(origin),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -4441,7 +4675,8 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
     Value<String?> sessionPartialDecision = const Value.absent(),
     String? scope,
     Value<int?> maxBytes = const Value.absent(),
-    bool? includeImages,
+    Value<String?> captureMode = const Value.absent(),
+    bool? captureModeIsUserSet,
     Value<String?> pauseReason = const Value.absent(),
     String? origin,
     DateTime? createdAt,
@@ -4469,7 +4704,8 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
         : this.sessionPartialDecision,
     scope: scope ?? this.scope,
     maxBytes: maxBytes.present ? maxBytes.value : this.maxBytes,
-    includeImages: includeImages ?? this.includeImages,
+    captureMode: captureMode.present ? captureMode.value : this.captureMode,
+    captureModeIsUserSet: captureModeIsUserSet ?? this.captureModeIsUserSet,
     pauseReason: pauseReason.present ? pauseReason.value : this.pauseReason,
     origin: origin ?? this.origin,
     createdAt: createdAt ?? this.createdAt,
@@ -4513,9 +4749,12 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
           : this.sessionPartialDecision,
       scope: data.scope.present ? data.scope.value : this.scope,
       maxBytes: data.maxBytes.present ? data.maxBytes.value : this.maxBytes,
-      includeImages: data.includeImages.present
-          ? data.includeImages.value
-          : this.includeImages,
+      captureMode: data.captureMode.present
+          ? data.captureMode.value
+          : this.captureMode,
+      captureModeIsUserSet: data.captureModeIsUserSet.present
+          ? data.captureModeIsUserSet.value
+          : this.captureModeIsUserSet,
       pauseReason: data.pauseReason.present
           ? data.pauseReason.value
           : this.pauseReason,
@@ -4544,7 +4783,8 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
           ..write('sessionPartialDecision: $sessionPartialDecision, ')
           ..write('scope: $scope, ')
           ..write('maxBytes: $maxBytes, ')
-          ..write('includeImages: $includeImages, ')
+          ..write('captureMode: $captureMode, ')
+          ..write('captureModeIsUserSet: $captureModeIsUserSet, ')
           ..write('pauseReason: $pauseReason, ')
           ..write('origin: $origin, ')
           ..write('createdAt: $createdAt, ')
@@ -4571,7 +4811,8 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
     sessionPartialDecision,
     scope,
     maxBytes,
-    includeImages,
+    captureMode,
+    captureModeIsUserSet,
     pauseReason,
     origin,
     createdAt,
@@ -4597,7 +4838,8 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
           other.sessionPartialDecision == this.sessionPartialDecision &&
           other.scope == this.scope &&
           other.maxBytes == this.maxBytes &&
-          other.includeImages == this.includeImages &&
+          other.captureMode == this.captureMode &&
+          other.captureModeIsUserSet == this.captureModeIsUserSet &&
           other.pauseReason == this.pauseReason &&
           other.origin == this.origin &&
           other.createdAt == this.createdAt &&
@@ -4621,7 +4863,8 @@ class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
   final Value<String?> sessionPartialDecision;
   final Value<String> scope;
   final Value<int?> maxBytes;
-  final Value<bool> includeImages;
+  final Value<String?> captureMode;
+  final Value<bool> captureModeIsUserSet;
   final Value<String?> pauseReason;
   final Value<String> origin;
   final Value<DateTime> createdAt;
@@ -4644,7 +4887,8 @@ class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
     this.sessionPartialDecision = const Value.absent(),
     this.scope = const Value.absent(),
     this.maxBytes = const Value.absent(),
-    this.includeImages = const Value.absent(),
+    this.captureMode = const Value.absent(),
+    this.captureModeIsUserSet = const Value.absent(),
     this.pauseReason = const Value.absent(),
     this.origin = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -4668,7 +4912,8 @@ class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
     this.sessionPartialDecision = const Value.absent(),
     this.scope = const Value.absent(),
     this.maxBytes = const Value.absent(),
-    this.includeImages = const Value.absent(),
+    this.captureMode = const Value.absent(),
+    this.captureModeIsUserSet = const Value.absent(),
     this.pauseReason = const Value.absent(),
     this.origin = const Value.absent(),
     required DateTime createdAt,
@@ -4697,7 +4942,8 @@ class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
     Expression<String>? sessionPartialDecision,
     Expression<String>? scope,
     Expression<int>? maxBytes,
-    Expression<bool>? includeImages,
+    Expression<String>? captureMode,
+    Expression<bool>? captureModeIsUserSet,
     Expression<String>? pauseReason,
     Expression<String>? origin,
     Expression<DateTime>? createdAt,
@@ -4723,7 +4969,9 @@ class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
         'session_partial_decision': sessionPartialDecision,
       if (scope != null) 'scope': scope,
       if (maxBytes != null) 'max_bytes': maxBytes,
-      if (includeImages != null) 'include_images': includeImages,
+      if (captureMode != null) 'capture_mode': captureMode,
+      if (captureModeIsUserSet != null)
+        'capture_mode_is_user_set': captureModeIsUserSet,
       if (pauseReason != null) 'pause_reason': pauseReason,
       if (origin != null) 'origin': origin,
       if (createdAt != null) 'created_at': createdAt,
@@ -4749,7 +4997,8 @@ class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
     Value<String?>? sessionPartialDecision,
     Value<String>? scope,
     Value<int?>? maxBytes,
-    Value<bool>? includeImages,
+    Value<String?>? captureMode,
+    Value<bool>? captureModeIsUserSet,
     Value<String?>? pauseReason,
     Value<String>? origin,
     Value<DateTime>? createdAt,
@@ -4775,7 +5024,8 @@ class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
           sessionPartialDecision ?? this.sessionPartialDecision,
       scope: scope ?? this.scope,
       maxBytes: maxBytes ?? this.maxBytes,
-      includeImages: includeImages ?? this.includeImages,
+      captureMode: captureMode ?? this.captureMode,
+      captureModeIsUserSet: captureModeIsUserSet ?? this.captureModeIsUserSet,
       pauseReason: pauseReason ?? this.pauseReason,
       origin: origin ?? this.origin,
       createdAt: createdAt ?? this.createdAt,
@@ -4839,8 +5089,13 @@ class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
     if (maxBytes.present) {
       map['max_bytes'] = Variable<int>(maxBytes.value);
     }
-    if (includeImages.present) {
-      map['include_images'] = Variable<bool>(includeImages.value);
+    if (captureMode.present) {
+      map['capture_mode'] = Variable<String>(captureMode.value);
+    }
+    if (captureModeIsUserSet.present) {
+      map['capture_mode_is_user_set'] = Variable<bool>(
+        captureModeIsUserSet.value,
+      );
     }
     if (pauseReason.present) {
       map['pause_reason'] = Variable<String>(pauseReason.value);
@@ -4879,7 +5134,8 @@ class SaveRunsCompanion extends UpdateCompanion<SaveRun> {
           ..write('sessionPartialDecision: $sessionPartialDecision, ')
           ..write('scope: $scope, ')
           ..write('maxBytes: $maxBytes, ')
-          ..write('includeImages: $includeImages, ')
+          ..write('captureMode: $captureMode, ')
+          ..write('captureModeIsUserSet: $captureModeIsUserSet, ')
           ..write('pauseReason: $pauseReason, ')
           ..write('origin: $origin, ')
           ..write('createdAt: $createdAt, ')
@@ -5956,20 +6212,30 @@ class $QueueTasksTable extends QueueTasks
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _includeImagesMeta = const VerificationMeta(
-    'includeImages',
+  static const VerificationMeta _captureModeMeta = const VerificationMeta(
+    'captureMode',
   );
   @override
-  late final GeneratedColumn<bool> includeImages = GeneratedColumn<bool>(
-    'include_images',
+  late final GeneratedColumn<String> captureMode = GeneratedColumn<String>(
+    'capture_mode',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _captureModeIsUserSetMeta =
+      const VerificationMeta('captureModeIsUserSet');
+  @override
+  late final GeneratedColumn<bool> captureModeIsUserSet = GeneratedColumn<bool>(
+    'capture_mode_is_user_set',
     aliasedName,
     false,
     type: DriftSqlType.bool,
     requiredDuringInsert: false,
     defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("include_images" IN (0, 1))',
+      'CHECK ("capture_mode_is_user_set" IN (0, 1))',
     ),
-    defaultValue: const Constant(true),
+    defaultValue: const Constant(false),
   );
   static const VerificationMeta _duplicatePolicyMeta = const VerificationMeta(
     'duplicatePolicy',
@@ -6097,7 +6363,8 @@ class $QueueTasksTable extends QueueTasks
     startUrl,
     entryLimit,
     maxBytes,
-    includeImages,
+    captureMode,
+    captureModeIsUserSet,
     duplicatePolicy,
     scope,
     state,
@@ -6162,12 +6429,21 @@ class $QueueTasksTable extends QueueTasks
         maxBytes.isAcceptableOrUnknown(data['max_bytes']!, _maxBytesMeta),
       );
     }
-    if (data.containsKey('include_images')) {
+    if (data.containsKey('capture_mode')) {
       context.handle(
-        _includeImagesMeta,
-        includeImages.isAcceptableOrUnknown(
-          data['include_images']!,
-          _includeImagesMeta,
+        _captureModeMeta,
+        captureMode.isAcceptableOrUnknown(
+          data['capture_mode']!,
+          _captureModeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('capture_mode_is_user_set')) {
+      context.handle(
+        _captureModeIsUserSetMeta,
+        captureModeIsUserSet.isAcceptableOrUnknown(
+          data['capture_mode_is_user_set']!,
+          _captureModeIsUserSetMeta,
         ),
       );
     }
@@ -6275,9 +6551,13 @@ class $QueueTasksTable extends QueueTasks
         DriftSqlType.int,
         data['${effectivePrefix}max_bytes'],
       ),
-      includeImages: attachedDatabase.typeMapping.read(
+      captureMode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}capture_mode'],
+      ),
+      captureModeIsUserSet: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
-        data['${effectivePrefix}include_images'],
+        data['${effectivePrefix}capture_mode_is_user_set'],
       )!,
       duplicatePolicy: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -6344,7 +6624,13 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
   /// The explicit ceiling on new entries. Never null for a multi-entry task.
   final int? entryLimit;
   final int? maxBytes;
-  final bool includeImages;
+
+  /// `CaptureMode.name` for a save task, or null for a task that stores
+  /// nothing (a check, a cleanup) and for one queued before a mode was chosen.
+  final String? captureMode;
+
+  /// Whether that mode was the user's explicit choice.
+  final bool captureModeIsUserSet;
   final String? duplicatePolicy;
 
   /// `SaveScope.name`.
@@ -6380,7 +6666,8 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     this.startUrl,
     this.entryLimit,
     this.maxBytes,
-    required this.includeImages,
+    this.captureMode,
+    required this.captureModeIsUserSet,
     this.duplicatePolicy,
     this.scope,
     required this.state,
@@ -6410,7 +6697,10 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     if (!nullToAbsent || maxBytes != null) {
       map['max_bytes'] = Variable<int>(maxBytes);
     }
-    map['include_images'] = Variable<bool>(includeImages);
+    if (!nullToAbsent || captureMode != null) {
+      map['capture_mode'] = Variable<String>(captureMode);
+    }
+    map['capture_mode_is_user_set'] = Variable<bool>(captureModeIsUserSet);
     if (!nullToAbsent || duplicatePolicy != null) {
       map['duplicate_policy'] = Variable<String>(duplicatePolicy);
     }
@@ -6455,7 +6745,10 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
       maxBytes: maxBytes == null && nullToAbsent
           ? const Value.absent()
           : Value(maxBytes),
-      includeImages: Value(includeImages),
+      captureMode: captureMode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(captureMode),
+      captureModeIsUserSet: Value(captureModeIsUserSet),
       duplicatePolicy: duplicatePolicy == null && nullToAbsent
           ? const Value.absent()
           : Value(duplicatePolicy),
@@ -6496,7 +6789,10 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
       startUrl: serializer.fromJson<String?>(json['startUrl']),
       entryLimit: serializer.fromJson<int?>(json['entryLimit']),
       maxBytes: serializer.fromJson<int?>(json['maxBytes']),
-      includeImages: serializer.fromJson<bool>(json['includeImages']),
+      captureMode: serializer.fromJson<String?>(json['captureMode']),
+      captureModeIsUserSet: serializer.fromJson<bool>(
+        json['captureModeIsUserSet'],
+      ),
       duplicatePolicy: serializer.fromJson<String?>(json['duplicatePolicy']),
       scope: serializer.fromJson<String?>(json['scope']),
       state: serializer.fromJson<String>(json['state']),
@@ -6520,7 +6816,8 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
       'startUrl': serializer.toJson<String?>(startUrl),
       'entryLimit': serializer.toJson<int?>(entryLimit),
       'maxBytes': serializer.toJson<int?>(maxBytes),
-      'includeImages': serializer.toJson<bool>(includeImages),
+      'captureMode': serializer.toJson<String?>(captureMode),
+      'captureModeIsUserSet': serializer.toJson<bool>(captureModeIsUserSet),
       'duplicatePolicy': serializer.toJson<String?>(duplicatePolicy),
       'scope': serializer.toJson<String?>(scope),
       'state': serializer.toJson<String>(state),
@@ -6542,7 +6839,8 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     Value<String?> startUrl = const Value.absent(),
     Value<int?> entryLimit = const Value.absent(),
     Value<int?> maxBytes = const Value.absent(),
-    bool? includeImages,
+    Value<String?> captureMode = const Value.absent(),
+    bool? captureModeIsUserSet,
     Value<String?> duplicatePolicy = const Value.absent(),
     Value<String?> scope = const Value.absent(),
     String? state,
@@ -6561,7 +6859,8 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     startUrl: startUrl.present ? startUrl.value : this.startUrl,
     entryLimit: entryLimit.present ? entryLimit.value : this.entryLimit,
     maxBytes: maxBytes.present ? maxBytes.value : this.maxBytes,
-    includeImages: includeImages ?? this.includeImages,
+    captureMode: captureMode.present ? captureMode.value : this.captureMode,
+    captureModeIsUserSet: captureModeIsUserSet ?? this.captureModeIsUserSet,
     duplicatePolicy: duplicatePolicy.present
         ? duplicatePolicy.value
         : this.duplicatePolicy,
@@ -6588,9 +6887,12 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
           ? data.entryLimit.value
           : this.entryLimit,
       maxBytes: data.maxBytes.present ? data.maxBytes.value : this.maxBytes,
-      includeImages: data.includeImages.present
-          ? data.includeImages.value
-          : this.includeImages,
+      captureMode: data.captureMode.present
+          ? data.captureMode.value
+          : this.captureMode,
+      captureModeIsUserSet: data.captureModeIsUserSet.present
+          ? data.captureModeIsUserSet.value
+          : this.captureModeIsUserSet,
       duplicatePolicy: data.duplicatePolicy.present
           ? data.duplicatePolicy.value
           : this.duplicatePolicy,
@@ -6622,7 +6924,8 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
           ..write('startUrl: $startUrl, ')
           ..write('entryLimit: $entryLimit, ')
           ..write('maxBytes: $maxBytes, ')
-          ..write('includeImages: $includeImages, ')
+          ..write('captureMode: $captureMode, ')
+          ..write('captureModeIsUserSet: $captureModeIsUserSet, ')
           ..write('duplicatePolicy: $duplicatePolicy, ')
           ..write('scope: $scope, ')
           ..write('state: $state, ')
@@ -6646,7 +6949,8 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
     startUrl,
     entryLimit,
     maxBytes,
-    includeImages,
+    captureMode,
+    captureModeIsUserSet,
     duplicatePolicy,
     scope,
     state,
@@ -6669,7 +6973,8 @@ class QueueTask extends DataClass implements Insertable<QueueTask> {
           other.startUrl == this.startUrl &&
           other.entryLimit == this.entryLimit &&
           other.maxBytes == this.maxBytes &&
-          other.includeImages == this.includeImages &&
+          other.captureMode == this.captureMode &&
+          other.captureModeIsUserSet == this.captureModeIsUserSet &&
           other.duplicatePolicy == this.duplicatePolicy &&
           other.scope == this.scope &&
           other.state == this.state &&
@@ -6690,7 +6995,8 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
   final Value<String?> startUrl;
   final Value<int?> entryLimit;
   final Value<int?> maxBytes;
-  final Value<bool> includeImages;
+  final Value<String?> captureMode;
+  final Value<bool> captureModeIsUserSet;
   final Value<String?> duplicatePolicy;
   final Value<String?> scope;
   final Value<String> state;
@@ -6710,7 +7016,8 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     this.startUrl = const Value.absent(),
     this.entryLimit = const Value.absent(),
     this.maxBytes = const Value.absent(),
-    this.includeImages = const Value.absent(),
+    this.captureMode = const Value.absent(),
+    this.captureModeIsUserSet = const Value.absent(),
     this.duplicatePolicy = const Value.absent(),
     this.scope = const Value.absent(),
     this.state = const Value.absent(),
@@ -6731,7 +7038,8 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     this.startUrl = const Value.absent(),
     this.entryLimit = const Value.absent(),
     this.maxBytes = const Value.absent(),
-    this.includeImages = const Value.absent(),
+    this.captureMode = const Value.absent(),
+    this.captureModeIsUserSet = const Value.absent(),
     this.duplicatePolicy = const Value.absent(),
     this.scope = const Value.absent(),
     this.state = const Value.absent(),
@@ -6754,7 +7062,8 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     Expression<String>? startUrl,
     Expression<int>? entryLimit,
     Expression<int>? maxBytes,
-    Expression<bool>? includeImages,
+    Expression<String>? captureMode,
+    Expression<bool>? captureModeIsUserSet,
     Expression<String>? duplicatePolicy,
     Expression<String>? scope,
     Expression<String>? state,
@@ -6775,7 +7084,9 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
       if (startUrl != null) 'start_url': startUrl,
       if (entryLimit != null) 'entry_limit': entryLimit,
       if (maxBytes != null) 'max_bytes': maxBytes,
-      if (includeImages != null) 'include_images': includeImages,
+      if (captureMode != null) 'capture_mode': captureMode,
+      if (captureModeIsUserSet != null)
+        'capture_mode_is_user_set': captureModeIsUserSet,
       if (duplicatePolicy != null) 'duplicate_policy': duplicatePolicy,
       if (scope != null) 'scope': scope,
       if (state != null) 'state': state,
@@ -6798,7 +7109,8 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     Value<String?>? startUrl,
     Value<int?>? entryLimit,
     Value<int?>? maxBytes,
-    Value<bool>? includeImages,
+    Value<String?>? captureMode,
+    Value<bool>? captureModeIsUserSet,
     Value<String?>? duplicatePolicy,
     Value<String?>? scope,
     Value<String>? state,
@@ -6819,7 +7131,8 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
       startUrl: startUrl ?? this.startUrl,
       entryLimit: entryLimit ?? this.entryLimit,
       maxBytes: maxBytes ?? this.maxBytes,
-      includeImages: includeImages ?? this.includeImages,
+      captureMode: captureMode ?? this.captureMode,
+      captureModeIsUserSet: captureModeIsUserSet ?? this.captureModeIsUserSet,
       duplicatePolicy: duplicatePolicy ?? this.duplicatePolicy,
       scope: scope ?? this.scope,
       state: state ?? this.state,
@@ -6856,8 +7169,13 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
     if (maxBytes.present) {
       map['max_bytes'] = Variable<int>(maxBytes.value);
     }
-    if (includeImages.present) {
-      map['include_images'] = Variable<bool>(includeImages.value);
+    if (captureMode.present) {
+      map['capture_mode'] = Variable<String>(captureMode.value);
+    }
+    if (captureModeIsUserSet.present) {
+      map['capture_mode_is_user_set'] = Variable<bool>(
+        captureModeIsUserSet.value,
+      );
     }
     if (duplicatePolicy.present) {
       map['duplicate_policy'] = Variable<String>(duplicatePolicy.value);
@@ -6907,7 +7225,8 @@ class QueueTasksCompanion extends UpdateCompanion<QueueTask> {
           ..write('startUrl: $startUrl, ')
           ..write('entryLimit: $entryLimit, ')
           ..write('maxBytes: $maxBytes, ')
-          ..write('includeImages: $includeImages, ')
+          ..write('captureMode: $captureMode, ')
+          ..write('captureModeIsUserSet: $captureModeIsUserSet, ')
           ..write('duplicatePolicy: $duplicatePolicy, ')
           ..write('scope: $scope, ')
           ..write('state: $state, ')
@@ -8485,6 +8804,7 @@ typedef $$CollectionsTableCreateCompanionBuilder =
       Value<String> lifecycle,
       Value<DateTime?> archivedAt,
       Value<String?> cleanupPreference,
+      Value<String?> preferredCaptureMode,
       Value<int> rowid,
     });
 typedef $$CollectionsTableUpdateCompanionBuilder =
@@ -8516,6 +8836,7 @@ typedef $$CollectionsTableUpdateCompanionBuilder =
       Value<String> lifecycle,
       Value<DateTime?> archivedAt,
       Value<String?> cleanupPreference,
+      Value<String?> preferredCaptureMode,
       Value<int> rowid,
     });
 
@@ -8684,6 +9005,11 @@ class $$CollectionsTableFilterComposer
 
   ColumnFilters<String> get cleanupPreference => $composableBuilder(
     column: $table.cleanupPreference,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get preferredCaptureMode => $composableBuilder(
+    column: $table.preferredCaptureMode,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8856,6 +9182,11 @@ class $$CollectionsTableOrderingComposer
     column: $table.cleanupPreference,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get preferredCaptureMode => $composableBuilder(
+    column: $table.preferredCaptureMode,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CollectionsTableAnnotationComposer
@@ -8988,6 +9319,11 @@ class $$CollectionsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get preferredCaptureMode => $composableBuilder(
+    column: $table.preferredCaptureMode,
+    builder: (column) => column,
+  );
+
   Expression<T> entriesRefs<T extends Object>(
     Expression<T> Function($$EntriesTableAnnotationComposer a) f,
   ) {
@@ -9069,6 +9405,7 @@ class $$CollectionsTableTableManager
                 Value<String> lifecycle = const Value.absent(),
                 Value<DateTime?> archivedAt = const Value.absent(),
                 Value<String?> cleanupPreference = const Value.absent(),
+                Value<String?> preferredCaptureMode = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CollectionsCompanion(
                 id: id,
@@ -9098,6 +9435,7 @@ class $$CollectionsTableTableManager
                 lifecycle: lifecycle,
                 archivedAt: archivedAt,
                 cleanupPreference: cleanupPreference,
+                preferredCaptureMode: preferredCaptureMode,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -9129,6 +9467,7 @@ class $$CollectionsTableTableManager
                 Value<String> lifecycle = const Value.absent(),
                 Value<DateTime?> archivedAt = const Value.absent(),
                 Value<String?> cleanupPreference = const Value.absent(),
+                Value<String?> preferredCaptureMode = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CollectionsCompanion.insert(
                 id: id,
@@ -9158,6 +9497,7 @@ class $$CollectionsTableTableManager
                 lifecycle: lifecycle,
                 archivedAt: archivedAt,
                 cleanupPreference: cleanupPreference,
+                preferredCaptureMode: preferredCaptureMode,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -9232,6 +9572,8 @@ typedef $$EntriesTableCreateCompanionBuilder =
       Value<String> contentKind,
       Value<String> contentKindConfidence,
       Value<bool> contentKindIsUserSet,
+      Value<String> artifactFormat,
+      Value<String?> captureMode,
       required String saveStatus,
       Value<String?> contentPath,
       Value<DateTime?> savedAt,
@@ -9271,6 +9613,8 @@ typedef $$EntriesTableUpdateCompanionBuilder =
       Value<String> contentKind,
       Value<String> contentKindConfidence,
       Value<bool> contentKindIsUserSet,
+      Value<String> artifactFormat,
+      Value<String?> captureMode,
       Value<String> saveStatus,
       Value<String?> contentPath,
       Value<DateTime?> savedAt,
@@ -9380,6 +9724,16 @@ class $$EntriesTableFilterComposer
 
   ColumnFilters<bool> get contentKindIsUserSet => $composableBuilder(
     column: $table.contentKindIsUserSet,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get artifactFormat => $composableBuilder(
+    column: $table.artifactFormat,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get captureMode => $composableBuilder(
+    column: $table.captureMode,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9586,6 +9940,16 @@ class $$EntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get artifactFormat => $composableBuilder(
+    column: $table.artifactFormat,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get captureMode => $composableBuilder(
+    column: $table.captureMode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get saveStatus => $composableBuilder(
     column: $table.saveStatus,
     builder: (column) => ColumnOrderings(column),
@@ -9779,6 +10143,16 @@ class $$EntriesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get artifactFormat => $composableBuilder(
+    column: $table.artifactFormat,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get captureMode => $composableBuilder(
+    column: $table.captureMode,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get saveStatus => $composableBuilder(
     column: $table.saveStatus,
     builder: (column) => column,
@@ -9952,6 +10326,8 @@ class $$EntriesTableTableManager
                 Value<String> contentKind = const Value.absent(),
                 Value<String> contentKindConfidence = const Value.absent(),
                 Value<bool> contentKindIsUserSet = const Value.absent(),
+                Value<String> artifactFormat = const Value.absent(),
+                Value<String?> captureMode = const Value.absent(),
                 Value<String> saveStatus = const Value.absent(),
                 Value<String?> contentPath = const Value.absent(),
                 Value<DateTime?> savedAt = const Value.absent(),
@@ -9989,6 +10365,8 @@ class $$EntriesTableTableManager
                 contentKind: contentKind,
                 contentKindConfidence: contentKindConfidence,
                 contentKindIsUserSet: contentKindIsUserSet,
+                artifactFormat: artifactFormat,
+                captureMode: captureMode,
                 saveStatus: saveStatus,
                 contentPath: contentPath,
                 savedAt: savedAt,
@@ -10028,6 +10406,8 @@ class $$EntriesTableTableManager
                 Value<String> contentKind = const Value.absent(),
                 Value<String> contentKindConfidence = const Value.absent(),
                 Value<bool> contentKindIsUserSet = const Value.absent(),
+                Value<String> artifactFormat = const Value.absent(),
+                Value<String?> captureMode = const Value.absent(),
                 required String saveStatus,
                 Value<String?> contentPath = const Value.absent(),
                 Value<DateTime?> savedAt = const Value.absent(),
@@ -10065,6 +10445,8 @@ class $$EntriesTableTableManager
                 contentKind: contentKind,
                 contentKindConfidence: contentKindConfidence,
                 contentKindIsUserSet: contentKindIsUserSet,
+                artifactFormat: artifactFormat,
+                captureMode: captureMode,
                 saveStatus: saveStatus,
                 contentPath: contentPath,
                 savedAt: savedAt,
@@ -10175,7 +10557,8 @@ typedef $$SaveRunsTableCreateCompanionBuilder =
       Value<String?> sessionPartialDecision,
       Value<String> scope,
       Value<int?> maxBytes,
-      Value<bool> includeImages,
+      Value<String?> captureMode,
+      Value<bool> captureModeIsUserSet,
       Value<String?> pauseReason,
       Value<String> origin,
       required DateTime createdAt,
@@ -10200,7 +10583,8 @@ typedef $$SaveRunsTableUpdateCompanionBuilder =
       Value<String?> sessionPartialDecision,
       Value<String> scope,
       Value<int?> maxBytes,
-      Value<bool> includeImages,
+      Value<String?> captureMode,
+      Value<bool> captureModeIsUserSet,
       Value<String?> pauseReason,
       Value<String> origin,
       Value<DateTime> createdAt,
@@ -10297,8 +10681,13 @@ class $$SaveRunsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<bool> get includeImages => $composableBuilder(
-    column: $table.includeImages,
+  ColumnFilters<String> get captureMode => $composableBuilder(
+    column: $table.captureMode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get captureModeIsUserSet => $composableBuilder(
+    column: $table.captureModeIsUserSet,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10412,8 +10801,13 @@ class $$SaveRunsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<bool> get includeImages => $composableBuilder(
-    column: $table.includeImages,
+  ColumnOrderings<String> get captureMode => $composableBuilder(
+    column: $table.captureMode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get captureModeIsUserSet => $composableBuilder(
+    column: $table.captureModeIsUserSet,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -10515,8 +10909,13 @@ class $$SaveRunsTableAnnotationComposer
   GeneratedColumn<int> get maxBytes =>
       $composableBuilder(column: $table.maxBytes, builder: (column) => column);
 
-  GeneratedColumn<bool> get includeImages => $composableBuilder(
-    column: $table.includeImages,
+  GeneratedColumn<String> get captureMode => $composableBuilder(
+    column: $table.captureMode,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get captureModeIsUserSet => $composableBuilder(
+    column: $table.captureModeIsUserSet,
     builder: (column) => column,
   );
 
@@ -10579,7 +10978,8 @@ class $$SaveRunsTableTableManager
                 Value<String?> sessionPartialDecision = const Value.absent(),
                 Value<String> scope = const Value.absent(),
                 Value<int?> maxBytes = const Value.absent(),
-                Value<bool> includeImages = const Value.absent(),
+                Value<String?> captureMode = const Value.absent(),
+                Value<bool> captureModeIsUserSet = const Value.absent(),
                 Value<String?> pauseReason = const Value.absent(),
                 Value<String> origin = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -10602,7 +11002,8 @@ class $$SaveRunsTableTableManager
                 sessionPartialDecision: sessionPartialDecision,
                 scope: scope,
                 maxBytes: maxBytes,
-                includeImages: includeImages,
+                captureMode: captureMode,
+                captureModeIsUserSet: captureModeIsUserSet,
                 pauseReason: pauseReason,
                 origin: origin,
                 createdAt: createdAt,
@@ -10627,7 +11028,8 @@ class $$SaveRunsTableTableManager
                 Value<String?> sessionPartialDecision = const Value.absent(),
                 Value<String> scope = const Value.absent(),
                 Value<int?> maxBytes = const Value.absent(),
-                Value<bool> includeImages = const Value.absent(),
+                Value<String?> captureMode = const Value.absent(),
+                Value<bool> captureModeIsUserSet = const Value.absent(),
                 Value<String?> pauseReason = const Value.absent(),
                 Value<String> origin = const Value.absent(),
                 required DateTime createdAt,
@@ -10650,7 +11052,8 @@ class $$SaveRunsTableTableManager
                 sessionPartialDecision: sessionPartialDecision,
                 scope: scope,
                 maxBytes: maxBytes,
-                includeImages: includeImages,
+                captureMode: captureMode,
+                captureModeIsUserSet: captureModeIsUserSet,
                 pauseReason: pauseReason,
                 origin: origin,
                 createdAt: createdAt,
@@ -11186,7 +11589,8 @@ typedef $$QueueTasksTableCreateCompanionBuilder =
       Value<String?> startUrl,
       Value<int?> entryLimit,
       Value<int?> maxBytes,
-      Value<bool> includeImages,
+      Value<String?> captureMode,
+      Value<bool> captureModeIsUserSet,
       Value<String?> duplicatePolicy,
       Value<String?> scope,
       Value<String> state,
@@ -11208,7 +11612,8 @@ typedef $$QueueTasksTableUpdateCompanionBuilder =
       Value<String?> startUrl,
       Value<int?> entryLimit,
       Value<int?> maxBytes,
-      Value<bool> includeImages,
+      Value<String?> captureMode,
+      Value<bool> captureModeIsUserSet,
       Value<String?> duplicatePolicy,
       Value<String?> scope,
       Value<String> state,
@@ -11262,8 +11667,13 @@ class $$QueueTasksTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<bool> get includeImages => $composableBuilder(
-    column: $table.includeImages,
+  ColumnFilters<String> get captureMode => $composableBuilder(
+    column: $table.captureMode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get captureModeIsUserSet => $composableBuilder(
+    column: $table.captureModeIsUserSet,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -11362,8 +11772,13 @@ class $$QueueTasksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<bool> get includeImages => $composableBuilder(
-    column: $table.includeImages,
+  ColumnOrderings<String> get captureMode => $composableBuilder(
+    column: $table.captureMode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get captureModeIsUserSet => $composableBuilder(
+    column: $table.captureModeIsUserSet,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -11454,8 +11869,13 @@ class $$QueueTasksTableAnnotationComposer
   GeneratedColumn<int> get maxBytes =>
       $composableBuilder(column: $table.maxBytes, builder: (column) => column);
 
-  GeneratedColumn<bool> get includeImages => $composableBuilder(
-    column: $table.includeImages,
+  GeneratedColumn<String> get captureMode => $composableBuilder(
+    column: $table.captureMode,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get captureModeIsUserSet => $composableBuilder(
+    column: $table.captureModeIsUserSet,
     builder: (column) => column,
   );
 
@@ -11538,7 +11958,8 @@ class $$QueueTasksTableTableManager
                 Value<String?> startUrl = const Value.absent(),
                 Value<int?> entryLimit = const Value.absent(),
                 Value<int?> maxBytes = const Value.absent(),
-                Value<bool> includeImages = const Value.absent(),
+                Value<String?> captureMode = const Value.absent(),
+                Value<bool> captureModeIsUserSet = const Value.absent(),
                 Value<String?> duplicatePolicy = const Value.absent(),
                 Value<String?> scope = const Value.absent(),
                 Value<String> state = const Value.absent(),
@@ -11558,7 +11979,8 @@ class $$QueueTasksTableTableManager
                 startUrl: startUrl,
                 entryLimit: entryLimit,
                 maxBytes: maxBytes,
-                includeImages: includeImages,
+                captureMode: captureMode,
+                captureModeIsUserSet: captureModeIsUserSet,
                 duplicatePolicy: duplicatePolicy,
                 scope: scope,
                 state: state,
@@ -11580,7 +12002,8 @@ class $$QueueTasksTableTableManager
                 Value<String?> startUrl = const Value.absent(),
                 Value<int?> entryLimit = const Value.absent(),
                 Value<int?> maxBytes = const Value.absent(),
-                Value<bool> includeImages = const Value.absent(),
+                Value<String?> captureMode = const Value.absent(),
+                Value<bool> captureModeIsUserSet = const Value.absent(),
                 Value<String?> duplicatePolicy = const Value.absent(),
                 Value<String?> scope = const Value.absent(),
                 Value<String> state = const Value.absent(),
@@ -11600,7 +12023,8 @@ class $$QueueTasksTableTableManager
                 startUrl: startUrl,
                 entryLimit: entryLimit,
                 maxBytes: maxBytes,
-                includeImages: includeImages,
+                captureMode: captureMode,
+                captureModeIsUserSet: captureModeIsUserSet,
                 duplicatePolicy: duplicatePolicy,
                 scope: scope,
                 state: state,

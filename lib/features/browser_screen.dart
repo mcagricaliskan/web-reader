@@ -11,6 +11,10 @@ import '../browser/browser_controller.dart';
 import '../browser/browser_navigator.dart';
 import '../browser/browser_presentation.dart';
 import '../browser/browser_url.dart';
+import '../browser/page_data.dart';
+import '../core/url_utils.dart';
+import '../library/collection_identity.dart';
+import '../save/capture_mode.dart';
 import '../save/save_run.dart';
 import '../save/save_preflight.dart';
 import '../core/config.dart';
@@ -18,6 +22,7 @@ import '../core/connectivity.dart';
 import '../library/update_checker.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
+import '../storage/database.dart';
 import '../ui/palette.dart';
 import 'browser_save_state.dart';
 import 'browser_home.dart';
@@ -564,12 +569,23 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     // rather than failing after the choice (§3). Queueing is always on offer;
     // only the direct start can conflict.
     final owner = queue.browserOwner;
+
+    // Measure the page before offering anything. A probe that fails — a CSP
+    // that blocks injection, a page still loading — degrades to "not
+    // analysed", which offers every mode with the image sequence preselected:
+    // the behaviour this app had before it could tell the difference.
+    final analysis = await _analysePage();
+    if (!context.mounted) return;
+
     final choice = await showSaveRangeSheet(
       context: context,
       config: run.config,
       deviceStorage: run.deviceStorage,
       currentTitle: ref.read(browserProvider).title,
       busyLabel: owner?.label,
+      capabilities: analysis.capabilities,
+      preferredMode: analysis.preferredMode,
+      canRemember: analysis.collection != null,
     );
     if (choice == null || !context.mounted) return;
     if (choice.action == SaveSheetAction.viewActiveTask) {
@@ -577,6 +593,66 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       return;
     }
     await _startSave(context, choice);
+  }
+
+  /// What this page can be saved as, and what the collection it belongs to
+  /// already prefers.
+  ///
+  /// Best effort by design: every failure path here produces an honest
+  /// "not analysed" rather than an error, because not being able to classify a
+  /// page is a normal outcome and must never stop the user saving it.
+  Future<_PageAnalysis> _analysePage() async {
+    final browser = ref.read(browserProvider);
+    final db = ref.read(databaseProvider);
+    final run = ref.read(saveRunProvider);
+
+    PageProbe? probe;
+    try {
+      probe = await browser.probe(withLinks: true);
+    } catch (_) {
+      probe = null;
+    }
+    final capabilities = probe == null
+        ? const CaptureCapabilities.unanalysed()
+        : detectCaptureCapabilities(probe, config: run.config);
+
+    // The collection this page would join, so its remembered mode can be
+    // preselected. Resolved from what is already stored — identity, never a
+    // fresh guess — so the sheet cannot create or imply a grouping.
+    Collection? collection;
+    try {
+      final url = browser.currentUrl;
+      final held = await db.findEntryByUrlKeyAnywhere(normalizeUrl(url));
+      final heldIn = held?.collectionId;
+      if (heldIn != null) {
+        collection = await db.collectionById(heldIn);
+      } else if (probe != null) {
+        final identity = resolveCollectionIdentity(
+          entryUrl: url,
+          pageTitle: browser.title,
+          hints: probe.pageHints,
+        );
+        if (identity.canMerge && identity.collectionKey.isNotEmpty) {
+          collection = await db.findCollectionByKey(
+            identity.host,
+            identity.collectionKey,
+          );
+        }
+      }
+    } catch (_) {
+      collection = null;
+    }
+
+    final preferred = captureModeFromName(collection?.preferredCaptureMode);
+    return _PageAnalysis(
+      capabilities: capabilities,
+      collection: collection,
+      // Offered only when this page can honour it. A stale preference is a
+      // suggestion that has stopped applying, not an instruction.
+      preferredMode: preferred != null && capabilities.allows(preferred)
+          ? preferred
+          : null,
+    );
   }
 
   /// Carry out [action] for a resolved request. The single place the two
@@ -589,6 +665,9 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     required int entryLimit,
     required DuplicatePolicy policy,
     required SaveScope range,
+    CaptureMode? captureMode,
+    bool captureModeIsUserSet = false,
+    bool rememberForCollection = false,
   }) async {
     final queue = ref.read(taskQueueProvider);
     if (action == SaveSheetAction.addToQueue) {
@@ -597,6 +676,8 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
         entryLimit: entryLimit,
         policy: policy,
         range: range,
+        captureMode: captureMode,
+        captureModeIsUserSet: captureModeIsUserSet,
       );
       if (!context.mounted) return;
       // Queued, not started (D46). The user stays exactly where they are.
@@ -609,6 +690,9 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       entryLimit: entryLimit,
       policy: policy,
       range: range,
+      captureMode: captureMode,
+      captureModeIsUserSet: captureModeIsUserSet,
+      rememberForCollection: rememberForCollection,
     );
     if (!context.mounted) return;
     switch (started) {
@@ -641,6 +725,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     SaveSheetAction action,
     int limit,
     SaveScope range,
+    SaveRangeChoice choice,
   ) async {
     final plan = planAfterPreflight(
       action: action,
@@ -657,6 +742,9 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       entryLimit: plan.entryLimit,
       policy: plan.policy,
       range: plan.range,
+      captureMode: choice.captureMode,
+      captureModeIsUserSet: choice.captureModeIsUserSet,
+      rememberForCollection: choice.rememberForCollection,
     );
   }
 
@@ -681,7 +769,6 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       choice.mode,
       requestedCount: choice.count,
       maxBytes: choice.maxBytes,
-      includeImages: choice.includeImages,
       config: run.config,
     );
     final limit = limits.maxEntries;
@@ -703,6 +790,9 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
         entryLimit: limit,
         policy: DuplicatePolicy.ask,
         range: choice.mode,
+        captureMode: choice.captureMode,
+        captureModeIsUserSet: choice.captureModeIsUserSet,
+        rememberForCollection: choice.rememberForCollection,
       );
       return;
     }
@@ -756,6 +846,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
           action,
           limit,
           choice.mode,
+          choice,
         );
 
       case PreflightChoice.saveFollowing:
@@ -772,6 +863,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
           action,
           limit,
           choice.mode,
+          choice,
         );
 
       case PreflightChoice.cancel:
@@ -1244,4 +1336,23 @@ class _HostChangeBannerState extends State<_HostChangeBanner> {
       ),
     );
   }
+}
+
+/// What the Browser measured about the page before offering to save it.
+class _PageAnalysis {
+  const _PageAnalysis({
+    required this.capabilities,
+    this.collection,
+    this.preferredMode,
+  });
+
+  final CaptureCapabilities capabilities;
+
+  /// The collection this page would join, when one already exists. Null makes
+  /// "remember for this collection" not worth offering.
+  final Collection? collection;
+
+  /// The collection's remembered mode, **already validated** against this
+  /// page. Null when there is none or it no longer applies.
+  final CaptureMode? preferredMode;
 }

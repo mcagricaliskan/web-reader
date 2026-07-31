@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/core/config.dart';
+import 'package:web_reader/save/capture_mode.dart';
+import 'package:web_reader/library/content_shape.dart';
 import 'package:web_reader/core/device_storage.dart';
 import 'package:web_reader/features/save_scope_sheet.dart';
 
@@ -12,6 +14,9 @@ void main() {
     required void Function(SaveRangeChoice?) onResult,
     int? free = 8 * 1024 * 1024 * 1024,
     String? busyLabel,
+    CaptureCapabilities capabilities = const CaptureCapabilities.unanalysed(),
+    CaptureMode? preferredMode,
+    bool canRemember = false,
   }) => MaterialApp(
     home: Builder(
       builder: (context) => Center(
@@ -23,6 +28,9 @@ void main() {
               deviceStorage: _FixedStorage(free),
               currentTitle: 'Foo Entry 137',
               busyLabel: busyLabel,
+              capabilities: capabilities,
+              preferredMode: preferredMode,
+              canRemember: canRemember,
             );
             onResult(r);
           },
@@ -33,6 +41,8 @@ void main() {
   );
 
   Future<void> open(WidgetTester tester) async {
+    await tester.ensureVisible(find.text('open'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
   }
@@ -85,6 +95,10 @@ void main() {
       await tester.pumpWidget(host(onResult: (r) => result = r));
       await open(tester);
 
+      await tester.ensureVisible(find.text('Until the end'));
+
+      await tester.pumpAndSettle();
+
       await tester.tap(find.text('Until the end'));
       await tester.pumpAndSettle();
 
@@ -102,6 +116,10 @@ void main() {
       await tester.pumpWidget(host(onResult: (r) => result = r));
       await open(tester);
 
+      await tester.ensureVisible(find.byKey(const ValueKey('saveAddToQueue')));
+
+      await tester.pumpAndSettle();
+
       await tester.tap(find.byKey(const ValueKey('saveAddToQueue')));
       await tester.pumpAndSettle();
 
@@ -116,7 +134,13 @@ void main() {
       await tester.pumpWidget(host(onResult: (r) => result = r));
       await open(tester);
 
+      await tester.ensureVisible(find.text('Until the end'));
+
+      await tester.pumpAndSettle();
+
       await tester.tap(find.text('Until the end'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('saveStartNow')));
       await tester.pumpAndSettle();
@@ -158,6 +182,8 @@ void main() {
       );
 
       // Queueing is still a real option — it starts nothing.
+      await tester.ensureVisible(find.byKey(const ValueKey('saveAddToQueue')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('saveAddToQueue')));
       await tester.pumpAndSettle();
       expect(result?.action, SaveSheetAction.addToQueue);
@@ -169,6 +195,10 @@ void main() {
         host(onResult: (r) => result = r, busyLabel: 'An update check'),
       );
       await open(tester);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('saveViewActiveTask')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('saveViewActiveTask')));
       await tester.pumpAndSettle();
 
@@ -186,11 +216,15 @@ void main() {
     SaveRangeChoice? result;
     await tester.pumpWidget(host(onResult: (r) => result = r));
     await open(tester);
+    await tester.ensureVisible(find.text('Number of entries'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Number of entries'));
     await tester.pumpAndSettle();
 
     // Zero refuses — and the sheet stays open, error visible.
     await tester.enterText(find.byType(TextField), '0');
+    await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('saveStartNow')));
     await tester.pump();
     expect(find.textContaining('1 or more'), findsOneWidget);
@@ -198,12 +232,16 @@ void main() {
     expect(find.byKey(const ValueKey('saveAddToQueue')), findsOneWidget);
 
     // The same validation guards the queue action.
+    await tester.ensureVisible(find.byKey(const ValueKey('saveAddToQueue')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('saveAddToQueue')));
     await tester.pump();
     expect(result, isNull);
 
     // Excessive refuses, naming the bound.
     await tester.enterText(find.byType(TextField), '9999');
+    await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('saveStartNow')));
     await tester.pump();
     expect(
@@ -224,6 +262,8 @@ void main() {
     await tester.pump();
     expect(find.textContaining('Save 8 items'), findsOneWidget);
     expect(find.textContaining('Foo Entry 137'), findsWidgets);
+    await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('saveStartNow')));
     await tester.pumpAndSettle();
     expect(result?.mode, SaveScope.fixedCount);
@@ -241,9 +281,233 @@ void main() {
     expect(find.text('Not enough space'), findsOneWidget);
     expect(find.textContaining('not affected'), findsOneWidget);
     expect(find.text('Current entry'), findsNothing);
+    await tester.ensureVisible(find.text('OK'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
     expect(result, isNull);
+  });
+
+  group('what to save', () {
+    testWidgets('all three modes are shown, unavailable ones disabled', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host(
+          onResult: (_) {},
+          capabilities: const CaptureCapabilities(
+            content: ContentShape(
+              kind: ContentKind.article,
+              confidence: ShapeConfidence.high,
+            ),
+            available: {CaptureMode.textOnly},
+            blocked: {
+              CaptureMode.imageSequence: ModeBlockReason.noImageSequence,
+              CaptureMode.textAndImages: ModeBlockReason.noMeaningfulImages,
+            },
+            defaultMode: CaptureMode.textOnly,
+          ),
+        ),
+      );
+      await open(tester);
+
+      // Present, not hidden — a missing option reads as a bug.
+      for (final mode in CaptureMode.values) {
+        expect(
+          find.byKey(ValueKey('captureMode_${mode.name}')),
+          findsOneWidget,
+          reason: mode.name,
+        );
+      }
+      // …and the unavailable ones say why.
+      expect(
+        find.textContaining('does not have enough full-size images'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('No images were found inside the readable text'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the detected default is returned when nothing is tapped', (
+      tester,
+    ) async {
+      SaveRangeChoice? result;
+      await tester.pumpWidget(
+        host(
+          onResult: (r) => result = r,
+          capabilities: const CaptureCapabilities(
+            content: ContentShape(kind: ContentKind.article),
+            available: {CaptureMode.textOnly, CaptureMode.textAndImages},
+            blocked: {},
+            defaultMode: CaptureMode.textAndImages,
+          ),
+        ),
+      );
+      await open(tester);
+      await tester.ensureVisible(find.byKey(const ValueKey('saveAddToQueue')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveAddToQueue')));
+      await tester.pumpAndSettle();
+
+      expect(result?.captureMode, CaptureMode.textAndImages);
+      expect(result?.captureModeIsUserSet, isFalse);
+    });
+
+    testWidgets('choosing a mode marks it as the user\'s own', (tester) async {
+      SaveRangeChoice? result;
+      await tester.pumpWidget(
+        host(
+          onResult: (r) => result = r,
+          capabilities: const CaptureCapabilities(
+            content: ContentShape(kind: ContentKind.article),
+            available: {CaptureMode.textOnly, CaptureMode.textAndImages},
+            blocked: {},
+            defaultMode: CaptureMode.textAndImages,
+          ),
+        ),
+      );
+      await open(tester);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('captureMode_textOnly')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('captureMode_textOnly')));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const ValueKey('saveAddToQueue')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveAddToQueue')));
+      await tester.pumpAndSettle();
+
+      expect(result?.captureMode, CaptureMode.textOnly);
+      expect(result?.captureModeIsUserSet, isTrue);
+    });
+
+    testWidgets('a video page with nothing readable cannot be launched', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host(
+          onResult: (_) {},
+          capabilities: const CaptureCapabilities(
+            content: ContentShape(
+              kind: ContentKind.videoDominant,
+              confidence: ShapeConfidence.high,
+            ),
+            available: {},
+            blocked: {
+              CaptureMode.imageSequence: ModeBlockReason.noImageSequence,
+              CaptureMode.textOnly: ModeBlockReason.noReadableText,
+              CaptureMode.textAndImages: ModeBlockReason.noReadableText,
+            },
+            videoDominant: true,
+          ),
+        ),
+      );
+      await open(tester);
+
+      expect(find.byKey(const ValueKey('videoNotSavedNotice')), findsOneWidget);
+      expect(
+        find.textContaining('no readable text to save instead'),
+        findsOneWidget,
+      );
+      // Queueing a save that is going to refuse would be a button that lies.
+      final queue = tester.widget<OutlinedButton>(
+        find.byKey(const ValueKey('saveAddToQueue')),
+      );
+      expect(queue.onPressed, isNull);
+    });
+
+    testWidgets('an unanalysed page offers everything and says so', (
+      tester,
+    ) async {
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await open(tester);
+
+      expect(find.textContaining('could not be analysed'), findsOneWidget);
+      final queue = tester.widget<OutlinedButton>(
+        find.byKey(const ValueKey('saveAddToQueue')),
+      );
+      expect(queue.onPressed, isNotNull);
+    });
+
+    testWidgets('an unclassified page says so plainly', (tester) async {
+      await tester.pumpWidget(
+        host(
+          onResult: (_) {},
+          capabilities: const CaptureCapabilities(
+            content: ContentShape(
+              kind: ContentKind.unknownWebContent,
+              confidence: ShapeConfidence.low,
+            ),
+            available: {CaptureMode.imageSequence},
+            blocked: {
+              CaptureMode.textOnly: ModeBlockReason.noReadableText,
+              CaptureMode.textAndImages: ModeBlockReason.noReadableText,
+            },
+            defaultMode: CaptureMode.imageSequence,
+          ),
+        ),
+      );
+      await open(tester);
+      // Never "this looks like not something we could classify".
+      expect(
+        find.textContaining('did not say clearly what it is'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('This looks like'), findsNothing);
+    });
+
+    testWidgets('remembering a mode is not offered without a collection', (
+      tester,
+    ) async {
+      await tester.pumpWidget(host(onResult: (_) {}, canRemember: false));
+      await open(tester);
+      expect(find.byKey(const ValueKey('rememberCaptureMode')), findsNothing);
+    });
+
+    testWidgets('remembering a mode is offered when there is one', (
+      tester,
+    ) async {
+      await tester.pumpWidget(host(onResult: (_) {}, canRemember: true));
+      await open(tester);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('rememberCaptureMode')),
+      );
+      expect(find.byKey(const ValueKey('rememberCaptureMode')), findsOneWidget);
+    });
+
+    testWidgets('a remembered mode is carried back when it still applies', (
+      tester,
+    ) async {
+      SaveRangeChoice? result;
+      await tester.pumpWidget(
+        host(
+          onResult: (r) => result = r,
+          canRemember: true,
+          preferredMode: CaptureMode.textOnly,
+          capabilities: const CaptureCapabilities(
+            content: ContentShape(kind: ContentKind.article),
+            available: {CaptureMode.textOnly, CaptureMode.textAndImages},
+            blocked: {},
+            defaultMode: CaptureMode.textAndImages,
+          ),
+        ),
+      );
+      await open(tester);
+      await tester.ensureVisible(find.byKey(const ValueKey('saveAddToQueue')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveAddToQueue')));
+      await tester.pumpAndSettle();
+
+      // The preference wins over the detected default, and the sheet reports
+      // that it should stay remembered.
+      expect(result?.captureMode, CaptureMode.textOnly);
+      expect(result?.rememberForCollection, isTrue);
+    });
   });
 }
 

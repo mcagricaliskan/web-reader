@@ -34,8 +34,14 @@ Rules, all enforced in `labelsFor`:
    order, and **Item** otherwise. There is no path from "mostly images" to any
    genre.
 5. `Article`, `Post`, `Item` and `Saved item` never take a number.
-6. The user can correct the detected kind; `entries.content_kind_is_user_set`
-   stops a later save from overwriting the correction.
+6. The user can correct the detected kind, from **Entry details → Change
+   content type**. `entries.content_kind_is_user_set` stops a later save from
+   overwriting the correction.
+7. Correcting the kind changes the **label only**. It cannot reach
+   `entries.artifact_format`, so relabelling an image package as an article
+   never makes the reader try to parse it as a document. What a thing is
+   *called* and what its bytes *are* are different facts — see
+   ARCHITECTURE.md §3.1.
 
 ## 3. Rename inventory
 
@@ -84,6 +90,8 @@ Rules, all enforced in `labelsFor`:
 | `library_items.last_opened_chapter_id` / `last_completed_chapter_id` | `collections.last_opened_entry_id` / `last_completed_entry_id` |
 | `library_items.finished_cleanup` | `collections.cleanup_preference` |
 | `capture_jobs.range_mode` | `save_runs.scope` |
+| `save_runs.include_images` / `queue_tasks.include_images` | `capture_mode` + `capture_mode_is_user_set` (a boolean could not say "an ordered image sequence" and "an article with pictures" are different) |
+| `ReadingPosition.imageIndex` / `offsetInImage` | `anchorIndex` / `offsetInAnchor` (the anchor indexes a panel *or* a block) |
 | `queue_tasks.chapter_limit` | `queue_tasks.entry_limit` |
 
 ### Files
@@ -103,7 +111,10 @@ Rules, all enforced in `labelsFor`:
 `rules_screen.dart` → `page_hints_screen.dart`
 
 New: `lib/library/content_shape.dart` · `lib/library/entry_labels.dart` ·
-`lib/save/content_detection.dart` · `lib/save/stop_conditions.dart`
+`lib/save/content_detection.dart` · `lib/save/stop_conditions.dart` ·
+`lib/save/capture_mode.dart` · `lib/save/document_extraction.dart` ·
+`lib/storage/document.dart` · `lib/storage/recovery.dart` ·
+`lib/features/document_reader.dart`
 
 ### Deleted with no replacement
 

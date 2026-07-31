@@ -13,9 +13,11 @@ import '../reading/reading_position.dart';
 import '../reading/reading_repository.dart';
 import '../storage/cleanup.dart';
 import '../storage/database.dart';
+import '../storage/document.dart';
 import '../storage/file_store.dart';
 import '../storage/manifest.dart';
 import '../ui/palette.dart';
+import 'document_reader.dart';
 import 'save_queue_ui.dart';
 import 'cleanup_dialogs.dart';
 import 'library_screen.dart' show formatRelative;
@@ -76,7 +78,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   ScrollController? _scrollController;
   Future<_ReaderData>? _future;
 
+  /// Image-panel geometry, for the image reader only.
   EntryLayout? _layout;
+
+  /// Whichever geometry the open entry uses. The scroll listener, the flush,
+  /// the completion rule and the jump chip all go through this, so they are
+  /// written once and work for both artifacts.
+  ReadingGeometry? _geometry;
+
+  /// A document's position cannot be applied before layout exists — a
+  /// paragraph has no offset until it has been laid out — so the document
+  /// reader restores on the first measurement instead of at construction.
+  bool _documentRestorePending = false;
 
   /// The live position, updated on every scroll event. The footer listens to
   /// this directly (M12) so the visible percentage moves *while* scrolling;
@@ -214,6 +227,24 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   // --- loading -------------------------------------------------------------
 
+  /// Locally readable siblings, in reading order.
+  ///
+  /// A standalone entry has none: there is no previous or next, and the reader
+  /// says so rather than showing an empty strip where controls were.
+  Future<List<Entry>> _siblingsFor(AppDatabase db, Entry entry) async {
+    final collectionId = entry.collectionId;
+    if (collectionId == null) return const <Entry>[];
+    return sortEntriesForReading(
+      (await db.entriesForCollection(collectionId))
+          .where(
+            (c) =>
+                c.contentPath != null &&
+                (c.saveStatus == 'complete' || c.saveStatus == 'partial'),
+          )
+          .toList(),
+    );
+  }
+
   Future<_ReaderData> _load(String entryId) async {
     final db = ref.read(databaseProvider);
     final store = ref.read(fileStoreProvider);
@@ -271,6 +302,43 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     // squashed" was. Such a page gets no recorded size at all, so the reader
     // falls back to a fixed box and crops from the top rather than stretching.
     //
+    // A package saved by a newer build. Say so rather than misreading it as
+    // one of the formats this version does know.
+    if (!manifest.artifact.isReadable) {
+      return const _ReaderData.unavailable(
+        'This entry was saved in a format this version of the app cannot '
+        'open. Updating the app should fix it; the files are untouched.',
+      );
+    }
+
+    if (manifest.isDocument) {
+      final document = await store.readDocument(
+        relative,
+        fileName: manifest.document?.relativePath ?? FileStore.documentFileName,
+      );
+      if (document == null || document.isEmpty) {
+        return const _ReaderData.unavailable(
+          'The saved text for this entry is unreadable.',
+        );
+      }
+      final siblings = await _siblingsFor(db, entry);
+      await reading.markOpened(entry.id);
+      if (entry.collectionId != null) {
+        await db.touchCollection(entry.collectionId!);
+      }
+      _position = reading.positionOf(entry);
+      _completed = entry.readStatus == ReadStatus.completed.name;
+      _collectionId = entry.collectionId;
+      return _ReaderData(
+        entry: entry,
+        manifest: manifest,
+        pages: const [],
+        document: document,
+        entryDir: Directory(store.resolve(relative)),
+        siblings: siblings,
+      );
+    }
+
     // Manifest order is DOM order, which is reading order.
     final pages = <_ReaderPage>[];
     for (final asset in manifest.storedAssets) {
@@ -285,20 +353,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       );
     }
 
-    // A standalone entry has no siblings: there is no previous or next, and the
-    // reader says so rather than showing an empty strip where controls were.
     final collectionId = entry.collectionId;
-    final siblings = collectionId == null
-        ? const <Entry>[]
-        : sortEntriesForReading(
-            (await db.entriesForCollection(collectionId))
-                .where(
-                  (c) =>
-                      c.contentPath != null &&
-                      (c.saveStatus == 'complete' || c.saveStatus == 'partial'),
-                )
-                .toList(),
-          );
+    final siblings = await _siblingsFor(db, entry);
 
     await reading.markOpened(entry.id);
     if (collectionId != null) await db.touchCollection(collectionId);
@@ -443,6 +499,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return _scrollController!;
     }
     _layout = layout;
+    _geometry = layout;
 
     final initial = _restored
         ? 0.0
@@ -457,9 +514,55 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return controller;
   }
 
+  /// The document reader's controller.
+  ///
+  /// Unlike the image reader this one **cannot** open at the saved offset: a
+  /// paragraph has no offset until it has been laid out at this width, in this
+  /// font, at this text scale. So it opens at the top and restores on the
+  /// first measurement — see [_onDocumentLayout].
+  ScrollController _documentController() {
+    final existing = _scrollController;
+    // Keyed off `_restored`, not off "is there a controller", for the same
+    // reason [_controllerFor] is keyed off `_layout`: moving to another entry
+    // resets `_restored`, and reusing the previous controller would keep the
+    // old scroll offset and — since `_goTo` removed its listener — stop
+    // recording progress entirely.
+    if (existing != null && _restored) return existing;
+    existing?.dispose();
+
+    _restoredPosition = _position;
+    _restored = true;
+    _documentRestorePending = !_position.isAtStart;
+
+    final controller = ScrollController()..addListener(_onScroll);
+    _scrollController = controller;
+    return controller;
+  }
+
+  /// The document has been measured: adopt its geometry, and restore the
+  /// reading position the first time.
+  void _onDocumentLayout(DocumentLayout layout) {
+    _geometry = layout;
+    if (!_documentRestorePending) return;
+    _documentRestorePending = false;
+
+    final position = _restoredPosition;
+    if (position.isAtStart) return;
+
+    // After the frame that produced this measurement, so the scroll view has
+    // the extent to move within.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final controller = _scrollController;
+      if (!mounted || controller == null || !controller.hasClients) return;
+      final target = (_leadingExtent + layout.offsetForPosition(position))
+          .clamp(0.0, controller.position.maxScrollExtent);
+      controller.jumpTo(target);
+    });
+  }
+
   void _onScroll() {
     final controller = _scrollController;
-    final layout = _layout;
+    final layout = _geometry;
     if (controller == null || layout == null || !controller.hasClients) return;
 
     final viewportHeight = controller.position.viewportDimension;
@@ -504,7 +607,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   Future<void> _flush() async {
     final id = _entryId;
-    if (id == null || _layout == null) return;
+    if (id == null || _geometry == null) return;
     _saveTimer?.cancel();
     _saveTimer = null;
     try {
@@ -556,6 +659,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _entryId = target.id;
       _restored = false;
       _layout = null;
+      _geometry = null;
+      _documentRestorePending = false;
       _completed = false;
       _pastThresholdSince = null;
       _position = ReadingPosition.start;
@@ -740,7 +845,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             onSaveAgain: missing == null ? null : () => _saveAgain(missing),
           );
         }
-        if (data.pages.isEmpty) {
+        if (!data.isDocument && data.pages.isEmpty) {
           return const _Unavailable(
             message: 'This entry has no stored images.',
           );
@@ -748,11 +853,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
         final manifest = data.manifest!;
         final width = MediaQuery.of(context).size.width;
-        final controller = _controllerFor(data, width);
-
         final partial = manifest.status == SaveStatus.partial;
-        _leadingExtent =
-            kReaderTopSpacer + (partial ? kPartialBannerExtent : 0);
+        // For an image sequence the partial banner sits *above* panel 1 as a
+        // fixed extent the layout does not know about, so it has to be added
+        // here. A document measures its own children, banner included, so its
+        // leading extent is the top spacer alone — adding the banner twice
+        // would offset every restore by its height.
+        _leadingExtent = data.isDocument
+            ? kReaderTopSpacer
+            : kReaderTopSpacer + (partial ? kPartialBannerExtent : 0);
+        final controller = data.isDocument
+            ? _documentController()
+            : _controllerFor(data, width);
 
         return Stack(
           children: [
@@ -769,40 +881,62 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               onHorizontalDragStart: _onDragStart,
               onHorizontalDragUpdate: _onDragUpdate,
               onHorizontalDragEnd: _onDragEnd,
-              child: ListView.builder(
-                controller: controller,
-                // The lead-in is list PADDING, not a child: padding adds its
-                // extent exactly, while a short first child would skew
-                // ListView's running estimate of total extent and leave the
-                // scrollable's own maxScrollExtent short of the real bottom.
-                padding: const EdgeInsets.only(top: kReaderTopSpacer),
-                // One trailing row for the end-of-entry block, plus the
-                // partial banner when there is one.
-                itemCount: data.pages.length + 1 + (partial ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (partial && index == 0) {
-                    return _PartialBanner(
-                      stored: manifest.storedAssetCount,
-                      detected: manifest.detectedAssetCount,
-                      reason: manifest.statusReason,
-                      onRetry: () => _retryMissing(data),
-                    );
-                  }
-                  final panel = index - (partial ? 1 : 0);
-                  if (panel == data.pages.length) {
-                    return _EndOfEntry(
-                      data: data,
-                      entryId: _entryId!,
-                      onGoTo: _goTo,
-                    );
-                  }
-                  return _PanelView(
-                    page: data.pages[panel],
-                    index: panel + 1,
-                    height: _layout?.heightOf(panel),
-                  );
-                },
-              ),
+              child: data.isDocument
+                  ? DocumentBody(
+                      document: data.document!,
+                      manifest: manifest,
+                      entryDir: data.entryDir!,
+                      controller: controller,
+                      leadingExtent: kReaderTopSpacer,
+                      onLayout: _onDocumentLayout,
+                      banner: partial
+                          ? _PartialBanner(
+                              stored: manifest.storedAssetCount,
+                              detected: manifest.detectedAssetCount,
+                              reason: manifest.statusReason,
+                              onRetry: () => _retryMissing(data),
+                            )
+                          : null,
+                      trailing: _EndOfEntry(
+                        data: data,
+                        entryId: _entryId!,
+                        onGoTo: _goTo,
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: controller,
+                      // The lead-in is list PADDING, not a child: padding adds its
+                      // extent exactly, while a short first child would skew
+                      // ListView's running estimate of total extent and leave the
+                      // scrollable's own maxScrollExtent short of the real bottom.
+                      padding: const EdgeInsets.only(top: kReaderTopSpacer),
+                      // One trailing row for the end-of-entry block, plus the
+                      // partial banner when there is one.
+                      itemCount: data.pages.length + 1 + (partial ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (partial && index == 0) {
+                          return _PartialBanner(
+                            stored: manifest.storedAssetCount,
+                            detected: manifest.detectedAssetCount,
+                            reason: manifest.statusReason,
+                            onRetry: () => _retryMissing(data),
+                          );
+                        }
+                        final panel = index - (partial ? 1 : 0);
+                        if (panel == data.pages.length) {
+                          return _EndOfEntry(
+                            data: data,
+                            entryId: _entryId!,
+                            onGoTo: _goTo,
+                          );
+                        }
+                        return _PanelView(
+                          page: data.pages[panel],
+                          index: panel + 1,
+                          height: _layout?.heightOf(panel),
+                        );
+                      },
+                    ),
             ),
             // A jump back to where reading left off, offered only once the
             // reader has actually wandered away from it — the app restores
@@ -812,7 +946,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               visible: _chromeVisible && _showJump,
               fraction: _restoredFraction,
               onTap: () {
-                final layout = _layout;
+                final layout = _geometry;
                 if (layout == null) return;
                 controller.animateTo(
                   _leadingExtent + layout.offsetForPosition(_restoredPosition),
@@ -828,7 +962,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               entryId: _entryId!,
               completed: _completed,
               position: _livePosition,
-              panelCount: data.pages.length,
+              panelCount: data.isDocument
+                  ? data.document!.blockCount
+                  : data.pages.length,
               onGoTo: _goTo,
               onToggleRead: _toggleRead,
             ),
@@ -984,7 +1120,7 @@ class _ReaderChrome extends StatelessWidget {
                           final pct = (live.fraction * 100)
                               .clamp(0, 100)
                               .round();
-                          final panel = (live.imageIndex + 1).clamp(
+                          final panel = (live.anchorIndex + 1).clamp(
                             1,
                             panelCount,
                           );
@@ -1727,6 +1863,8 @@ class _ReaderData {
     required this.entry,
     required this.manifest,
     required this.pages,
+    this.document,
+    this.entryDir,
     this.siblings = const [],
   }) : unavailableReason = null,
        filesGone = false,
@@ -1743,11 +1881,26 @@ class _ReaderData {
   }) : entry = null,
        manifest = null,
        pages = const [],
+       document = null,
+       entryDir = null,
        siblings = const [];
 
   final Entry? entry;
   final EntryManifest? manifest;
+
+  /// Image pages. Empty for a structured document.
   final List<_ReaderPage> pages;
+
+  /// The saved text. Null for an image sequence.
+  final StructuredDocument? document;
+
+  /// Where this entry's files live, for resolving a document's inline images.
+  final Directory? entryDir;
+
+  /// Which reader path this entry takes. Derived from what was loaded, which
+  /// came from the manifest's artifact discriminator — never from counting
+  /// files or reading extensions.
+  bool get isDocument => document != null;
 
   /// The row is intact but its images are not on the device any more.
   final bool filesGone;

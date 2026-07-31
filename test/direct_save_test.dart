@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:web_reader/save/capture_mode.dart';
 import 'package:web_reader/save/save_run.dart';
 import 'package:web_reader/save/save_preflight.dart';
 import 'package:web_reader/save/save_state.dart';
@@ -85,6 +86,7 @@ void main() {
       final queue = makeQueue();
 
       final result = await queue.startDirectSave(
+        captureModeIsUserSet: false,
         startUrl: url(350),
         entryLimit: 1,
         range: SaveScope.currentPageOnly,
@@ -107,6 +109,7 @@ void main() {
       final queue = makeQueue();
 
       final result = await queue.startDirectSave(
+        captureModeIsUserSet: false,
         startUrl: url(350),
         entryLimit: 1,
       );
@@ -257,6 +260,7 @@ void main() {
       await settle();
 
       final second = await queue.startDirectSave(
+        captureModeIsUserSet: false,
         startUrl: url(351),
         entryLimit: 1,
       );
@@ -302,6 +306,7 @@ void main() {
         expect(owner.label, contains('downloads'));
         // Queueing is unaffected: it starts nothing, so it cannot conflict.
         final queued = await queue.enqueueSave(
+          captureModeIsUserSet: false,
           startUrl: url(400),
           entryLimit: 1,
         );
@@ -407,6 +412,7 @@ void main() {
     test('an interrupted direct save is recorded as direct', () async {
       final queue = makeQueue();
       await queue.startDirectSave(
+        captureModeIsUserSet: false,
         startUrl: url(350),
         entryLimit: 3,
         range: SaveScope.fixedCount,
@@ -426,8 +432,8 @@ void main() {
       await db.upsertRun(
         SaveRun(
           visitedCanonicals: '',
-          includeImages: true,
           id: 'run-1',
+          captureModeIsUserSet: false,
           startUrl: url(350),
           currentUrl: url(351),
           requestedEntries: 3,
@@ -508,7 +514,9 @@ class _ScriptedRun extends SaveRunController {
   Future<void> start({
     required int entryLimit,
     int? maxBytes,
-    bool includeImages = true,
+    CaptureMode? captureMode,
+    bool captureModeIsUserSet = false,
+    bool rememberForCollection = false,
     String? startUrl,
     DuplicatePolicy policy = DuplicatePolicy.skipComplete,
     SessionDuplicateDecision sessionDuplicate = SessionDuplicateDecision.ask,

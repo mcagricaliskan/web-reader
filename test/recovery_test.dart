@@ -71,6 +71,7 @@ void main() {
     title: 'Fixture Collection Entry $entryOrder',
     sourceUrl: 'https://x.example/guide/foo/$entryOrder',
     urlKey: 'https://x.example/guide/foo/$entryOrder',
+    artifactFormat: 'imageSequence',
     saveStatus: status,
     contentPath: contentPath,
     savedAt: status == 'complete' ? DateTime(2026, 7, 20) : null,
@@ -195,6 +196,7 @@ void main() {
             title: manifest.title,
             sourceUrl: manifest.sourceUrl,
             urlKey: manifest.sourceUrl,
+            artifactFormat: 'imageSequence',
             saveStatus: manifest.status.name,
             contentPath: relative,
             savedAt: manifest.savedAt,
@@ -243,10 +245,10 @@ void main() {
   group('the interrupted run itself', () {
     SaveRun run(String state, {int completed = 1}) => SaveRun(
       visitedCanonicals: '',
-      includeImages: true,
       origin: 'queue',
       scope: 'fixedCount',
       id: 'run-1',
+      captureModeIsUserSet: false,
       startUrl: 'https://x.example/guide/foo/1',
       currentUrl: 'https://x.example/guide/foo/2',
       requestedEntries: 3,

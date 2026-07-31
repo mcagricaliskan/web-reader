@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../browser/browser_controller.dart';
+import '../save/capture_mode.dart';
 import '../save/save_run.dart';
 import '../core/config.dart';
 import '../core/url_utils.dart';
@@ -448,6 +449,9 @@ class TaskQueueController extends ChangeNotifier {
     DuplicatePolicy policy = DuplicatePolicy.ask,
     SaveScope range = SaveScope.fixedCount,
     String? collectionId,
+    CaptureMode? captureMode,
+    bool captureModeIsUserSet = false,
+    bool rememberForCollection = false,
   }) async {
     if (startUrl.trim().isEmpty) return DirectStartResult.noPage;
     if (_directSaveClaimed || browserOwner != null) {
@@ -478,6 +482,9 @@ class TaskQueueController extends ChangeNotifier {
           startUrl: startUrl,
           policy: policy,
           range: range,
+          captureMode: captureMode,
+          captureModeIsUserSet: captureModeIsUserSet,
+          rememberForCollection: rememberForCollection,
           origin: SaveOrigin.direct,
         ),
       ),
@@ -569,7 +576,7 @@ class TaskQueueController extends ChangeNotifier {
     String? collectionId,
     bool resumed = false,
     bool cancelled = false,
-    bool includeImages = true,
+    CaptureMode? captureMode,
     int? maxBytes,
     StopReason? stopReason,
   }) async {
@@ -584,7 +591,8 @@ class TaskQueueController extends ChangeNotifier {
         startUrl: startUrl,
         entryLimit: entryLimit,
         maxBytes: maxBytes,
-        includeImages: includeImages,
+        captureMode: captureMode?.name,
+        captureModeIsUserSet: false,
         scope: range.name,
         stopReason: stopReason?.name,
         origin: kQueueOriginDirect,
@@ -653,7 +661,11 @@ class TaskQueueController extends ChangeNotifier {
     // The safe default, so a caller that forgets to say saves one page.
     SaveScope range = SaveScope.currentPageOnly,
     int? maxBytes,
-    bool includeImages = true,
+
+    /// What to produce. Null means the page had not been analysed when this
+    /// was queued, so the run decides per page from detection.
+    CaptureMode? captureMode,
+    bool captureModeIsUserSet = false,
   }) async {
     final existing = await pendingSaveFor(startUrl);
     if (existing != null) {
@@ -669,7 +681,8 @@ class TaskQueueController extends ChangeNotifier {
         startUrl: startUrl,
         entryLimit: entryLimit,
         maxBytes: maxBytes,
-        includeImages: includeImages,
+        captureMode: captureMode?.name,
+        captureModeIsUserSet: captureModeIsUserSet,
         duplicatePolicy: policy.name,
         scope: range.name,
         origin: kQueueOriginQueue,
@@ -746,10 +759,10 @@ class TaskQueueController extends ChangeNotifier {
       QueueTask(
         id: _uuid.v4(),
         taskType: QueueTaskType.collectionCheck.name,
+        captureModeIsUserSet: false,
         collectionId: collectionId,
-        // Metadata only: a check never writes a file, so there are no images to
-        // include and no storage ceiling to apply.
-        includeImages: false,
+        // Metadata only: a check never writes a file, so there is nothing to
+        // capture and no storage ceiling to apply.
         origin: kQueueOriginQueue,
         state: QueueTaskState.queued.name,
         orderIndex: 0,
@@ -824,11 +837,11 @@ class TaskQueueController extends ChangeNotifier {
     QueueTask(
       id: _uuid.v4(),
       taskType: QueueTaskType.removeOfflineFiles.name,
+      captureModeIsUserSet: false,
       collectionId: collectionId,
       startUrl: collectionId != null
           ? kCleanupScopeCollection
           : kCleanupScopeFinished,
-      includeImages: false,
       origin: kQueueOriginQueue,
       state: QueueTaskState.queued.name,
       orderIndex: 0,
@@ -1186,6 +1199,11 @@ class TaskQueueController extends ChangeNotifier {
           startUrl: task.startUrl,
           policy: duplicatePolicyFromName(task.duplicatePolicy),
           range: saveScopeFromName(task.scope),
+          maxBytes: task.maxBytes,
+          // Restored from the row, so work that waited in the queue produces
+          // what the user asked for rather than what today's detection thinks.
+          captureMode: captureModeFromName(task.captureMode),
+          captureModeIsUserSet: task.captureModeIsUserSet,
           origin: SaveOrigin.queue,
         );
         final p = saveRun.progress;

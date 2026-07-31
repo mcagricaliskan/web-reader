@@ -41,6 +41,7 @@ void main() {
     title: 'Entry $entryOrder',
     sourceUrl: 'http://localhost:8099/entry/$entryOrder',
     urlKey: urlKey ?? 'http://localhost:8099/entry/$entryOrder',
+    artifactFormat: 'imageSequence',
     saveStatus: status,
     contentPath: 'library/$itemId/entries/$id',
     savedAt: DateTime(2026, 7, 25, 12, entryOrder),
@@ -157,10 +158,10 @@ void main() {
   group('save runs', () {
     SaveRun run(String id, String state, {int completed = 0}) => SaveRun(
       visitedCanonicals: '',
-      includeImages: true,
       origin: 'queue',
       scope: 'fixedCount',
       id: id,
+      captureModeIsUserSet: false,
       startUrl: 'http://localhost:8099/entry/1',
       currentUrl: 'http://localhost:8099/entry/2',
       requestedEntries: 3,

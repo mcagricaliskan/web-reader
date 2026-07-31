@@ -749,6 +749,29 @@ class BrowserController extends ChangeNotifier {
     }
   }
 
+  /// Read the page's readable region as a list of candidate blocks.
+  ///
+  /// Returns what the page *reported*, flags and all — the decision about
+  /// which blocks survive belongs to `save/document_extraction.dart`, where it
+  /// is unit-tested. Null when the bridge could not run at all (a CSP that
+  /// blocks injection, a page mid-navigation), which the caller reports as a
+  /// text-extraction failure rather than as an empty document.
+  Future<RawDocument?> extractDocument({int blockCap = 2000}) async {
+    try {
+      final raw = await _call(
+        kCallExtractDocument,
+        args: {'blockCap': blockCap},
+        // Walking a long entry's DOM is slower than a probe, and a novel
+        // page is exactly the case this exists for.
+        timeout: const Duration(seconds: 45),
+      );
+      if (raw is! Map) return null;
+      return RawDocument.fromJson(Map<String, dynamic>.from(raw));
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Resolve a saved reader-area rule into an ordered image list.
   Future<List<PageImage>?> applyReaderRule(Map<String, dynamic> rule) async {
     try {

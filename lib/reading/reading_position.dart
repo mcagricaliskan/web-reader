@@ -32,34 +32,69 @@ double readProgressFor({required String? readStatus, required double stored}) =>
 
 /// A hybrid position: an anchor for precision, a fraction for durability.
 ///
-/// The anchor (`imageIndex` + `offsetInImage`) restores the exact spot but goes
-/// stale when an entry is re-downloaded with a different panel count. The
-/// fraction is approximate but content-independent, so it always means
-/// something. Both are stored; restore prefers the anchor and falls back.
+/// The anchor ([ReadingPosition.anchorIndex] + [ReadingPosition.offsetInAnchor])
+/// restores the exact spot but goes stale when an entry is re-saved with a
+/// different unit count. The fraction is approximate but content-independent,
+/// so it always means something. Both are stored; restore prefers the anchor
+/// and falls back.
+///
+/// **What the anchor indexes depends on the artifact**, and deliberately so.
+/// For an image sequence it is a panel; for a structured document it is a
+/// *block*. The names are artifact-neutral because the storage is: an index
+/// plus a fraction within it describes both, and one shared shape means one
+/// set of columns, one write path and one completion rule. What differs is the
+/// geometry — [EntryLayout] for panels, [DocumentLayout] for blocks — and the
+/// geometry is what each reader owns.
+///
+/// The consequence worth naming: an anchor recorded against one artifact is
+/// meaningless against the other. That is exactly why a save which changes an
+/// entry's stored format resets the anchor and keeps only the fraction — see
+/// `carryReading` in `save/save_engine.dart`.
 class ReadingPosition {
   const ReadingPosition({
     this.fraction = 0,
-    this.imageIndex = 0,
-    this.offsetInImage = 0,
+    this.anchorIndex = 0,
+    this.offsetInAnchor = 0,
   });
 
   /// 0..1 through the whole entry. Drives the progress bar and completion.
   final double fraction;
 
-  /// Zero-based index of the panel at the top of the viewport.
-  final int imageIndex;
+  /// Zero-based index of the unit at the top of the viewport — an image panel
+  /// or a document block, depending on what the entry holds.
+  final int anchorIndex;
 
-  /// 0..1 down that panel.
-  final double offsetInImage;
+  /// 0..1 down that unit.
+  final double offsetInAnchor;
 
   static const ReadingPosition start = ReadingPosition();
 
-  bool get isAtStart => fraction <= 0 && imageIndex == 0 && offsetInImage <= 0;
+  bool get isAtStart =>
+      fraction <= 0 && anchorIndex == 0 && offsetInAnchor <= 0;
 
   @override
   String toString() =>
-      'panel $imageIndex +${(offsetInImage * 100).round()}% '
+      'unit $anchorIndex +${(offsetInAnchor * 100).round()}% '
       '(${(fraction * 100).round()}% of entry)';
+}
+
+/// The two-way mapping between a scroll offset and a [ReadingPosition].
+///
+/// Implemented once per artifact — [EntryLayout] for image panels,
+/// [DocumentLayout] for text blocks — so the reader screen can own progress
+/// writing, the completion rule and the jump-back chip **once**, for both,
+/// without knowing which kind of entry is open. The parts that genuinely
+/// differ (are heights known in advance? what does an index mean?) stay inside
+/// the implementations.
+abstract interface class ReadingGeometry {
+  bool get isEmpty;
+
+  /// Total scrollable content height.
+  double get total;
+
+  double offsetForPosition(ReadingPosition position);
+
+  ReadingPosition positionForOffset(double offset, {double viewportHeight});
 }
 
 /// Geometry of an entry laid out at a given width.
@@ -67,7 +102,7 @@ class ReadingPosition {
 /// Panel heights come from the manifest's stored dimensions, so the list's
 /// geometry is known before a single image decodes. That is what lets the
 /// reader open *at* the saved position instead of jumping there after layout.
-class EntryLayout {
+class EntryLayout implements ReadingGeometry {
   EntryLayout._(this.viewportWidth, this.heights, this._offsets, this.total);
 
   factory EntryLayout({
@@ -102,9 +137,12 @@ class EntryLayout {
   final List<double> _offsets;
 
   /// Total scrollable content height.
+  @override
   final double total;
 
   int get panelCount => heights.length;
+
+  @override
   bool get isEmpty => heights.isEmpty || total <= 0;
 
   double heightOf(int index) =>
@@ -118,19 +156,21 @@ class EntryLayout {
   /// Uses the anchor when the panel still exists, else maps the fraction onto
   /// the current content height — which is why a re-download with a different
   /// panel count still lands somewhere sensible.
+  @override
   double offsetForPosition(ReadingPosition position) {
     if (isEmpty) return 0;
-    if (position.imageIndex >= 0 && position.imageIndex < panelCount) {
-      final base = offsetOf(position.imageIndex);
+    if (position.anchorIndex >= 0 && position.anchorIndex < panelCount) {
+      final base = offsetOf(position.anchorIndex);
       final within =
-          heightOf(position.imageIndex) *
-          position.offsetInImage.clamp(0.0, 1.0);
+          heightOf(position.anchorIndex) *
+          position.offsetInAnchor.clamp(0.0, 1.0);
       return (base + within).clamp(0.0, total);
     }
     return (position.fraction.clamp(0.0, 1.0) * total).clamp(0.0, total);
   }
 
   /// The inverse: turn a live scroll offset back into a saved position.
+  @override
   ReadingPosition positionForOffset(
     double offset, {
     double viewportHeight = 0,
@@ -156,8 +196,116 @@ class EntryLayout {
 
     return ReadingPosition(
       fraction: fraction,
-      imageIndex: index,
-      offsetInImage: within,
+      anchorIndex: index,
+      offsetInAnchor: within,
+    );
+  }
+}
+
+/// Geometry of a **structured document**, measured after layout.
+///
+/// The difference from [EntryLayout] is not a detail — it is why this is a
+/// separate class rather than a flag on that one. An image panel's height is
+/// known before anything renders, because the manifest recorded the pixels;
+/// a paragraph's height is not knowable until it has been laid out at a
+/// particular width, in a particular font, at a particular text scale. So the
+/// image reader opens *at* its position and the document reader restores *to*
+/// it once the first frame exists.
+///
+/// What makes that restore reliable across restarts, rotations and font-size
+/// changes is that the stored anchor is a **block index**, which no amount of
+/// reflow can move. Only the offset within the block is proportional, and a
+/// block that reflows from three lines to five keeps the reader at the same
+/// relative point inside it.
+///
+/// Offsets are handed in by the reader after it measures its own children; the
+/// maths lives here so it is testable without a widget tree.
+class DocumentLayout implements ReadingGeometry {
+  DocumentLayout._(this._offsets, this._heights, this.total);
+
+  /// Build from measured block offsets and heights, in block order.
+  factory DocumentLayout({
+    required List<double> offsets,
+    required List<double> heights,
+    double? totalHeight,
+  }) {
+    final count = offsets.length < heights.length
+        ? offsets.length
+        : heights.length;
+    final o = offsets.take(count).toList(growable: false);
+    final h = heights.take(count).toList(growable: false);
+    final total =
+        totalHeight ?? (count == 0 ? 0.0 : o[count - 1] + h[count - 1]);
+    return DocumentLayout._(o, h, total);
+  }
+
+  /// Nothing measured yet — the state on the very first frame.
+  static final DocumentLayout empty = DocumentLayout._(const [], const [], 0);
+
+  final List<double> _offsets;
+  final List<double> _heights;
+
+  @override
+  final double total;
+
+  int get blockCount => _offsets.length;
+
+  @override
+  bool get isEmpty => _offsets.isEmpty || total <= 0;
+
+  double offsetOf(int index) =>
+      (index >= 0 && index < _offsets.length) ? _offsets[index] : 0;
+
+  double heightOf(int index) =>
+      (index >= 0 && index < _heights.length) ? _heights[index] : 0;
+
+  /// Scroll offset for a saved position.
+  ///
+  /// The anchor when the block still exists, else the fraction mapped onto the
+  /// current content height — so a re-save that added a paragraph still lands
+  /// somewhere sensible rather than at the top.
+  @override
+  double offsetForPosition(ReadingPosition position) {
+    if (isEmpty) return 0;
+    if (position.anchorIndex >= 0 && position.anchorIndex < blockCount) {
+      final base = offsetOf(position.anchorIndex);
+      final within =
+          heightOf(position.anchorIndex) *
+          position.offsetInAnchor.clamp(0.0, 1.0);
+      return (base + within).clamp(0.0, total);
+    }
+    return (position.fraction.clamp(0.0, 1.0) * total).clamp(0.0, total);
+  }
+
+  /// The inverse: a live scroll offset back into a saved position.
+  @override
+  ReadingPosition positionForOffset(
+    double offset, {
+    double viewportHeight = 0,
+  }) {
+    if (isEmpty) return ReadingPosition.start;
+    final clamped = offset.clamp(0.0, total);
+
+    var index = 0;
+    while (index + 1 < blockCount && _offsets[index + 1] <= clamped) {
+      index++;
+    }
+    final height = _heights[index];
+    final within = height <= 0
+        ? 0.0
+        : ((clamped - _offsets[index]) / height).clamp(0.0, 1.0);
+
+    // Progress counts the bottom of the viewport, exactly as the image reader
+    // does: a reader who can see the last paragraph in full has finished.
+    final scrollable = total - viewportHeight;
+    final fraction = scrollable <= 0
+        ? 1.0
+        : (clamped / scrollable).clamp(0.0, 1.0);
+
+    return ReadingPosition(
+      fraction: fraction,
+      anchorIndex: index,
+      offsetInAnchor: within,
     );
   }
 }

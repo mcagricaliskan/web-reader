@@ -66,6 +66,7 @@ void main() {
       title: 'Entry $n',
       sourceUrl: 'https://x.example/guide/$collection/$n',
       urlKey: 'https://x.example/guide/$collection/$n',
+      artifactFormat: 'imageSequence',
       saveStatus: saveStatus,
       contentPath: offline
           ? 'library/$collection/entries/$collection-c$n'

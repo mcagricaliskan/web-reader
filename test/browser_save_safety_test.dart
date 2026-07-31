@@ -193,9 +193,9 @@ void main() {
       // — nothing is at risk because nothing has started (D46).
       await db.upsertQueueTask(
         QueueTask(
-          includeImages: true,
           origin: 'queue',
           id: 'q1',
+          captureModeIsUserSet: false,
           taskType: QueueTaskType.sequenceSave.name,
           startUrl: 'https://x.example/guide/foo/1',
           entryLimit: 8,
@@ -349,9 +349,9 @@ void main() {
     test('the Browser only ever counts them', () async {
       final tasks = <QueueTask>[
         QueueTask(
-          includeImages: true,
           origin: 'queue',
           id: 'q1',
+          captureModeIsUserSet: false,
           taskType: QueueTaskType.sequenceSave.name,
           startUrl: 'https://x.example/1',
           state: QueueTaskState.queued.name,
@@ -359,9 +359,9 @@ void main() {
           queuedAt: DateTime.now(),
         ),
         QueueTask(
-          includeImages: true,
           origin: 'queue',
           id: 'q2',
+          captureModeIsUserSet: false,
           taskType: QueueTaskType.entrySave.name,
           startUrl: 'https://x.example/2',
           state: QueueTaskState.queued.name,
@@ -369,9 +369,9 @@ void main() {
           queuedAt: DateTime.now(),
         ),
         QueueTask(
-          includeImages: true,
           origin: 'queue',
           id: 'q3',
+          captureModeIsUserSet: false,
           taskType: QueueTaskType.collectionCheck.name,
           state: QueueTaskState.queued.name,
           orderIndex: 3,

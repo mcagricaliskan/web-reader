@@ -113,6 +113,7 @@ void main() {
         title: 'Foo Entry $id',
         sourceUrl: 'https://x.example/guide/foo/$id',
         urlKey: 'https://x.example/guide/foo/$id',
+        artifactFormat: 'imageSequence',
         saveStatus: 'complete',
         contentPath: relative,
         savedAt: DateTime(2026, 7, 20),

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'document.dart';
 import 'manifest.dart';
 
 /// Owns the on-disk layout and the atomic commit.
@@ -13,10 +14,12 @@ import 'manifest.dart';
 /// resolved against [rootDir] at runtime.
 ///
 ///     <app support>/webread/
-///       library/<library-item-id>/entries/<entry-id>/
-///         manifest.json
-///         assets/001.png ...
-///       tmp/<entry-id>/          staging, swept at startup
+///       library/<collection-id>/entries/<entry-id>/
+///         manifest.json           always
+///         document.json           structured-document entries only
+///         assets/001.png ...      image pages, or a document's inline images
+///       library/standalone/<entry-id>/    entries in no collection
+///       tmp/<entry-id>/           staging, swept at startup
 class FileStore {
   FileStore(this.rootDir);
 
@@ -27,6 +30,12 @@ class FileStore {
   static const String standaloneFolderName = 'standalone';
   static const String tmpFolderName = 'tmp';
   static const String manifestFileName = 'manifest.json';
+
+  /// The structured document, beside the bytes it describes. Kept out of the
+  /// manifest so startup recovery, which reads every manifest on disk, stays
+  /// proportional to the number of entries rather than to the size of their
+  /// prose.
+  static const String documentFileName = 'document.json';
   static const String assetsFolderName = 'assets';
 
   final Directory rootDir;
@@ -159,10 +168,10 @@ class FileStore {
     final library = Directory(_libraryPath);
     if (!library.existsSync()) return 0;
     var restored = 0;
-    for (final item in library.listSync().whereType<Directory>()) {
-      final entriesDir = Directory(p.join(item.path, 'entries'));
-      if (!entriesDir.existsSync()) continue;
-      for (final entity in entriesDir.listSync().whereType<Directory>()) {
+
+    int sweep(Directory dir) {
+      var count = 0;
+      for (final entity in dir.listSync().whereType<Directory>()) {
         if (!entity.path.endsWith('.previous')) continue;
         final original = Directory(
           entity.path.substring(0, entity.path.length - '.previous'.length),
@@ -172,9 +181,23 @@ class FileStore {
           entity.deleteSync(recursive: true);
         } else {
           entity.renameSync(original.path);
-          restored++;
+          count++;
         }
       }
+      return count;
+    }
+
+    for (final item in library.listSync().whereType<Directory>()) {
+      // Standalone entries sit directly under `standalone/`, with no
+      // `entries/` level. Skipping them here left an interrupted replacement of
+      // a standalone entry unrecoverable.
+      if (p.basename(item.path) == standaloneFolderName) {
+        restored += sweep(item);
+        continue;
+      }
+      final entriesDir = Directory(p.join(item.path, 'entries'));
+      if (!entriesDir.existsSync()) continue;
+      restored += sweep(entriesDir);
     }
     return restored;
   }
@@ -190,6 +213,25 @@ class FileStore {
   Future<void> deleteEntryContent(String relativePath) async {
     final dir = Directory(resolve(relativePath));
     if (dir.existsSync()) await dir.delete(recursive: true);
+  }
+
+  /// Read an entry's structured document, or null when it has none, the file
+  /// is gone, or it does not parse.
+  ///
+  /// Null is a state the reader renders honestly ("the saved text is
+  /// unreadable"), never an exception: a corrupt file in one entry must not be
+  /// able to take a library screen down with it.
+  Future<StructuredDocument?> readDocument(
+    String entryRelativePath, {
+    String fileName = documentFileName,
+  }) async {
+    final file = File(p.join(resolve(entryRelativePath), fileName));
+    if (!file.existsSync()) return null;
+    try {
+      return StructuredDocument.decode(await file.readAsString());
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<EntryManifest?> readManifest(String entryRelativePath) async {
@@ -246,14 +288,27 @@ class FileStore {
   }
 
   /// Committed entry directories on disk, for reconciling against the DB.
+  ///
+  /// Walks **both** layouts: `<collection>/entries/<entry>` and the flat
+  /// `standalone/<entry>`. Missing the second one meant a standalone entry's
+  /// files could never be recovered from their own manifest — the row was
+  /// gone, the bytes were there, and nothing ever put them back together.
   List<String> listCommittedEntryPaths() {
     final library = Directory(_libraryPath);
     if (!library.existsSync()) return const [];
     final out = <String>[];
     for (final item in library.listSync().whereType<Directory>()) {
+      if (p.basename(item.path) == standaloneFolderName) {
+        for (final entry in item.listSync().whereType<Directory>()) {
+          if (entry.path.endsWith('.previous')) continue;
+          out.add(p.relative(entry.path, from: rootDir.path));
+        }
+        continue;
+      }
       final entries = Directory(p.join(item.path, 'entries'));
       if (!entries.existsSync()) continue;
       for (final ch in entries.listSync().whereType<Directory>()) {
+        if (ch.path.endsWith('.previous')) continue;
         out.add(p.relative(ch.path, from: rootDir.path));
       }
     }
@@ -299,6 +354,10 @@ class StagingHandle {
 
   File assetFile(String fileName) =>
       File(p.join(dir.path, FileStore.assetsFolderName, fileName));
+
+  /// The staged document, written before the manifest and moved into place
+  /// with everything else — so a document entry is as atomic as an image one.
+  File get documentFile => File(p.join(dir.path, FileStore.documentFileName));
 
   /// Path recorded in the manifest — relative to the entry directory.
   static String assetRelativePath(String fileName) =>

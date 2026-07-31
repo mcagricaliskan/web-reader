@@ -66,11 +66,29 @@ build.
 - "Finished" and "the site stopped us" are different outcomes and live in
   different column values.
 
+### Capture modes
+
+- **Three separate concepts, never merged**: `ContentKind` (what the page is),
+  `CaptureMode` (what the save was asked for), `ArtifactFormat` (what the
+  package holds). Only `ArtifactFormat` decides how an entry is read, and
+  `setEntryContentKind` deliberately cannot reach it.
+- Modes are `imageSequence` · `textOnly` · `textAndImages`. **There is no video
+  mode** — the save sheet is built from that enum, so an unhonourable value
+  would become a button that lies.
+- A mode is only ever offered when `CaptureCapabilities` says the engine can
+  carry it out. A collection preference proposes; the page disposes.
+- Text extraction splits the same way detection does: the bridge measures and
+  flags, `save/document_extraction.dart` decides. Keep the judgement in Dart so
+  it stays testable against literal fixtures.
+- Documents are stored as typed blocks in `document.json`, never as HTML. No
+  script, stylesheet, iframe or remote reference may enter a saved package.
+
 ### Media
 
 Audio and video are never saved. `AssetFetcher` accepts image bytes only, verified
-by magic number rather than `Content-Type`. Media elements are counted so an entry
-can show a placeholder and a link to the original page.
+by magic number rather than `Content-Type`. `PageMediaSignals` carries **geometry
+only** — never a media URL — so a video-dominant page can be classified honestly
+and refused. Do not add video URL extraction, HLS/DASH, interception or playback.
 
 ### Storage and privacy
 
@@ -118,11 +136,19 @@ can show a placeholder and a link to the original page.
 - Destructive developer tools are `kDebugMode`-only at the settings entry, the
   route registration and the screen.
 
-### The database has no history
+### The database has no history; the manifest does
 
 `schemaVersion` is **1**, with an `onCreate` and no `onUpgrade`. Do not add a
 migration branch, a schema dump, a step verifier or a data-copying routine. If the
 schema needs to change after release, write a migration then.
+
+`manifest.json` is **version 2** and *is* versioned, because those files are
+durable user data that exists on devices today. A version-1 manifest has no
+`artifact` field and is read as an image sequence — the only thing the app could
+produce when it wrote one. Never rewrite a stored manifest in place, and never
+read an unrecognised `artifact` as a known one: it resolves to
+`ArtifactFormat.unknown` and the reader says so. `lib/storage/recovery.dart`
+rebuilds library rows from packages of either version.
 
 ## Verification
 

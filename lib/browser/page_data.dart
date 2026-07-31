@@ -159,8 +159,11 @@ class PageContentSignals {
   const PageContentSignals({
     this.textLength = 0,
     this.paragraphCount = 0,
+    this.headingCount = 0,
     this.contentImageCount = 0,
     this.contentImagePixels = 0,
+    this.contentRegionImageCount = 0,
+    this.contentRegionImagePixels = 0,
     this.hasArticleElement = false,
     this.hasMainElement = false,
     this.publishedAt,
@@ -174,8 +177,11 @@ class PageContentSignals {
       PageContentSignals(
         textLength: _int(json['textLength']),
         paragraphCount: _int(json['paragraphCount']),
+        headingCount: _int(json['headingCount']),
         contentImageCount: _int(json['contentImageCount']),
         contentImagePixels: _int(json['contentImagePixels']),
+        contentRegionImageCount: _int(json['contentRegionImageCount']),
+        contentRegionImagePixels: _int(json['contentRegionImagePixels']),
         hasArticleElement: json['hasArticleElement'] == true,
         hasMainElement: json['hasMainElement'] == true,
         publishedAt: _date(json['publishedAt']),
@@ -195,9 +201,22 @@ class PageContentSignals {
   final int textLength;
   final int paragraphCount;
 
-  /// Images big enough to be content rather than chrome, and their total area.
+  /// Headings inside the readable region. Structure, not decoration: a page
+  /// with prose *and* headings is a document, which is what separates an
+  /// article from a long run of link text.
+  final int headingCount;
+
+  /// Images big enough to be content rather than chrome, anywhere on the page,
+  /// and their total area.
   final int contentImageCount;
   final int contentImagePixels;
+
+  /// Images that sit **inside the readable region** and are big enough to
+  /// matter. Deliberately narrower than [contentImageCount]: a sidebar full of
+  /// recommendation thumbnails raises that count and must not make a page look
+  /// like it has illustrations worth saving between its paragraphs.
+  final int contentRegionImageCount;
+  final int contentRegionImagePixels;
 
   final bool hasArticleElement;
   final bool hasMainElement;
@@ -230,19 +249,40 @@ class PageContentSignals {
 
 /// Audio and video the app deliberately does not save.
 ///
-/// Counted so the offline copy can show an honest placeholder and a link to the
-/// original page. Nothing reads a media URL, and nothing fetches one.
+/// **Geometry only.** These fields describe how much of the page a player
+/// occupies and whether it sits in the readable region — enough to say "this
+/// page is a video, and this app does not save video" honestly. Nothing here
+/// is, or may become, a media URL: no `src`, no manifest address, no iframe
+/// contents. Adding one would turn a classification signal into the first half
+/// of a downloader.
 class PageMediaSignals {
-  const PageMediaSignals({this.videoCount = 0, this.audioCount = 0});
+  const PageMediaSignals({
+    this.videoCount = 0,
+    this.audioCount = 0,
+    this.primaryVideoPixels = 0,
+    this.videoInContentRegion = false,
+  });
 
   factory PageMediaSignals.fromJson(Map<String, dynamic> json) =>
       PageMediaSignals(
         videoCount: _int(json['videoCount']),
         audioCount: _int(json['audioCount']),
+        primaryVideoPixels: _int(json['primaryVideoPixels']),
+        videoInContentRegion: json['videoInContentRegion'] == true,
       );
 
   final int videoCount;
   final int audioCount;
+
+  /// Laid-out area of the **largest** player, in CSS pixels. One big player is
+  /// a video page; a grid of small ones is a listing, and a 200×112 preview in
+  /// a sidebar is neither.
+  final int primaryVideoPixels;
+
+  /// The largest player sits inside the page's readable region rather than in
+  /// a header, sidebar or footer. An advertisement in the chrome is not what
+  /// the page is about.
+  final bool videoInContentRegion;
 
   bool get hasMedia => videoCount > 0 || audioCount > 0;
   int get total => videoCount + audioCount;
@@ -306,6 +346,7 @@ class PageProbe {
     this.readyState = '',
     this.documentHeight = 0,
     this.viewportHeight = 0,
+    this.viewportWidth = 0,
     this.scrollY = 0,
     this.images = const [],
     this.links = const [],
@@ -325,6 +366,7 @@ class PageProbe {
     readyState: json['readyState']?.toString() ?? '',
     documentHeight: _int(json['documentHeight']),
     viewportHeight: _int(json['viewportHeight']),
+    viewportWidth: _int(json['viewportWidth']),
     scrollY: _int(json['scrollY']),
     images: (json['images'] as List<dynamic>? ?? const [])
         .map((e) => PageImage.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -363,7 +405,17 @@ class PageProbe {
   final String readyState;
   final int documentHeight;
   final int viewportHeight;
+
+  /// Viewport width, so an element's area can be compared against the screen's.
+  /// Zero on a probe taken by an older bridge, which every ratio test guards
+  /// against rather than dividing by.
+  final int viewportWidth;
   final int scrollY;
+
+  /// Laid-out viewport area, or 0 when it could not be measured.
+  int get viewportArea => viewportWidth <= 0 || viewportHeight <= 0
+      ? 0
+      : viewportWidth * viewportHeight;
   final List<PageImage> images;
   final List<PageLink> links;
 
@@ -412,6 +464,134 @@ class PageProbe {
       '|$resolvedImageCount'
       '|$pendingImageCount'
       '|$brokenImageCount';
+}
+
+/// One emphasis range as the page reported it.
+class RawInlineMark {
+  const RawInlineMark({
+    required this.start,
+    required this.end,
+    required this.style,
+  });
+
+  factory RawInlineMark.fromJson(Map<String, dynamic> json) => RawInlineMark(
+    start: _int(json['start']),
+    end: _int(json['end']),
+    style: json['style']?.toString() ?? '',
+  );
+
+  final int start;
+  final int end;
+  final String style;
+}
+
+/// One candidate document block, exactly as the page reported it — **before**
+/// any decision about whether to keep it.
+///
+/// The split matters. Only a browser can answer "is this element visible" and
+/// "does it sit inside a `<nav>`", so the JavaScript half measures and flags.
+/// Everything that is a *judgement* — is this long enough, is this image big
+/// enough, does this heading survive, what order do the survivors get — is
+/// Dart, for the same reason `content_detection.dart` is: a rule that decides
+/// what a user's saved copy contains has to be testable against a literal
+/// fixture rather than only through a live WebView.
+class RawDocumentBlock {
+  const RawDocumentBlock({
+    required this.kind,
+    this.text = '',
+    this.level = 0,
+    this.ordered = false,
+    this.src,
+    this.alt = '',
+    this.width = 0,
+    this.height = 0,
+    this.inChrome = false,
+    this.hidden = false,
+    this.marks = const [],
+  });
+
+  factory RawDocumentBlock.fromJson(Map<String, dynamic> json) =>
+      RawDocumentBlock(
+        kind: json['kind']?.toString() ?? '',
+        text: json['text']?.toString() ?? '',
+        level: _int(json['level']),
+        ordered: json['ordered'] == true,
+        src: _str(json['src']),
+        alt: json['alt']?.toString() ?? '',
+        width: _int(json['width']),
+        height: _int(json['height']),
+        inChrome: json['chrome'] == true,
+        hidden: json['hidden'] == true,
+        marks: ((json['marks'] as List<dynamic>?) ?? const [])
+            .map(
+              (e) =>
+                  RawInlineMark.fromJson(Map<String, dynamic>.from(e as Map)),
+            )
+            .toList(growable: false),
+      );
+
+  /// `heading` · `paragraph` · `quote` · `listItem` · `separator` · `image`.
+  /// A kind this build does not recognise is dropped by the extractor rather
+  /// than guessed at.
+  final String kind;
+
+  final String text;
+
+  /// Heading level, or list nesting depth.
+  final int level;
+  final bool ordered;
+
+  /// Absolute image URL. Null for every non-image block.
+  final String? src;
+  final String alt;
+
+  /// Intrinsic size when the image had loaded, else its laid-out box. What the
+  /// "is this meaningful or is it an icon" floor is applied to.
+  final int width;
+  final int height;
+
+  /// Inside `<header>`, `<footer>`, `<nav>` or `<aside>`, or inside a
+  /// container whose class names it as comments, an advertisement, a share bar
+  /// or a recommendation grid.
+  final bool inChrome;
+
+  /// `display:none`, `visibility:hidden`, fully transparent, or zero-sized.
+  final bool hidden;
+
+  final List<RawInlineMark> marks;
+}
+
+/// The page's readable region, as reported by the bridge.
+class RawDocument {
+  const RawDocument({
+    this.title = '',
+    this.blocks = const [],
+    this.truncated = false,
+    this.regionBasis = '',
+  });
+
+  factory RawDocument.fromJson(Map<String, dynamic> json) => RawDocument(
+    title: json['title']?.toString() ?? '',
+    blocks: ((json['blocks'] as List<dynamic>?) ?? const [])
+        .map(
+          (e) => RawDocumentBlock.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList(growable: false),
+    truncated: json['truncated'] == true,
+    regionBasis: json['regionBasis']?.toString() ?? '',
+  );
+
+  final String title;
+  final List<RawDocumentBlock> blocks;
+
+  /// The page had more blocks than the bridge returns. Reported so a truncated
+  /// document is never mistaken for a complete one.
+  final bool truncated;
+
+  /// How the readable region was chosen (`<article>`, `<main>`, densest
+  /// container, whole body). Logged, and shown in the details sheet, so a bad
+  /// extraction is explainable rather than mysterious.
+  final String regionBasis;
 }
 
 int _int(Object? v) {

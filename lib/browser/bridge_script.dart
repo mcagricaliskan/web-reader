@@ -16,10 +16,56 @@ window.__wr = window.__wr || (function () {
 
   var CHROME_TAGS = { HEADER: 1, FOOTER: 1, NAV: 1, ASIDE: 1 };
 
+  // Generic structural words that name page furniture in every language's
+  // worth of markup conventions. These are word-boundary matches against class
+  // and id tokens — the same technique `linkInfo` already uses for pagers —
+  // and NOT a site list: no hostname, no provider, no selector that only makes
+  // sense on one website. A page that names its main column "comments" loses
+  // some blocks; a page that names its advert rail "content" keeps some. Both
+  // are acceptable next to the alternative, which is saving a reader's
+  // offline copy full of subscribe boxes.
+  var CHROME_WORDS = new RegExp(
+    '(^|[-_ ])(' +
+    'comment|comments|commentaires|kommentar|yorum|' +
+    'ad|ads|advert|adverts|advertisement|sponsor|sponsored|promo|promotion|' +
+    'sidebar|side-?bar|aside|widget|' +
+    'related|recommend|recommended|recommendation|recirc|more-?from|read-?next|' +
+    'share|sharing|social|follow|subscribe|newsletter|signup|paywall|' +
+    'nav|navbar|navigation|menu|breadcrumb|breadcrumbs|pager|pagination|' +
+    'header|footer|masthead|toolbar|banner|cookie|consent|modal|popup|overlay|' +
+    'skip-?link|screen-?reader|visually-?hidden|sr-?only' +
+    ')([-_ ]|$)', 'i');
+
+  function namedAsChrome(el) {
+    var cls = (typeof el.className === 'string' ? el.className : '');
+    if (cls && CHROME_WORDS.test(cls)) return true;
+    if (el.id && CHROME_WORDS.test(el.id)) return true;
+    var role = el.getAttribute && el.getAttribute('role');
+    if (role === 'navigation' || role === 'complementary' ||
+        role === 'banner' || role === 'contentinfo' || role === 'search') {
+      return true;
+    }
+    return false;
+  }
+
   function inChrome(el) {
     var p = el.parentElement, depth = 0;
     while (p && depth < 15) {
       if (CHROME_TAGS[p.tagName]) return true;
+      p = p.parentElement; depth++;
+    }
+    return false;
+  }
+
+  /// Chrome by tag OR by the generic naming above, including the element
+  /// itself. Used for document extraction, where a comments section is worth
+  /// excluding even when it is not wrapped in an <aside>.
+  function isFurniture(el) {
+    var p = el, depth = 0;
+    while (p && depth < 15) {
+      if (CHROME_TAGS[p.tagName]) return true;
+      if (namedAsChrome(p)) return true;
+      if (p.getAttribute && p.getAttribute('aria-hidden') === 'true') return true;
       p = p.parentElement; depth++;
     }
     return false;
@@ -226,11 +272,52 @@ window.__wr = window.__wr || (function () {
     return (clone.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
+  /// The part of the page a reader would actually read.
+  ///
+  /// Standard landmarks first, because a page that declares one is telling us
+  /// the answer. Only when there is none does this fall back to measuring:
+  /// the container holding the most direct paragraph text, which is the same
+  /// "count what is there" approach used everywhere else in this file. The
+  /// basis is returned so a wrong region is explainable rather than mysterious.
+  function readableRegion() {
+    function usable(el) {
+      if (!el) return false;
+      return visibleText(el).length >= 200;
+    }
+
+    var el = document.querySelector('article');
+    if (usable(el)) return { el: el, basis: 'article element' };
+
+    el = document.querySelector('main') || document.querySelector('[role=main]');
+    if (usable(el)) return { el: el, basis: 'main landmark' };
+
+    // Densest container: most text sitting in its own direct <p> children.
+    var best = null, bestScore = 0;
+    var candidates = document.querySelectorAll('div,section,article,main');
+    for (var i = 0; i < candidates.length && i < 600; i++) {
+      var c = candidates[i];
+      if (isFurniture(c)) continue;
+      var score = 0, kids = c.children, paras = 0;
+      for (var k = 0; k < kids.length; k++) {
+        if (kids[k].tagName !== 'P') continue;
+        paras++;
+        score += (kids[k].textContent || '').trim().length;
+      }
+      if (paras >= 2 && score > bestScore) { bestScore = score; best = c; }
+    }
+    if (best && bestScore >= 200) {
+      return { el: best, basis: 'densest paragraph container' };
+    }
+    return { el: document.body, basis: 'whole document' };
+  }
+
   /// Structural description of the document. No subject matter, no genre.
   function contentSignals() {
-    var text = visibleText(document.querySelector('article, main, [role=main]') || document.body);
+    var region = readableRegion();
+    var text = visibleText(region.el);
     var paragraphs = document.querySelectorAll('article p, main p, [role=main] p, p');
     var pixels = 0, imageCount = 0;
+    var regionPixels = 0, regionCount = 0;
     var imgs = document.images || [];
     for (var i = 0; i < imgs.length; i++) {
       var im = imgs[i];
@@ -240,6 +327,19 @@ window.__wr = window.__wr || (function () {
       if (inChrome(im)) continue;
       pixels += w * h;
       imageCount++;
+      // The narrower count: inside the readable region and not page furniture.
+      // A recommendation grid raises the count above and must not raise this
+      // one, because this is what decides whether "text and images" is on offer.
+      if (region.el.contains(im) && !isFurniture(im)) {
+        regionPixels += w * h;
+        regionCount++;
+      }
+    }
+
+    var headings = region.el.querySelectorAll('h1,h2,h3,h4,h5,h6');
+    var headingCount = 0;
+    for (var hi = 0; hi < headings.length; hi++) {
+      if (!isFurniture(headings[hi])) headingCount++;
     }
 
     // Publication date: <time datetime>, then the standard metadata names.
@@ -289,8 +389,11 @@ window.__wr = window.__wr || (function () {
     return {
       textLength: text.length,
       paragraphCount: paragraphs.length,
+      headingCount: headingCount,
       contentImageCount: imageCount,
       contentImagePixels: pixels,
+      contentRegionImageCount: regionCount,
+      contentRegionImagePixels: regionPixels,
       hasArticleElement: !!document.querySelector('article'),
       hasMainElement: !!document.querySelector('main, [role=main]'),
       publishedAt: published,
@@ -305,10 +408,207 @@ window.__wr = window.__wr || (function () {
   ///
   /// Reported, not fetched: the offline copy holds a placeholder and a link to
   /// the original page. Nothing here reads a media URL.
+  /// Geometry only. Nothing here reads, returns or retains a media URL — the
+  /// selectors below identify *elements*, and only their measured boxes leave
+  /// this function.
   function mediaSignals() {
     var videos = document.querySelectorAll('video, iframe[src*="youtube" i], iframe[src*="vimeo" i], iframe[allow*="fullscreen" i]');
     var audios = document.querySelectorAll('audio');
-    return { videoCount: videos.length, audioCount: audios.length };
+
+    // The largest player, and whether it sits in the readable region. One big
+    // player in the content is a video page; a rail of small previews, or a
+    // player in the header, is not.
+    var region = readableRegion();
+    var largest = 0, largestInRegion = false;
+    for (var i = 0; i < videos.length; i++) {
+      var r = videos[i].getBoundingClientRect();
+      var area = Math.round(Math.max(0, r.width) * Math.max(0, r.height));
+      if (area <= largest) continue;
+      largest = area;
+      largestInRegion = region.el.contains(videos[i]) && !isFurniture(videos[i]);
+    }
+
+    return {
+      videoCount: videos.length,
+      audioCount: audios.length,
+      primaryVideoPixels: largest,
+      videoInContentRegion: largestInRegion
+    };
+  }
+
+  // --- structured document extraction ---------------------------------------
+  // Measures and flags; it does not decide. Every block the readable region
+  // contains is reported with the facts Dart needs to keep or drop it — see
+  // save/document_extraction.dart, where those rules live and are tested.
+
+  var BLOCK_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,blockquote,li,hr,img,pre,figcaption';
+
+  // Elements whose text is taken whole, so their inner paragraphs must not be
+  // emitted a second time.
+  var WHOLE_TEXT_TAGS = { BLOCKQUOTE: 1, LI: 1, PRE: 1, FIGCAPTION: 1 };
+
+  var MARK_TAGS = {
+    STRONG: 'strong', B: 'strong',
+    EM: 'emphasis', I: 'emphasis',
+    CODE: 'code', KBD: 'code', SAMP: 'code'
+  };
+
+  function blockHidden(el) {
+    if (el.hasAttribute && el.hasAttribute('hidden')) return true;
+    if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return true;
+    var r = el.getBoundingClientRect();
+    if (r.width > 0 || r.height > 0) return false;
+    // Only pay for computed style once the cheap test says it might be hidden;
+    // an <hr> is legitimately zero-height and must not be dropped for it.
+    var cs = window.getComputedStyle(el);
+    return cs.display === 'none' || cs.visibility === 'hidden' ||
+           parseFloat(cs.opacity || '1') === 0;
+  }
+
+  /// Plain text plus emphasis ranges, as offsets into that text.
+  ///
+  /// Flat ranges rather than a nested tree: they cannot come out unbalanced,
+  /// they survive JSON unchanged, and they are trivially clamped on the Dart
+  /// side when they disagree with the text they describe.
+  function textAndMarks(el) {
+    var out = '', marks = [];
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    var node, guard = 0;
+    while ((node = walker.nextNode()) && guard++ < 4000) {
+      var parent = node.parentElement;
+      if (!parent) continue;
+      var tag = parent.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' ||
+          tag === 'TEMPLATE') {
+        continue;
+      }
+      var t = (node.nodeValue || '').replace(/\s+/g, ' ');
+      if (!t) continue;
+      if (out.length === 0 && t === ' ') continue;
+      if (out.charAt(out.length - 1) === ' ' && t.charAt(0) === ' ') {
+        t = t.slice(1);
+      }
+      if (!t) continue;
+
+      var style = null, p = parent, depth = 0;
+      while (p && p !== el && depth < 8) {
+        if (MARK_TAGS[p.tagName]) { style = MARK_TAGS[p.tagName]; break; }
+        p = p.parentElement; depth++;
+      }
+
+      var start = out.length;
+      out += t;
+      if (style && marks.length < 400) {
+        marks.push({ start: start, end: out.length, style: style });
+      }
+    }
+
+    // Trim, and shift the marks by however much came off the front.
+    var lead = out.length - out.replace(/^\s+/, '').length;
+    out = out.trim();
+    var shifted = [];
+    for (var i = 0; i < marks.length; i++) {
+      var s = marks[i].start - lead, e = marks[i].end - lead;
+      if (e > out.length) e = out.length;
+      if (s < 0) s = 0;
+      if (e > s) shifted.push({ start: s, end: e, style: marks[i].style });
+    }
+    return { text: out, marks: shifted };
+  }
+
+  function imageBlock(img) {
+    var r = img.getBoundingClientRect();
+    var src = img.currentSrc || abs(img.getAttribute('src')) || abs(lazyAttr(img));
+    return {
+      kind: 'image',
+      src: (src && src.indexOf('data:') !== 0) ? src : null,
+      alt: img.alt || '',
+      width: img.naturalWidth || img.width || Math.round(r.width),
+      height: img.naturalHeight || img.height || Math.round(r.height),
+      chrome: isFurniture(img),
+      hidden: blockHidden(img)
+    };
+  }
+
+  function extractDocument(opts) {
+    opts = opts || {};
+    var cap = opts.blockCap || 2000;
+    var region = readableRegion();
+    var root = region.el;
+    if (!root) {
+      return { title: document.title || '', blocks: [], truncated: false,
+               regionBasis: 'no document body' };
+    }
+
+    var nodes = root.querySelectorAll(BLOCK_SELECTOR);
+    var blocks = [];
+    var truncated = false;
+
+    for (var i = 0; i < nodes.length; i++) {
+      if (blocks.length >= cap) { truncated = i < nodes.length; break; }
+      var el = nodes[i];
+      var tag = el.tagName;
+
+      // Inside a container whose text is taken whole. Images are the exception:
+      // an illustration inside a list item still has a position worth keeping.
+      var nested = false, p = el.parentElement, depth = 0;
+      while (p && p !== root && depth < 12) {
+        if (WHOLE_TEXT_TAGS[p.tagName]) { nested = true; break; }
+        p = p.parentElement; depth++;
+      }
+      if (nested && tag !== 'IMG') continue;
+
+      if (tag === 'IMG') { blocks.push(imageBlock(el)); continue; }
+
+      if (tag === 'HR') {
+        blocks.push({ kind: 'separator', chrome: isFurniture(el),
+                      hidden: false });
+        continue;
+      }
+
+      var tm = textAndMarks(el);
+      if (!tm.text) continue;
+
+      var kind = 'paragraph', level = 0, ordered = false;
+      if (tag.charAt(0) === 'H' && tag.length === 2) {
+        kind = 'heading';
+        level = parseInt(tag.charAt(1), 10) || 1;
+      } else if (tag === 'BLOCKQUOTE') {
+        kind = 'quote';
+      } else if (tag === 'LI') {
+        kind = 'listItem';
+        var list = el.parentElement, d = 0;
+        ordered = !!(list && list.tagName === 'OL');
+        // Nesting depth, so an indented sub-list still reads as one.
+        var q = el.parentElement;
+        while (q && q !== root && d < 6) {
+          if (q.tagName === 'UL' || q.tagName === 'OL') level++;
+          q = q.parentElement; d++;
+        }
+      } else if (tag === 'PRE') {
+        kind = 'paragraph';
+      } else if (tag === 'FIGCAPTION') {
+        kind = 'quote';
+      }
+
+      blocks.push({
+        kind: kind,
+        text: tm.text.slice(0, 20000),
+        level: level,
+        ordered: ordered,
+        marks: tm.marks,
+        chrome: isFurniture(el),
+        hidden: blockHidden(el)
+      });
+    }
+
+    var h1 = root.querySelector('h1') || document.querySelector('h1');
+    return {
+      title: (h1 ? (h1.textContent || '').trim() : '') || document.title || '',
+      blocks: blocks,
+      truncated: truncated,
+      regionBasis: region.basis
+    };
   }
 
   /// Signals that further automatic navigation must stop.
@@ -353,7 +653,9 @@ window.__wr = window.__wr || (function () {
   }
 
   return {
-    version: 2,
+    version: 3,
+
+    extractDocument: function (opts) { return extractDocument(opts); },
 
     probe: function (opts) {
       opts = opts || {};
@@ -368,6 +670,9 @@ window.__wr = window.__wr || (function () {
         readyState: document.readyState,
         documentHeight: m.docH,
         viewportHeight: m.vpH,
+        viewportWidth: m.isDoc
+          ? (window.innerWidth || document.documentElement.clientWidth || 0)
+          : Math.round(m.el.clientWidth || 0),
         scrollY: m.y,
         atBottom: (m.y + m.vpH) >= (m.docH - 8),
         headNextHref: headNext(),
@@ -710,6 +1015,8 @@ const String kCallStartSelection = 'return window.__wr.startSelection(mode);';
 const String kCallStopSelection = 'return window.__wr.stopSelection();';
 const String kCallApplyLocator = 'return window.__wr.applyLocator(locator);';
 const String kCallApplyReaderRule = 'return window.__wr.applyReaderRule(rule);';
+const String kCallExtractDocument =
+    'return window.__wr.extractDocument({blockCap: blockCap});';
 
 /// The page's own declared icon, absolutised against the document.
 ///

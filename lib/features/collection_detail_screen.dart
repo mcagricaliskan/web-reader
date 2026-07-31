@@ -1363,18 +1363,34 @@ class _EntryRow extends ConsumerWidget {
   }
 
   String _meta(Entry entry) {
-    // A user-removed entry has no images and no size to report; what
+    // A user-removed entry has no content and no size to report; what
     // matters is that it can come back.
     if (entry.contentPath == null && entry.offlineRemovedAt != null) {
       return 'removed ${formatRelative(entry.offlineRemovedAt)} · '
           'save again to read';
     }
     final parts = <String>[
-      '${entry.storedAssetCount}/${entry.detectedAssetCount} images',
+      _contents(entry),
       if (entry.byteSize > 0) formatBytes(entry.byteSize),
       if (entry.savedAt != null) formatRelative(entry.savedAt),
     ];
     return parts.join(' · ');
+  }
+
+  /// What this entry holds, in the vocabulary of its **stored artifact**.
+  ///
+  /// A document's asset counts are its inline images, not its pages, so
+  /// reporting "0/0 images" for a text entry would be technically true and
+  /// completely useless.
+  String _contents(Entry entry) {
+    final stored = entry.storedAssetCount;
+    final detected = entry.detectedAssetCount;
+    return switch (ArtifactFormat.fromName(entry.artifactFormat)) {
+      ArtifactFormat.imageSequence => '$stored/$detected images',
+      ArtifactFormat.structuredDocument =>
+        detected == 0 ? 'text' : 'text · $stored/$detected images',
+      ArtifactFormat.unknown => 'saved in an unsupported format',
+    };
   }
 }
 

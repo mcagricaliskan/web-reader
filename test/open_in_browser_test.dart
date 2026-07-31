@@ -92,6 +92,7 @@ void main() {
     title: 'Entry 885',
     sourceUrl: sourceUrl,
     urlKey: sourceUrl,
+    artifactFormat: 'imageSequence',
     saveStatus: 'complete',
     detectedAssetCount: 0,
     storedAssetCount: 0,

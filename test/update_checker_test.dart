@@ -62,6 +62,7 @@ void main() {
       title: 'Foo Entry $n',
       sourceUrl: entryUrl(n),
       urlKey: entryUrl(n),
+      artifactFormat: 'imageSequence',
       saveStatus: 'complete',
       contentPath: 'library/collection-1/entries/ch$n',
       savedAt: DateTime(2026, 7, 10),

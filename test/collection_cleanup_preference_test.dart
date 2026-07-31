@@ -57,6 +57,7 @@ void main() {
         title: 'Collection $id Entry 1',
         sourceUrl: 'https://x.example/guide/$id/1',
         urlKey: 'https://x.example/guide/$id/1',
+        artifactFormat: 'imageSequence',
         saveStatus: 'complete',
         contentPath: 'library/$id/entries/$id-c1',
         savedAt: DateTime(2026, 7, 20),

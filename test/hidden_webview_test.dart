@@ -4,6 +4,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/browser/page_data.dart';
 import 'package:web_reader/save/asset_fetcher.dart';
+import 'package:web_reader/save/capture_mode.dart';
 import 'package:web_reader/save/save_engine.dart';
 import 'package:web_reader/save/save_state.dart';
 import 'package:web_reader/storage/manifest.dart';
@@ -84,6 +85,7 @@ void main() {
       collectionId: 'collection-1',
       entryOrder: 1,
       visitedNormalized: {},
+      captureMode: CaptureMode.imageSequence,
     );
 
     // Give it ample time to (wrongly) extract if it were going to.
@@ -124,6 +126,7 @@ void main() {
       collectionId: 'collection-1',
       entryOrder: 1,
       visitedNormalized: {},
+      captureMode: CaptureMode.imageSequence,
     );
 
     // It proceeded to the download phase (and failed there for lack of a
@@ -180,6 +183,7 @@ void main() {
         collectionId: 'collection-1',
         entryOrder: 1,
         visitedNormalized: {},
+        captureMode: CaptureMode.imageSequence,
       );
 
       expect(result.status, SaveStatus.failed);
@@ -216,6 +220,7 @@ void main() {
         title: 'Foo Entry 1',
         sourceUrl: 'https://x.example/guide/foo/1',
         urlKey: 'https://x.example/guide/foo/1',
+        artifactFormat: 'imageSequence',
         saveStatus: 'complete',
         contentPath: 'library/s1/entries/c1',
         savedAt: DateTime(2026, 7, 20),

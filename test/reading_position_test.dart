@@ -39,8 +39,8 @@ void main() {
       final layout = EntryLayout(viewportWidth: 400, panels: panels(5));
       const position = ReadingPosition(
         fraction: 0.4,
-        imageIndex: 2,
-        offsetInImage: 0.5,
+        anchorIndex: 2,
+        offsetInAnchor: 0.5,
       );
       // Panel 2 starts at 1200; half of its 600 height is 300 more.
       expect(layout.offsetForPosition(position), 1500);
@@ -50,8 +50,8 @@ void main() {
       final layout = EntryLayout(viewportWidth: 400, panels: panels(5));
       final position = layout.positionForOffset(1500, viewportHeight: 600);
 
-      expect(position.imageIndex, 2);
-      expect(position.offsetInImage, closeTo(0.5, 0.001));
+      expect(position.anchorIndex, 2);
+      expect(position.offsetInAnchor, closeTo(0.5, 0.001));
       expect(layout.offsetForPosition(position), closeTo(1500, 0.001));
     });
 
@@ -60,8 +60,8 @@ void main() {
       final smaller = EntryLayout(viewportWidth: 400, panels: panels(3));
       const stale = ReadingPosition(
         fraction: 0.5,
-        imageIndex: 9,
-        offsetInImage: 0.2,
+        anchorIndex: 9,
+        offsetInAnchor: 0.2,
       );
 
       final offset = smaller.offsetForPosition(stale);
@@ -74,8 +74,8 @@ void main() {
       final wide = EntryLayout(viewportWidth: 600, panels: panels(4));
       const position = ReadingPosition(
         fraction: 0.5,
-        imageIndex: 2,
-        offsetInImage: 0,
+        anchorIndex: 2,
+        offsetInAnchor: 0,
       );
 
       // The anchor is what keeps the *content* stable across a width change,

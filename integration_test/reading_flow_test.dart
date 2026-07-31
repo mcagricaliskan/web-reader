@@ -143,7 +143,7 @@ void main() {
     await reading.markOpened(first.id);
     await reading.saveProgress(
       first.id,
-      const ReadingPosition(fraction: 0.5, imageIndex: 2, offsetInImage: 0.4),
+      const ReadingPosition(fraction: 0.5, anchorIndex: 2, offsetInAnchor: 0.4),
     );
 
     var reloaded = (await db.entryById(first.id))!;
@@ -158,11 +158,11 @@ void main() {
     reloaded = (await db.entryById(first.id))!;
     final restored = reading.positionOf(reloaded);
     expect(
-      restored.imageIndex,
+      restored.anchorIndex,
       2,
       reason: 'the anchor survived a full restart',
     );
-    expect(restored.offsetInImage, closeTo(0.4, 0.01));
+    expect(restored.offsetInAnchor, closeTo(0.4, 0.01));
     expect(restored.fraction, closeTo(0.5, 0.01));
     debugPrint('[M5] restored after restart: $restored');
 

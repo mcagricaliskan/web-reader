@@ -24,6 +24,7 @@ void main() {
     title: label ?? id,
     sourceUrl: 'https://x.example/guide/foo/$id',
     urlKey: 'https://x.example/guide/foo/$id',
+    artifactFormat: 'imageSequence',
     saveStatus: 'complete',
     contentPath: 'library/collection-1/entries/$id',
     savedAt: savedAt ?? DateTime(2026, 7, 20),

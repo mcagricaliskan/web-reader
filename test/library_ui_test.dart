@@ -74,6 +74,7 @@ void main() {
           title: title,
           sourceUrl: url,
           urlKey: url,
+          artifactFormat: 'imageSequence',
           saveStatus: n == entries.last ? status : 'complete',
           contentPath: 'library/${group.id}/entries/c$n-$host',
           savedAt: DateTime(2026, 7, 20).add(Duration(days: n - 883)),
@@ -393,7 +394,7 @@ void main() {
       final id = await seedCollection();
       await ReadingRepository(db).saveProgress(
         'c884-a.example',
-        const ReadingPosition(fraction: 0.42, imageIndex: 2),
+        const ReadingPosition(fraction: 0.42, anchorIndex: 2),
       );
 
       await tester.pumpWidget(
@@ -470,6 +471,7 @@ void main() {
         title: 'The Long Guide $n. part',
         sourceUrl: '$collection/part-$n',
         urlKey: '$collection/part-$n',
+        artifactFormat: 'imageSequence',
         saveStatus: 'knownRemote',
         detectedAssetCount: 0,
         storedAssetCount: 0,
@@ -779,6 +781,7 @@ void _continueReadingTests() {
           title: 'Collection $collectionId Entry $n',
           sourceUrl: 'https://x.example/guide/$collectionId/$n',
           urlKey: 'https://x.example/guide/$collectionId/$n',
+          artifactFormat: 'imageSequence',
           saveStatus: 'complete',
           contentPath: 'library/$collectionId/entries/$collectionId-c$n',
           savedAt: DateTime(2026, 7, 20),
@@ -917,6 +920,7 @@ void _continueReadingTests() {
         title: 'Collection s1 Entry 4',
         sourceUrl: 'https://x.example/guide/s1/4',
         urlKey: 'https://x.example/guide/s1/4',
+        artifactFormat: 'imageSequence',
         saveStatus: 'knownRemote',
         detectedAssetCount: 0,
         storedAssetCount: 0,
@@ -1131,6 +1135,7 @@ void _continueReadingTests() {
           title: 'Broken Entry',
           sourceUrl: 'https://x.example/guide/s9/1',
           urlKey: 'https://x.example/guide/s9/1',
+          artifactFormat: 'imageSequence',
           saveStatus: 'failed',
           savedAt: DateTime(2026, 7, 20),
           detectedAssetCount: 6,

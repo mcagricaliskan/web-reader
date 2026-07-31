@@ -26,6 +26,7 @@ void main() {
     title: 'Collection Entry $n',
     sourceUrl: 'https://x.example/guide/s1/$n',
     urlKey: 'https://x.example/guide/s1/$n',
+    artifactFormat: 'imageSequence',
     saveStatus: saveStatus,
     contentPath: offline ? 'library/s1/entries/c$n' : null,
     savedAt: DateTime(2026, 7, 20),

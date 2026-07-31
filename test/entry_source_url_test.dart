@@ -61,6 +61,7 @@ void main() {
         title: 'Foo Entry 12',
         sourceUrl: sourceUrl,
         urlKey: sourceUrl,
+        artifactFormat: 'imageSequence',
         saveStatus: 'complete',
         contentPath: 'library/collection-1/entries/c1',
         savedAt: DateTime(2026, 7, 20),
@@ -102,6 +103,7 @@ void main() {
         title: 'Foo Entry 13',
         sourceUrl: 'https://x.example/guide/foo/13',
         urlKey: 'https://x.example/guide/foo/13',
+        artifactFormat: 'imageSequence',
         saveStatus: 'knownRemote',
         detectedAssetCount: 0,
         storedAssetCount: 0,
@@ -132,7 +134,7 @@ void main() {
     final reading = ReadingRepository(db);
     await reading.saveProgress(
       'c1',
-      const ReadingPosition(fraction: 0.6, imageIndex: 1, offsetInImage: 0.2),
+      const ReadingPosition(fraction: 0.6, anchorIndex: 1, offsetInAnchor: 0.2),
       completed: true,
     );
     await db.writeEntryReading(
@@ -183,6 +185,7 @@ void main() {
     final removed = (await db.entryById('c1'))!;
     await db.upsertEntry(
       removed.copyWith(
+        artifactFormat: 'imageSequence',
         saveStatus: 'complete',
         contentPath: const Value('library/collection-1/entries/c1'),
         byteSize: 128,

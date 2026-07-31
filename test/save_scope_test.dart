@@ -110,6 +110,7 @@ void main() {
     browser.setUrl(entryUrl(1));
     await run.start(
       entryLimit: 99, // ignored: the mode wins
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       range: SaveScope.currentPageOnly,
     );
@@ -123,6 +124,7 @@ void main() {
     browser.setUrl(entryUrl(1));
     await run.start(
       entryLimit: 2,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       range: SaveScope.fixedCount,
     );
@@ -136,6 +138,7 @@ void main() {
     await run.start(
       // The ceiling the user set. An open-ended scope always has one.
       entryLimit: 3,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       range: SaveScope.untilNoNextPage,
     );
@@ -151,6 +154,7 @@ void main() {
     await run.start(
       // At (or above) the internal ceiling, so the ceiling is what binds.
       entryLimit: 3,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       range: SaveScope.untilNoNextPage,
     );
@@ -174,6 +178,7 @@ void main() {
       await run.start(
         // Below the internal ceiling: this bound is the user's choice.
         entryLimit: 2,
+        captureModeIsUserSet: false,
         startUrl: entryUrl(1),
         range: SaveScope.untilNoNextPage,
       );
@@ -195,6 +200,7 @@ void main() {
     await run.start(
       // A ceiling above the loop, so it is the loop that ends the run.
       entryLimit: 3,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       range: SaveScope.untilNoNextPage,
     );
@@ -213,6 +219,7 @@ void main() {
     browser.setUrl(entryUrl(9));
     await run.start(
       entryLimit: 1,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(9),
       range: SaveScope.untilNoNextPage,
     );
@@ -227,11 +234,11 @@ void main() {
     await db.upsertRun(
       SaveRun(
         visitedCanonicals: '',
-        includeImages: true,
         origin: 'queue',
         scope: SaveScope.untilNoNextPage.name,
         id: 'run-1-aaaaaaaa',
         collectionId: null,
+        captureModeIsUserSet: false,
         startUrl: entryUrl(1),
         currentUrl: entryUrl(1),
         requestedEntries: 3,
@@ -265,6 +272,7 @@ void main() {
     await blocked.start(
       range: SaveScope.fixedCount,
       entryLimit: 1,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
     );
 

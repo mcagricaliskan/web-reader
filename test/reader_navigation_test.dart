@@ -108,6 +108,7 @@ void main() {
         title: 'Foo Entry 1',
         sourceUrl: 'https://x.example/guide/foo/1',
         urlKey: 'https://x.example/guide/foo/1',
+        artifactFormat: 'imageSequence',
         saveStatus: 'complete',
         contentPath: relative,
         savedAt: DateTime(2026, 7, 20),

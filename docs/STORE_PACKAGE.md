@@ -115,6 +115,9 @@ HONEST ABOUT WHAT IT DOES
 • If a site asks for a sign-in, shows a paywall, or presents a verification
   check, saving stops and says so. Keepread does not work around paywalls,
   logins, access controls, DRM or verification checks.
+• You choose what each save keeps: the page images, the readable text, or the
+  text with the pictures that sit inside it. Keepread suggests one and shows
+  you the alternatives.
 • Audio and video are not saved. A saved page links back to the original.
 • Every saved page keeps its source address, and "Open original page" is one tap
   from the reader.
@@ -201,6 +204,9 @@ NE YAPTIĞI KONUSUNDA DÜRÜST
 • Bir site oturum açma isterse, ödeme duvarı ya da doğrulama kontrolü gösterirse
   kayıt durur ve nedenini söyler. Keepread ödeme duvarlarını, oturum açmayı,
   erişim denetimlerini, DRM'i veya doğrulama kontrollerini aşmaya çalışmaz.
+• Her kaydın neyi tutacağına siz karar verirsiniz: sayfanın görselleri, okunabilir
+  metin ya da metin ile içindeki görseller. Keepread birini önerir, diğerlerini
+  de gösterir.
 • Ses ve video kaydedilmez. Kaydedilen sayfa özgün sayfaya bağlantı verir.
 • Her kaydedilen sayfa kaynak adresini korur; "Özgün sayfayı aç" okuyucudan tek
   dokunuş uzaktadır.
@@ -284,13 +290,29 @@ Shown once per domain, before the first save of more than one page from it.
 
 Actions: **Review items** · **Cancel** · **Save**
 
-### 6.3 Image-heavy confirmation
+### 6.3 What to save
 
-> **Image-heavy page**
->
-> This page is mostly images. Include the page images in the offline copy?
+Shown at the top of the save sheet, above the range options. The heading is
+**What to save**, with one line of what was detected beneath it:
 
-Actions: **Text only** · **Text and images** · **Cancel**
+| Detection | Line |
+|---|---|
+| Confident | `This looks like an article.` |
+| Low confidence | `This is probably not something we could classify, but the page did not say clearly.` |
+| Not analysed | `This page could not be analysed, so every option is offered. Pick what fits.` |
+| Nothing possible | `Nothing on this page can be saved offline.` |
+
+Modes, all three always visible; unavailable ones are disabled with the reason
+in place of the description:
+
+| Mode | Description | Reason when unavailable |
+|---|---|---|
+| **Images only** | Save the page images in order, with no text. | This page does not have enough full-size images to save as an image sequence. |
+| **Text only** | Save the readable text. No images are downloaded. | No readable text was found on this page. |
+| **Text and images** | Save the readable text with the images that sit inside it. | No images were found inside the readable text. |
+
+Optional, when the page belongs to a collection:
+**Use "<mode>" for this collection from now on**
 
 ### 6.4 Save-scope review
 
@@ -332,14 +354,31 @@ Verbatim from `StopReason.message`:
 | Limit | Reached the limit you set. |
 | Safety ceiling | Stopped at the safety limit, before finding a confirmed end. |
 
-### 6.6 Unsupported media
+### 6.6 Video pages
 
-> **Audio and video are not saved**
->
-> This page contains audio or video. Keepread saves the text and images for
-> offline reading and links back to the original page for anything it plays.
+Shown in the save sheet when the page is primarily a video.
 
-Action: **Open original page**
+When the page also carries readable content:
+
+> **Video is not saved.** The readable text on this page can be, and the entry
+> will link back to the original for anything that plays.
+
+When it does not:
+
+> **Video is not saved**, and this page has no readable text to save instead.
+> Open it in the Browser when you want to watch it.
+
+In the second case no capture mode is offered and the save is refused. The app
+does not fall back to saving a video page's thumbnails, advertisements or
+navigation images.
+
+In the reader, an inline image a document did not store reads:
+
+> This image was not saved.
+
+or, when the file is gone rather than never fetched:
+
+> This image is no longer on the device.
 
 ### 6.7 Empty and error states
 

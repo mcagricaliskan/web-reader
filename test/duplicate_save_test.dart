@@ -108,6 +108,7 @@ void main() {
         title: 'Foo 883',
         sourceUrl: entryUrl,
         urlKey: entryUrl,
+        artifactFormat: 'imageSequence',
         saveStatus: status,
         contentPath: relative,
         savedAt: DateTime(2026, 7, 20),
@@ -179,10 +180,10 @@ void main() {
       await db.upsertRun(
         SaveRun(
           visitedCanonicals: '',
-          includeImages: true,
           origin: 'queue',
           scope: 'fixedCount',
           id: 'run-1',
+          captureModeIsUserSet: false,
           startUrl: entryUrl,
           currentUrl: entryUrl,
           requestedEntries: 3,
@@ -260,6 +261,7 @@ void main() {
             title: 'Foo $n',
             sourceUrl: 'https://x.example/guide/foo/$n',
             urlKey: 'https://x.example/guide/foo/$n',
+            artifactFormat: 'imageSequence',
             saveStatus: n == 2 ? 'partial' : 'complete',
             contentPath: 'library/collection-1/entries/c$n',
             savedAt: DateTime(2026, 7, 20),
@@ -399,8 +401,8 @@ void main() {
         'c1',
         const ReadingPosition(
           fraction: 0.6,
-          imageIndex: 1,
-          offsetInImage: 0.25,
+          anchorIndex: 1,
+          offsetInAnchor: 0.25,
         ),
         completed: true,
       );
@@ -466,10 +468,10 @@ void _selfCollisionTests() {
   Future<void> seedRunningRun(String id) => db.upsertRun(
     SaveRun(
       visitedCanonicals: '',
-      includeImages: true,
       origin: 'queue',
       scope: 'fixedCount',
       id: id,
+      captureModeIsUserSet: false,
       startUrl: url,
       currentUrl: url,
       requestedEntries: 2,

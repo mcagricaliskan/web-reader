@@ -10,7 +10,10 @@ import '../core/config.dart';
 import '../core/url_utils.dart';
 import '../providers.dart';
 import '../reading/reading_position.dart';
+import '../library/content_shape.dart';
+import '../save/capture_mode.dart';
 import '../storage/database.dart';
+import '../storage/manifest.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import 'save_queue_ui.dart';
@@ -164,6 +167,11 @@ class _EntryDetails extends ConsumerWidget {
                       '${formatRelative(live.discoveredAt)}'
                           '${live.discoveryBasis != null ? ' · ${live.discoveryBasis}' : ''}',
                     ),
+                  // What the package HOLDS, which is not the same question as
+                  // what the page WAS. Both are shown, and only the second one
+                  // is editable — see the content-type tile below.
+                  _Fact('Stored as', _storedAsLine(live)),
+                  _Fact('Content type', _contentKindLine(live)),
                   _Fact(
                     'Source',
                     knowsSource ? hostOf(live.sourceUrl) : 'Unknown',
@@ -188,6 +196,19 @@ class _EntryDetails extends ConsumerWidget {
               ref,
               live,
               beforeOpen: () => Navigator.of(context).pop(),
+            ),
+            ListTile(
+              key: const ValueKey('editContentType'),
+              leading: Icon(
+                Icons.label_outline,
+                color: AppPalette.of(context).inkStrong,
+              ),
+              title: const Text('Change content type'),
+              subtitle: const Text(
+                'Corrects what this is called. The saved files are not '
+                'touched.',
+              ),
+              onTap: () => _editContentKind(context, ref, live),
             ),
             ListTile(
               leading: Icon(
@@ -315,6 +336,137 @@ class _EntryDetails extends ConsumerWidget {
 }
 
 /// One label/value line. Kept dumb so the sheet stays a list of facts.
+/// What this entry's package actually holds, plus the mode that produced it.
+///
+/// Reads `artifact_format`, never the file list: the whole point of storing a
+/// discriminator is that nothing downstream has to guess from extensions or
+/// counts.
+String _storedAsLine(Entry entry) {
+  final artifact = ArtifactFormat.fromName(entry.artifactFormat);
+  final mode = captureModeFromName(entry.captureMode);
+  // Names the FORMAT, not the file count — the Files row above already says
+  // how many, and two rows saying "6 images" is one row of noise.
+  final base = switch (artifact) {
+    ArtifactFormat.imageSequence => 'Image sequence',
+    ArtifactFormat.structuredDocument =>
+      entry.storedAssetCount == 0
+          ? 'Text document'
+          : 'Text document with images',
+    ArtifactFormat.unknown => 'A format this version cannot open',
+  };
+  return mode == null ? base : '$base · saved as ${mode.label.toLowerCase()}';
+}
+
+/// The semantic classification, with its confidence, and whether a person set
+/// it. Kept visibly separate from "Stored as" so the difference between what
+/// something *is called* and what its bytes *are* is legible in the UI, not
+/// only in the schema.
+String _contentKindLine(Entry entry) {
+  final kind = ContentKind.fromName(entry.contentKind);
+  final name = switch (kind) {
+    ContentKind.article => 'Article',
+    ContentKind.datedPost => 'Dated post',
+    ContentKind.sequentialText => 'Part of a longer text',
+    ContentKind.imageDominant => 'Mostly images',
+    ContentKind.paginatedDocument => 'Page of a document',
+    ContentKind.longFormDocument => 'Long document',
+    ContentKind.videoDominant => 'Video page',
+    ContentKind.standalonePage => 'Single page',
+    ContentKind.unknownWebContent => 'Not classified',
+  };
+  if (entry.contentKindIsUserSet) return '$name · set by you';
+  final confidence = ShapeConfidence.fromName(entry.contentKindConfidence);
+  return confidence.isActionable ? name : '$name · low confidence';
+}
+
+/// Let the user correct the detected classification.
+///
+/// **Labels only.** This writes `content_kind` and cannot reach
+/// `artifact_format`, so relabelling an image package as an article changes
+/// what the library calls it and nothing else — the reader still opens it as
+/// the image sequence it physically is. The sheet says so, because a control
+/// that looks like it might reinterpret a saved file needs to promise that it
+/// does not.
+Future<void> _editContentKind(
+  BuildContext context,
+  WidgetRef ref,
+  Entry entry,
+) async {
+  const offered = [
+    ContentKind.article,
+    ContentKind.datedPost,
+    ContentKind.sequentialText,
+    ContentKind.imageDominant,
+    ContentKind.longFormDocument,
+    ContentKind.unknownWebContent,
+  ];
+  final current = ContentKind.fromName(entry.contentKind);
+
+  final chosen = await showModalBottomSheet<ContentKind>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
+            child: Text(
+              'What is this?',
+              style: monoStyle(
+                size: 14,
+                weight: FontWeight.w600,
+                color: AppPalette.of(sheetContext).ink,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Text(
+              'This changes what the library calls this entry. It does not '
+              'change the files that were saved, and it will not be '
+              'overwritten the next time the entry is saved.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.45,
+                color: AppPalette.of(sheetContext).inkMuted,
+              ),
+            ),
+          ),
+          for (final kind in offered)
+            ListTile(
+              key: ValueKey('contentKind_${kind.name}'),
+              leading: Icon(
+                kind == current
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: AppPalette.of(sheetContext).inkStrong,
+              ),
+              title: Text(_kindLabel(kind)),
+              onTap: () => Navigator.of(sheetContext).pop(kind),
+            ),
+        ],
+      ),
+    ),
+  );
+
+  if (chosen == null || chosen == current) return;
+  await ref.read(databaseProvider).setEntryContentKind(entry.id, chosen.name);
+}
+
+String _kindLabel(ContentKind kind) => switch (kind) {
+  ContentKind.article => 'Article',
+  ContentKind.datedPost => 'Dated post',
+  ContentKind.sequentialText => 'Part of a longer text',
+  ContentKind.imageDominant => 'Mostly images',
+  ContentKind.paginatedDocument => 'Page of a document',
+  ContentKind.longFormDocument => 'Long document',
+  ContentKind.videoDominant => 'Video page',
+  ContentKind.standalonePage => 'Single page',
+  ContentKind.unknownWebContent => 'Not sure',
+};
+
 class _Fact extends StatelessWidget {
   const _Fact(this.label, this.value, {this.mono = false, this.wrap = false});
 

@@ -13,7 +13,7 @@ import 'features/splash_screen.dart';
 import 'providers.dart';
 import 'storage/database.dart';
 import 'storage/file_store.dart';
-import 'storage/manifest.dart';
+import 'storage/recovery.dart';
 import 'ui/palette.dart';
 
 /// Renders on the first frame. The startup work then runs *inside* the tree,
@@ -266,43 +266,14 @@ class AppStartup {
       if (manifest == null) continue;
       final existing = await db.entryById(manifest.entryId);
       if (existing != null && existing.contentPath != null) continue;
-      if (manifest.status != SaveStatus.complete &&
-          manifest.status != SaveStatus.partial) {
-        continue;
-      }
+      if (!isRecoverable(manifest)) continue;
       debugPrint('[recovery] reconciling ${manifest.entryId} from manifest');
-      final priorReading = await db.entryById(manifest.entryId);
       await db.upsertEntry(
-        Entry(
-          id: manifest.entryId,
-          collectionId: manifest.collectionId,
-          title: manifest.title,
-          sourceUrl: manifest.sourceUrl,
-          urlKey: manifest.sourceUrl,
-          host: Uri.tryParse(manifest.sourceUrl)?.host.toLowerCase() ?? '',
-          // Recovery restores what was written, and the manifest records the
-          // shape the save decided on. It never re-detects: a guess made now,
-          // against no page, would be weaker than the one already stored.
-          contentKind: manifest.contentKind ?? 'unknownWebContent',
-          contentKindConfidence: manifest.contentKindConfidence ?? 'low',
-          contentKindIsUserSet: manifest.contentKindIsUserSet ?? false,
-          saveStatus: manifest.status.name,
-          contentPath: relative,
-          savedAt: manifest.savedAt,
-          detectedAssetCount: manifest.detectedAssetCount,
-          storedAssetCount: manifest.storedAssetCount,
-          nextSourceUrl: manifest.nextUrl,
-          entryOrder: manifest.entryOrder ?? 0,
+        entryFromManifest(
+          manifest: manifest,
+          relativePath: relative,
           byteSize: await fileStore.entryByteSize(relative),
-          // Recovery restores the save, never the reading position.
-          readStatus: priorReading?.readStatus ?? 'unread',
-          progressFraction: priorReading?.progressFraction ?? 0,
-          progressPageIndex: priorReading?.progressPageIndex ?? 0,
-          progressOffsetInPage: priorReading?.progressOffsetInPage ?? 0,
-          firstOpenedAt: priorReading?.firstOpenedAt,
-          lastReadAt: priorReading?.lastReadAt,
-          completedAt: priorReading?.completedAt,
-          progressUpdatedAt: priorReading?.progressUpdatedAt,
+          prior: existing,
         ),
       );
     }

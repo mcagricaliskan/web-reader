@@ -65,6 +65,18 @@ class FakeBrowser extends BrowserController {
     return page;
   }
 
+  /// What [extractDocument] returns, keyed by normalised URL. Absent means
+  /// the bridge could not read the page — which the save engine reports as a
+  /// text-extraction failure, exactly as a CSP-blocked page would.
+  final Map<String, RawDocument> documents = {};
+
+  void addDocument(String url, RawDocument document) =>
+      documents[normalizeUrl(url)] = document;
+
+  @override
+  Future<RawDocument?> extractDocument({int blockCap = 2000}) async =>
+      documents[normalizeUrl(_url)];
+
   @override
   Future<Map<String, dynamic>> scrollStep(int dy) async => const {};
 

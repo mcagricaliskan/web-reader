@@ -118,6 +118,16 @@ class Collections extends Table {
   /// value reads as null, which asks rather than guessing at removal.
   TextColumn get cleanupPreference => text().nullable()();
 
+  /// `CaptureMode.name` the user asked to reuse for this collection, or null
+  /// while they never said.
+  ///
+  /// **A proposal, never an instruction.** Every save re-measures the page and
+  /// runs this through `CaptureCapabilities.resolve`, so a remembered "text
+  /// and images" cannot force a document out of a page that has no text — it
+  /// falls back and the run says why. An unrecognised value reads as null,
+  /// which means "detect", not "guess".
+  TextColumn get preferredCaptureMode => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 
@@ -179,6 +189,29 @@ class Entries extends Table {
   /// overwrite a human answer on a later re-save.
   BoolColumn get contentKindIsUserSet =>
       boolean().withDefault(const Constant(false))();
+
+  // --- stored artifact ------------------------------------------------------
+  // What this entry's package actually HOLDS, as opposed to what the page was
+  // (`content_kind`) or what the save was asked for (`capture_mode`). Kept
+  // apart on purpose: correcting a label to "article" must never make an image
+  // package get parsed as a document, and only this column decides that.
+
+  /// `ArtifactFormat.name`. Mirrors the entry's `manifest.json`, which stays
+  /// the authority — this copy exists so the library can describe an entry
+  /// without opening a file per row.
+  TextColumn get artifactFormat =>
+      text().withDefault(const Constant('imageSequence'))();
+
+  /// `CaptureMode.name` actually used, or null for an entry that was only ever
+  /// discovered. What was *used*, never what was requested: a run that fell
+  /// back records the fallback.
+  ///
+  /// There is deliberately no `capture_mode_is_user_set` beside it. Whether a
+  /// person picked the mode is a fact about the *save*, and it is recorded on
+  /// the run, the queue row and the entry's manifest. A fourth copy on the row
+  /// would be one more place for the same fact to drift out of agreement,
+  /// and nothing reads it that the manifest cannot answer.
+  TextColumn get captureMode => text().nullable()();
 
   // --- save state -----------------------------------------------------------
   // notSaved | known | queued | saving | saved | partial | failed
@@ -307,9 +340,20 @@ class SaveRuns extends Table {
   /// alongside a count for open-ended sequences.
   IntColumn get maxBytes => integer().nullable()();
 
-  /// Whether the offline copy includes the page's images. Asked once per run,
-  /// answered by the user, never assumed.
-  BoolColumn get includeImages => boolean().withDefault(const Constant(true))();
+  /// `CaptureMode.name` the run was started with — image sequence, text only,
+  /// or text and images.
+  ///
+  /// Replaced the old `include_images` boolean, which could not express the
+  /// difference between "an ordered sequence of full-size images" and "an
+  /// article with pictures in it" and which nothing ever read. Nullable
+  /// because a resume of a run started before the mode was chosen re-detects
+  /// rather than assuming one.
+  TextColumn get captureMode => text().nullable()();
+
+  /// Whether the user picked the mode themselves, so a resume does not quietly
+  /// re-detect over a deliberate choice.
+  BoolColumn get captureModeIsUserSet =>
+      boolean().withDefault(const Constant(false))();
 
   /// Why a running save is paused (`browserHidden` today; null otherwise).
   TextColumn get pauseReason => text().nullable()();
@@ -357,7 +401,15 @@ class QueueTasks extends Table {
   /// The explicit ceiling on new entries. Never null for a multi-entry task.
   IntColumn get entryLimit => integer().nullable()();
   IntColumn get maxBytes => integer().nullable()();
-  BoolColumn get includeImages => boolean().withDefault(const Constant(true))();
+
+  /// `CaptureMode.name` for a save task, or null for a task that stores
+  /// nothing (a check, a cleanup) and for one queued before a mode was chosen.
+  TextColumn get captureMode => text().nullable()();
+
+  /// Whether that mode was the user's explicit choice.
+  BoolColumn get captureModeIsUserSet =>
+      boolean().withDefault(const Constant(false))();
+
   TextColumn get duplicatePolicy => text().nullable()();
 
   /// `SaveScope.name`.
@@ -717,6 +769,12 @@ class AppDatabase extends _$AppDatabase {
 
   /// The user corrected this entry's content kind. Sets the user-set flag in the
   /// same write, so a later re-save cannot silently overwrite the answer.
+  ///
+  /// **Semantic only.** It deliberately cannot reach `artifact_format`:
+  /// relabelling an entry as an article must never make the reader try to
+  /// parse an image package as a document. What a thing *is called* and what
+  /// its bytes *are* are different facts, and only a save can change the
+  /// second one.
   Future<void> setEntryContentKind(String entryId, String kind) =>
       (update(entries)..where((t) => t.id.equals(entryId))).write(
         EntriesCompanion(
@@ -779,6 +837,16 @@ class AppDatabase extends _$AppDatabase {
   Future<void> setCollectionCleanupPreference(String id, String? pref) =>
       (update(collections)..where((t) => t.id.equals(id))).write(
         CollectionsCompanion(cleanupPreference: Value(pref)),
+      );
+
+  /// Remember (or forget) the capture mode to propose for this collection.
+  ///
+  /// Narrow and scoped to one id, like the cleanup preference. Null clears it,
+  /// which is why this cannot go through `upsertCollection` — that would read
+  /// the null as "leave it alone" and make "stop remembering" a no-op.
+  Future<void> setCollectionPreferredCaptureMode(String id, String? mode) =>
+      (update(collections)..where((t) => t.id.equals(id))).write(
+        CollectionsCompanion(preferredCaptureMode: Value(mode)),
       );
 
   /// Flip a collection between `active` and `archived`. Rows only — never

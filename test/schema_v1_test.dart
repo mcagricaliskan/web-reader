@@ -207,17 +207,59 @@ void main() {
       );
     });
 
-    test('save_runs records its bounds and why it stopped', () async {
+    test('save_runs records its bounds, mode and why it stopped', () async {
       expect(
         await columnNames('save_runs'),
         containsAll([
           'scope',
           'max_bytes',
-          'include_images',
+          // What to produce, not a boolean about images: the old
+          // `include_images` could not express the difference between an
+          // ordered image sequence and an article with pictures in it.
+          'capture_mode',
+          'capture_mode_is_user_set',
           'stop_reason',
           'visited_canonicals',
           'origin',
         ]),
+      );
+      expect(await columnNames('save_runs'), isNot(contains('include_images')));
+    });
+
+    test(
+      'entries record the stored artifact separately from the label',
+      () async {
+        final columns = await columnNames('entries');
+        expect(
+          columns,
+          containsAll([
+            // What the package HOLDS...
+            'artifact_format',
+            'capture_mode',
+            // ...kept apart from what the page WAS.
+            'content_kind',
+            'content_kind_confidence',
+            'content_kind_is_user_set',
+          ]),
+        );
+      },
+    );
+
+    test('collections can remember a capture mode', () async {
+      expect(
+        await columnNames('collections'),
+        contains('preferred_capture_mode'),
+      );
+    });
+
+    test('queue tasks carry the capture mode', () async {
+      expect(
+        await columnNames('queue_tasks'),
+        containsAll(['capture_mode', 'capture_mode_is_user_set']),
+      );
+      expect(
+        await columnNames('queue_tasks'),
+        isNot(contains('include_images')),
       );
     });
   });

@@ -1,5 +1,38 @@
 import 'dart:convert';
 
+/// What an entry package actually holds — the **artifact discriminator**.
+///
+/// This is deliberately not the same question as "what kind of page was this"
+/// ([ContentKind]) or "what did the user ask for" (`CaptureMode`). Those two
+/// are claims about the source and the request; this one is a fact about the
+/// bytes on disk, and it is the only thing the reader and recovery are allowed
+/// to switch on. Inferring the format from file extensions or asset counts is
+/// exactly the guess this field exists to remove.
+///
+/// A future video artifact becomes another value here. Nothing else about the
+/// image and document formats has to move for that to happen, which is the
+/// whole point of storing the discriminator rather than deriving it.
+enum ArtifactFormat {
+  /// An ordered list of full-size images. The original format, and what every
+  /// manifest written before schema 2 holds.
+  imageSequence,
+
+  /// A `document.json` of typed text blocks, optionally with inline images in
+  /// the `assets/` directory.
+  structuredDocument,
+
+  /// A format this build does not know. **Only ever produced by parsing**, and
+  /// only by a package a newer version wrote. The reader shows an honest
+  /// "saved in a format this version cannot open" state rather than
+  /// misreading it as one of the formats above.
+  unknown;
+
+  static ArtifactFormat fromName(String? name) => ArtifactFormat.values
+      .firstWhere((f) => f.name == name, orElse: () => ArtifactFormat.unknown);
+
+  bool get isReadable => this != ArtifactFormat.unknown;
+}
+
 /// Save outcome for an entry. `complete` is only ever written after every
 /// required asset is on disk and verified.
 enum SaveStatus { saving, complete, partial, failed }
@@ -119,6 +152,40 @@ class EntryAsset {
   };
 }
 
+/// Where an entry's structured document lives, and how big it is.
+///
+/// A reference rather than the document itself: startup recovery reads every
+/// manifest on disk, and inlining a long run of prose into each one would
+/// make that scan proportional to the size of the library's text instead of to
+/// the number of entries.
+class DocumentRef {
+  const DocumentRef({
+    required this.relativePath,
+    required this.blockCount,
+    required this.textLength,
+  });
+
+  factory DocumentRef.fromJson(Map<String, dynamic> json) => DocumentRef(
+    relativePath: json['relativePath']?.toString() ?? 'document.json',
+    blockCount: (json['blockCount'] as num?)?.toInt() ?? 0,
+    textLength: (json['textLength'] as num?)?.toInt() ?? 0,
+  );
+
+  /// Relative to the entry directory, like every asset path. Never absolute.
+  final String relativePath;
+
+  /// Counts, so the details sheet and the storage screen can describe the
+  /// entry without opening and parsing the document.
+  final int blockCount;
+  final int textLength;
+
+  Map<String, dynamic> toJson() => {
+    'relativePath': relativePath,
+    'blockCount': blockCount,
+    'textLength': textLength,
+  };
+}
+
 /// Self-describing entry package descriptor, written into the entry directory.
 ///
 /// This is also where an entry's **pages** live: [assets] is the ordered page
@@ -126,6 +193,11 @@ class EntryAsset {
 /// that could disagree with the files. It is what lets the app reconcile files
 /// against the database after a crash, and what would let an export work
 /// without the database at all.
+///
+/// **Schema 2** added [artifact], [captureMode] and [document]. Schema 1
+/// packages are still read exactly as written and are never rewritten in
+/// place: a manifest with no `artifact` field is an image sequence, because
+/// that is the only thing this app could produce when it wrote one.
 class EntryManifest {
   const EntryManifest({
     required this.schemaVersion,
@@ -137,6 +209,10 @@ class EntryManifest {
     required this.detectedAssetCount,
     required this.storedAssetCount,
     required this.assets,
+    this.artifact = ArtifactFormat.imageSequence,
+    this.captureMode,
+    this.captureModeIsUserSet,
+    this.document,
     this.collectionId,
     this.canonicalUrl,
     this.nextUrl,
@@ -151,40 +227,78 @@ class EntryManifest {
     this.entryNumber,
   });
 
-  factory EntryManifest.fromJson(Map<String, dynamic> json) => EntryManifest(
-    schemaVersion: (json['schemaVersion'] as num).toInt(),
-    entryId: json['entryId'] as String,
-    collectionId: json['collectionId'] as String?,
-    sourceUrl: json['sourceUrl'] as String,
-    host: json['host'] as String?,
-    canonicalUrl: json['canonicalUrl'] as String?,
-    title: json['title'] as String,
-    savedAt: DateTime.parse(json['savedAt'] as String),
-    status: saveStatusFromName(json['status'] as String?),
-    statusReason: json['statusReason'] as String?,
-    detectedAssetCount: (json['detectedAssetCount'] as num).toInt(),
-    storedAssetCount: (json['storedAssetCount'] as num).toInt(),
-    nextUrl: json['nextUrl'] as String?,
-    entryOrder: (json['entryOrder'] as num?)?.toInt(),
-    contentKind: json['contentKind'] as String?,
-    contentKindConfidence: json['contentKindConfidence'] as String?,
-    contentKindIsUserSet: json['contentKindIsUserSet'] as bool?,
-    publishedAt: json['publishedAt'] == null
-        ? null
-        : DateTime.tryParse(json['publishedAt'] as String),
-    sourceMarker: json['sourceMarker'] as String?,
-    entryNumber: (json['entryNumber'] as num?)?.toDouble(),
-    assets: (json['assets'] as List<dynamic>)
-        .map((e) => EntryAsset.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList(),
-  );
+  factory EntryManifest.fromJson(Map<String, dynamic> json) {
+    final version = (json['schemaVersion'] as num).toInt();
+    return EntryManifest(
+      schemaVersion: version,
+      // Version 1 predates the discriminator, and every package it could
+      // describe is an ordered image list. Reading it as `unknown` — which is
+      // what `fromName(null)` would give — would make every previously saved
+      // entry unopenable, so the version is what decides here, not the
+      // absence of a field.
+      artifact: version >= 2
+          ? ArtifactFormat.fromName(json['artifact'] as String?)
+          : ArtifactFormat.imageSequence,
+      captureMode:
+          json['captureMode'] as String? ??
+          (version >= 2 ? null : 'imageSequence'),
+      captureModeIsUserSet: json['captureModeIsUserSet'] as bool?,
+      document: json['document'] is Map
+          ? DocumentRef.fromJson(
+              Map<String, dynamic>.from(json['document'] as Map),
+            )
+          : null,
+      entryId: json['entryId'] as String,
+      collectionId: json['collectionId'] as String?,
+      sourceUrl: json['sourceUrl'] as String,
+      host: json['host'] as String?,
+      canonicalUrl: json['canonicalUrl'] as String?,
+      title: json['title'] as String,
+      savedAt: DateTime.parse(json['savedAt'] as String),
+      status: saveStatusFromName(json['status'] as String?),
+      statusReason: json['statusReason'] as String?,
+      detectedAssetCount: (json['detectedAssetCount'] as num).toInt(),
+      storedAssetCount: (json['storedAssetCount'] as num).toInt(),
+      nextUrl: json['nextUrl'] as String?,
+      entryOrder: (json['entryOrder'] as num?)?.toInt(),
+      contentKind: json['contentKind'] as String?,
+      contentKindConfidence: json['contentKindConfidence'] as String?,
+      contentKindIsUserSet: json['contentKindIsUserSet'] as bool?,
+      publishedAt: json['publishedAt'] == null
+          ? null
+          : DateTime.tryParse(json['publishedAt'] as String),
+      sourceMarker: json['sourceMarker'] as String?,
+      entryNumber: (json['entryNumber'] as num?)?.toDouble(),
+      assets: (json['assets'] as List<dynamic>? ?? const [])
+          .map((e) => EntryAsset.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+    );
+  }
 
   factory EntryManifest.decode(String jsonText) =>
       EntryManifest.fromJson(jsonDecode(jsonText) as Map<String, dynamic>);
 
-  static const int currentSchemaVersion = 1;
+  /// **Two.** Schema 1 is still read; nothing writes it any more.
+  static const int currentSchemaVersion = 2;
 
   final int schemaVersion;
+
+  /// What this package holds. The one field the reader and recovery switch on.
+  final ArtifactFormat artifact;
+
+  /// `CaptureMode.name` — what the save was *asked* to produce. Kept beside
+  /// [artifact] rather than instead of it: "the user asked for text and
+  /// images" and "this package holds a document with two stored images" are
+  /// different facts, and only the second one can be trusted by a reader.
+  final String? captureMode;
+
+  /// True when a person chose the mode rather than detection picking it.
+  final bool? captureModeIsUserSet;
+
+  /// The document, when [artifact] is [ArtifactFormat.structuredDocument].
+  /// Null for an image sequence.
+  final DocumentRef? document;
+
   final String entryId;
 
   /// Null for a standalone entry. The manifest records the same nullable
@@ -220,7 +334,8 @@ class EntryManifest {
   final String? sourceMarker;
   final double? entryNumber;
 
-  /// The entry's ordered pages. `index` is reading order.
+  /// The entry's ordered pages, or — for a structured document — its stored
+  /// inline images, which the document's image blocks point at by `index`.
   final List<EntryAsset> assets;
 
   /// How many pages this entry has. The honest count comes from the files.
@@ -229,8 +344,24 @@ class EntryManifest {
   List<EntryAsset> get storedAssets =>
       assets.where((a) => a.isStored).toList(growable: false);
 
+  bool get isDocument => artifact == ArtifactFormat.structuredDocument;
+  bool get isImageSequence => artifact == ArtifactFormat.imageSequence;
+
+  /// Look up a stored asset by its manifest index — how a document image block
+  /// finds its bytes.
+  EntryAsset? assetByIndex(int index) {
+    for (final a in assets) {
+      if (a.index == index) return a;
+    }
+    return null;
+  }
+
   Map<String, dynamic> toJson() => {
     'schemaVersion': schemaVersion,
+    'artifact': artifact.name,
+    if (captureMode != null) 'captureMode': captureMode,
+    if (captureModeIsUserSet == true) 'captureModeIsUserSet': true,
+    if (document != null) 'document': document!.toJson(),
     'entryId': entryId,
     if (collectionId != null) 'collectionId': collectionId,
     'sourceUrl': sourceUrl,
@@ -263,8 +394,13 @@ class EntryManifest {
     int? storedAssetCount,
     String? nextUrl,
     List<EntryAsset>? assets,
+    DocumentRef? document,
   }) => EntryManifest(
     schemaVersion: schemaVersion,
+    artifact: artifact,
+    captureMode: captureMode,
+    captureModeIsUserSet: captureModeIsUserSet,
+    document: document ?? this.document,
     entryId: entryId,
     collectionId: collectionId,
     sourceUrl: sourceUrl,

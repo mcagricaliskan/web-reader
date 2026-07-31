@@ -101,9 +101,9 @@ void main() {
 
       // Pre-insert a gated task directly so the gate exists before the pump.
       final held = QueueTask(
-        includeImages: true,
         origin: 'queue',
         id: 'held',
+        captureModeIsUserSet: false,
         taskType: 'collectionCheck',
         collectionId: 's1',
         state: 'queued',
@@ -132,9 +132,9 @@ void main() {
     // What a killed app leaves behind: one running, one queued.
     await db.upsertQueueTask(
       QueueTask(
-        includeImages: true,
         origin: 'queue',
         id: 'was-running',
+        captureModeIsUserSet: false,
         taskType: 'collectionCheck',
         collectionId: 's1',
         state: 'running',
@@ -145,9 +145,9 @@ void main() {
     );
     await db.upsertQueueTask(
       QueueTask(
-        includeImages: true,
         origin: 'queue',
         id: 'was-queued',
+        captureModeIsUserSet: false,
         taskType: 'collectionCheck',
         collectionId: 's2',
         state: 'queued',
@@ -180,9 +180,9 @@ void main() {
     gates['held'] = gate;
     await db.upsertQueueTask(
       QueueTask(
-        includeImages: true,
         origin: 'queue',
         id: 'held',
+        captureModeIsUserSet: false,
         taskType: 'collectionCheck',
         collectionId: 's1',
         state: 'queued',
@@ -209,8 +209,8 @@ void main() {
     Future<String> seedQueuedSave(String id, {int order = 1}) async {
       await db.upsertQueueTask(
         QueueTask(
-          includeImages: true,
           id: id,
+          captureModeIsUserSet: false,
           taskType: 'entrySave',
           startUrl: 'https://x.example/guide/foo/$id',
           entryLimit: 1,
@@ -273,9 +273,9 @@ void main() {
       gates['held'] = gate;
       await db.upsertQueueTask(
         QueueTask(
-          includeImages: true,
           origin: 'queue',
           id: 'held',
+          captureModeIsUserSet: false,
           taskType: 'collectionCheck',
           collectionId: 's1',
           state: 'queued',
@@ -373,9 +373,9 @@ void main() {
       gates['live'] = gate;
       await db.upsertQueueTask(
         QueueTask(
-          includeImages: true,
           origin: 'queue',
           id: 'live',
+          captureModeIsUserSet: false,
           taskType: 'collectionCheck',
           collectionId: 's1',
           state: 'queued',
@@ -439,9 +439,9 @@ void main() {
       gates['running-check'] = gate;
       await db.upsertQueueTask(
         QueueTask(
-          includeImages: true,
           origin: 'queue',
           id: 'running-check',
+          captureModeIsUserSet: false,
           taskType: 'collectionCheck',
           collectionId: 's1',
           state: 'queued',
@@ -526,6 +526,7 @@ void main() {
         title: 'Foo 1',
         sourceUrl: 'https://x.example/guide/foo/1',
         urlKey: 'https://x.example/guide/foo/1',
+        artifactFormat: 'imageSequence',
         saveStatus: 'complete',
         contentPath: 'library/collection-1/entries/c1',
         detectedAssetCount: 1,

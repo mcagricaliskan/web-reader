@@ -16,6 +16,7 @@ import '../core/url_utils.dart';
 import '../storage/database.dart';
 import '../storage/file_store.dart';
 import 'asset_fetcher.dart';
+import 'capture_mode.dart';
 import 'save_engine.dart';
 import 'save_preflight.dart';
 import 'save_state.dart';
@@ -515,6 +516,23 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
   /// The bounded ceilings this run is operating under.
   SaveLimits limits = SaveLimits.forScope(SaveScope.currentPageOnly);
 
+  // --- capture mode ---------------------------------------------------------
+
+  /// What the user asked this run to produce, or null to decide per page.
+  ///
+  /// A **request**, not a decision. Every entry re-measures its own page and
+  /// runs this through `CaptureCapabilities.resolve`, because a multi-entry
+  /// run walks pages it has never seen: entry 1 can be an illustrated article
+  /// and entry 7 a bare image gallery, and forcing entry 7 into a text mode
+  /// would save nothing and call it success.
+  CaptureMode? requestedCaptureMode;
+
+  /// True when a person chose [requestedCaptureMode].
+  bool captureModeIsUserSet = false;
+
+  /// Write the mode onto the collection once one is resolved.
+  bool rememberForCollection = false;
+
   /// Which condition ended the run, once one has. Null while it is going.
   StopReason? stopReason;
 
@@ -552,7 +570,19 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     SessionPartialDecision sessionPartial = SessionPartialDecision.ask,
     SaveOrigin origin = SaveOrigin.direct,
     int? maxBytes,
-    bool includeImages = true,
+
+    /// What to produce. Null means "decide per page from detection" — the
+    /// honest answer for a queued task whose page had not been analysed yet.
+    /// A stated mode is still validated against each page before it is used.
+    CaptureMode? captureMode,
+
+    /// True when a person chose [captureMode]. Carried so a resume does not
+    /// re-detect over a deliberate choice.
+    bool captureModeIsUserSet = false,
+
+    /// Write the chosen mode onto the collection once one is resolved, so
+    /// later saves start from it.
+    bool rememberForCollection = false,
   }) async {
     if (_running) return;
     if (browser.automationOwner != null) {
@@ -615,11 +645,13 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     scope = range;
     // Every scope, including the open-ended one, comes out of here with a
     // positive entry ceiling. There is no code path to an unbounded run.
+    requestedCaptureMode = captureMode;
+    this.captureModeIsUserSet = captureModeIsUserSet;
+    this.rememberForCollection = rememberForCollection;
     limits = SaveLimits.forScope(
       range,
       requestedCount: entryLimit,
       maxBytes: maxBytes,
-      includeImages: includeImages,
       config: config,
     );
     final limit = limits.maxEntries;
@@ -979,6 +1011,19 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
             log: _addLog,
           );
         }
+
+        // "Remember this mode for this collection." Written once, here, and
+        // only once a collection actually exists — a standalone entry has no
+        // collection to remember anything on, and inventing one to hold a
+        // preference would put a group in the library the user never made.
+        final remembered = requestedCaptureMode;
+        if (rememberForCollection && remembered != null && item != null) {
+          await db.setCollectionPreferredCaptureMode(item.id, remembered.name);
+          _addLog(
+            'remembered "${remembered.label}" for '
+            '"${displayNameFor(item)}"',
+          );
+        }
       }
 
       final preflight = await SavePreflight(
@@ -1053,20 +1098,61 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
         _addLog('using saved next-link rule (${nextHint.scope.label})');
       }
 
+      // What to ask for. The engine decides the *actual* mode from the
+      // settled page — see `saveCurrentPage` — because the probe available
+      // here was taken before scrolling, and on the second entry of a run a
+      // lazy image page has barely loaded at that point.
+      //
+      // Precedence: the user's explicit choice, then the collection's
+      // remembered preference, then null for "decide from the page". A stated
+      // mode is still validated against the settled page and falls back with
+      // an explanation rather than forcing an impossible save.
+      final requested =
+          requestedCaptureMode ??
+          captureModeFromName(item?.preferredCaptureMode);
+
       var result = await _engine!.saveCurrentPage(
         collectionId: item?.id,
         entryOrder: traversed,
         visitedNormalized: _visited,
-        readerHint: readerHint,
+        captureMode: requested,
+        captureModeIsUserSet: captureModeIsUserSet,
+        // A reader-area rule is a rule about *images*; it has nothing to say
+        // about a text save, and the engine only consults it on the image
+        // path anyway.
+        readerHint: requested?.isDocument == true ? null : readerHint,
         nextHint: nextHint,
         replaceExisting: replacing,
       );
 
+      // Nothing on this page could be stored — most often a video page with
+      // no readable text. Reported and walked past: there is nothing to
+      // retry, and sweeping up the page's thumbnails instead is exactly what
+      // this refuses to do.
+      if (result.nothingToSave) {
+        _addLog(
+          result.videoDominant
+              ? 'skipped: this page is a video, and video is not saved. It '
+                    'has no readable text to save instead.'
+              : 'skipped: nothing on this page could be saved',
+        );
+      }
+
+      // A text extraction that found nothing is reported and walked past. It
+      // deliberately does NOT go to reader-area selection: that assistance
+      // hands back a container of images, which cannot help a page whose
+      // problem is that it has no prose.
+      if (result.documentFailure != null) {
+        _addLog(
+          'text extraction found nothing on this page '
+          '(${result.documentFailure!.name}) — not offering image selection',
+        );
+      }
+
       // Extraction failed, or a saved reader rule stopped matching. Ask the
       // user to point at the reader area rather than guessing at another
       // container.
-      if (!_stopRequested &&
-          (result.extractionFailed || result.readerHintFailed)) {
+      if (!_stopRequested && result.needsReaderAreaAssist) {
         if (result.readerHintFailed && readerHint != null) {
           await rules.recordUse(readerHint.id, success: false);
         }
@@ -1096,6 +1182,10 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
           collectionId: item?.id,
           entryOrder: traversed,
           visitedNormalized: _visited,
+          // Reader-area assistance only ever produces an image sequence — the
+          // user pointed at a container of images.
+          captureMode: CaptureMode.imageSequence,
+          captureModeIsUserSet: true,
           readerHint: readerHint,
           nextHint: nextHint,
         );
@@ -1442,7 +1532,8 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
         sessionPartialDecision: sessionPartialDecision.name,
         scope: scope.name,
         maxBytes: limits.maxBytes,
-        includeImages: limits.includeImages,
+        captureMode: requestedCaptureMode?.name,
+        captureModeIsUserSet: captureModeIsUserSet,
         pauseReason: pauseReason,
         // Carried so an interrupted direct save is resumed as one, rather
         // than being folded into the pending queue (D58).
@@ -1481,6 +1572,12 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
         run.sessionPartialDecision,
       ),
       range: mode,
+      maxBytes: run.maxBytes,
+      // The mode is restored, not re-decided: a resume that quietly switched
+      // from "text and images" to an image sequence would give one collection
+      // two different artifacts and the user no way to tell why.
+      captureMode: captureModeFromName(run.captureMode),
+      captureModeIsUserSet: run.captureModeIsUserSet,
       // A resumed run keeps the launch it was interrupted mid-way through: a
       // direct save resumes directly and never joins the pending queue.
       origin: saveOriginFromName(run.origin),

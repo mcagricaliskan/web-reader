@@ -93,8 +93,8 @@ class ReadingRepository {
         progressFraction: Value(
           becomesCompleted ? 1.0 : position.fraction.clamp(0.0, 1.0),
         ),
-        progressPageIndex: Value(position.imageIndex),
-        progressOffsetInPage: Value(position.offsetInImage.clamp(0.0, 1.0)),
+        progressPageIndex: Value(position.anchorIndex),
+        progressOffsetInPage: Value(position.offsetInAnchor.clamp(0.0, 1.0)),
         lastReadAt: Value(now),
         progressUpdatedAt: Value(now),
         readStatus: Value(
@@ -162,8 +162,8 @@ class ReadingRepository {
 
   ReadingPosition positionOf(Entry entry) => ReadingPosition(
     fraction: entry.progressFraction,
-    imageIndex: entry.progressPageIndex,
-    offsetInImage: entry.progressOffsetInPage,
+    anchorIndex: entry.progressPageIndex,
+    offsetInAnchor: entry.progressOffsetInPage,
   );
 
   // --- collection pointers -----------------------------------------------------

@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 
 import '../core/config.dart';
 import '../core/device_storage.dart';
+import '../library/content_shape.dart';
+import '../save/capture_mode.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
@@ -32,7 +34,9 @@ class SaveRangeChoice {
     this.count = 1,
     required this.action,
     this.maxBytes,
-    this.includeImages = true,
+    this.captureMode,
+    this.captureModeIsUserSet = false,
+    this.rememberForCollection = false,
   });
 
   final SaveScope mode;
@@ -44,9 +48,24 @@ class SaveRangeChoice {
   /// The user's storage ceiling for this run, when they set one.
   final int? maxBytes;
 
-  /// Whether the offline copy includes the page's images. Answered by the
-  /// image-heavy confirmation; true when the question did not apply.
-  final bool includeImages;
+  /// What to save — images, text, or text with images.
+  ///
+  /// **Independent of [mode].** How much of a collection to walk and what to
+  /// take from each page are separate decisions, and folding them together is
+  /// what made the previous `includeImages` boolean unusable: it could not
+  /// say "an ordered sequence of full-size images" and "an article with
+  /// pictures in it" are different things.
+  ///
+  /// Null when the page could not be analysed, which leaves the run to decide
+  /// per page rather than forcing a guess.
+  final CaptureMode? captureMode;
+
+  /// True when the user changed the mode away from the detected default.
+  final bool captureModeIsUserSet;
+
+  /// "Use this for the whole collection." Applied once a collection is
+  /// resolved, and re-validated against every later page.
+  final bool rememberForCollection;
 
   /// Which of the two launches was pressed. Carried by the caller through the
   /// duplicate preflight, so "Start Save" that turns into "Re-download"
@@ -72,6 +91,19 @@ Future<SaveRangeChoice?> showSaveRangeSheet({
   required DeviceStorage deviceStorage,
   String currentTitle = '',
   String? busyLabel,
+
+  /// What this page can honestly be saved as. Measured before the sheet opens
+  /// so it offers only what `SaveEngine` can actually carry out — a mode shown
+  /// here and refused later would be a button that lies.
+  CaptureCapabilities capabilities = const CaptureCapabilities.unanalysed(),
+
+  /// The collection's remembered mode, when it has one and this page can
+  /// honour it. Preselected; never forced.
+  CaptureMode? preferredMode,
+
+  /// Whether "remember for this collection" is worth offering — false for a
+  /// page with no collection to remember anything on.
+  bool canRemember = false,
 }) async {
   final free = await deviceStorage.freeBytes();
   if (!context.mounted) return null;
@@ -111,6 +143,9 @@ Future<SaveRangeChoice?> showSaveRangeSheet({
       freeBytes: free,
       currentTitle: currentTitle,
       busyLabel: busyLabel,
+      capabilities: capabilities,
+      preferredMode: preferredMode,
+      canRemember: canRemember,
     ),
   );
 }
@@ -121,12 +156,18 @@ class _RangeSheet extends StatefulWidget {
     required this.freeBytes,
     required this.currentTitle,
     required this.busyLabel,
+    required this.capabilities,
+    required this.preferredMode,
+    required this.canRemember,
   });
 
   final SaveConfig config;
   final int? freeBytes;
   final String currentTitle;
   final String? busyLabel;
+  final CaptureCapabilities capabilities;
+  final CaptureMode? preferredMode;
+  final bool canRemember;
 
   @override
   State<_RangeSheet> createState() => _RangeSheetState();
@@ -138,6 +179,28 @@ class _RangeSheetState extends State<_RangeSheet> {
   final _countField = TextEditingController(text: '2');
   SaveScope _mode = SaveScope.currentPageOnly;
   String? _countError;
+
+  /// What to capture. Starts at the collection's remembered mode when this
+  /// page can honour it, else at the detected default.
+  CaptureMode? _capture;
+
+  /// True once the user picks a mode themselves, so the run can tell a
+  /// deliberate choice from a detected default and not re-decide on a resume.
+  bool _captureIsUserSet = false;
+  bool _remember = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final preferred = widget.preferredMode;
+    _capture = preferred != null && widget.capabilities.allows(preferred)
+        ? preferred
+        : widget.capabilities.defaultMode;
+    // A remembered mode that survived validation starts the checkbox ticked:
+    // the user already said this, and unticking is how they take it back.
+    _remember =
+        widget.canRemember && preferred != null && _capture == preferred;
+  }
 
   /// Set the moment an action is taken, so a second tap on either button
   /// cannot launch the same request twice while the first is being handled.
@@ -175,14 +238,30 @@ class _RangeSheetState extends State<_RangeSheet> {
     return n;
   }
 
+  /// True when this page can hold nothing at all — a video with no readable
+  /// text is the case that produces it. Queueing a save that is going to
+  /// refuse would be a button that lies just as much as offering a mode the
+  /// engine cannot honour.
+  bool get _nothingToSave =>
+      widget.capabilities.analysed && !widget.capabilities.canSaveAnything;
+
   void _submit(SaveSheetAction action) {
-    if (_busy) return;
+    if (_busy || (_nothingToSave && action != SaveSheetAction.viewActiveTask)) {
+      return;
+    }
     final count = _validatedCount();
     if (count == null) return;
     setState(() => _busy = true);
     Navigator.pop(
       context,
-      SaveRangeChoice(_mode, count: count, action: action),
+      SaveRangeChoice(
+        _mode,
+        count: count,
+        action: action,
+        captureMode: _capture,
+        captureModeIsUserSet: _captureIsUserSet,
+        rememberForCollection: _remember && _capture != null,
+      ),
     );
   }
 
@@ -221,6 +300,30 @@ class _RangeSheetState extends State<_RangeSheet> {
                 ),
               ],
               const SizedBox(height: 14),
+              _CaptureSection(
+                capabilities: widget.capabilities,
+                selected: _capture,
+                onSelect: (mode) => setState(() {
+                  _capture = mode;
+                  _captureIsUserSet = true;
+                }),
+              ),
+              if (widget.canRemember && _capture != null) ...[
+                const SizedBox(height: 4),
+                _RememberToggle(
+                  value: _remember,
+                  label: _capture!.label,
+                  onChanged: (v) => setState(() => _remember = v),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Divider(height: 1, color: palette.hairline),
+              const SizedBox(height: 16),
+              Text(
+                'How many entries',
+                style: serifStyle(size: 15, color: palette.ink),
+              ),
+              const SizedBox(height: 10),
               _RangeOption(
                 icon: Icons.article,
                 title: 'Current entry',
@@ -317,7 +420,7 @@ class _RangeSheetState extends State<_RangeSheet> {
                   Expanded(
                     child: OutlinedButton(
                       key: const ValueKey('saveAddToQueue'),
-                      onPressed: _busy
+                      onPressed: _busy || _nothingToSave
                           ? null
                           : () => _submit(SaveSheetAction.addToQueue),
                       style: OutlinedButton.styleFrom(
@@ -354,7 +457,7 @@ class _RangeSheetState extends State<_RangeSheet> {
                           )
                         : FilledButton(
                             key: const ValueKey('saveStartNow'),
-                            onPressed: _busy
+                            onPressed: _busy || _nothingToSave
                                 ? null
                                 : () => _submit(SaveSheetAction.startNow),
                             style: _primaryStyle,
@@ -422,13 +525,207 @@ class _BusyNote extends StatelessWidget {
   }
 }
 
+/// The capture-mode block: what will be taken off this page.
+///
+/// Every honourable mode is shown as a live option and every unavailable one
+/// is shown **disabled with its reason**, rather than hidden. A missing option
+/// reads as a bug; a greyed one with "no readable text was found on this page"
+/// beside it reads as an answer.
+class _CaptureSection extends StatelessWidget {
+  const _CaptureSection({
+    required this.capabilities,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final CaptureCapabilities capabilities;
+  final CaptureMode? selected;
+  final ValueChanged<CaptureMode> onSelect;
+
+  static const _icons = {
+    CaptureMode.imageSequence: Icons.photo_library_outlined,
+    CaptureMode.textOnly: Icons.notes,
+    CaptureMode.textAndImages: Icons.article_outlined,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('What to save', style: serifStyle(size: 15, color: palette.ink)),
+        const SizedBox(height: 6),
+        Text(
+          _summary(),
+          key: const ValueKey('captureDetectionSummary'),
+          style: TextStyle(
+            fontSize: 11.5,
+            height: 1.45,
+            color: palette.inkMuted,
+          ),
+        ),
+        if (capabilities.videoDominant) ...[
+          const SizedBox(height: 10),
+          _VideoNotice(hasAlternative: capabilities.canSaveAnything),
+        ],
+        const SizedBox(height: 10),
+        for (final mode in CaptureMode.values) ...[
+          _RangeOption(
+            key: ValueKey('captureMode_${mode.name}'),
+            icon: _icons[mode]!,
+            title: mode.label,
+            sub: capabilities.allows(mode)
+                ? mode.description
+                : (capabilities.blocked[mode]?.message ??
+                      'Not possible on this page.'),
+            selected: selected == mode,
+            enabled: capabilities.allows(mode),
+            onTap: () => onSelect(mode),
+          ),
+          const SizedBox(height: 7),
+        ],
+      ],
+    );
+  }
+
+  /// One line of what was detected, and how sure. Never presents a
+  /// low-confidence guess as a firm answer — the sheet says "this looks like",
+  /// and every alternative stays one tap away regardless.
+  String _summary() {
+    if (!capabilities.analysed) {
+      return 'This page could not be analysed, so every option is offered. '
+          'Pick what fits.';
+    }
+    if (!capabilities.canSaveAnything) {
+      return 'Nothing on this page can be saved offline.';
+    }
+    final kind = switch (capabilities.content.kind) {
+      ContentKind.imageDominant => 'a page of full-size images',
+      ContentKind.article => 'an article',
+      ContentKind.datedPost => 'a dated post',
+      ContentKind.sequentialText => 'part of a longer text',
+      ContentKind.longFormDocument => 'a long document',
+      ContentKind.paginatedDocument => 'one page of a document',
+      ContentKind.videoDominant => 'a video page',
+      ContentKind.standalonePage || ContentKind.unknownWebContent => null,
+    };
+    // "Not classified" is a real answer and gets its own sentence rather than
+    // being forced through the "this looks like …" template, which would read
+    // as "this looks like not something we could classify".
+    if (kind == null) {
+      return 'This page did not say clearly what it is. Pick what fits.';
+    }
+    return capabilities.content.confidence.isActionable
+        ? 'This looks like $kind.'
+        : 'This might be $kind — the page did not say clearly.';
+  }
+}
+
+/// Says plainly that video is not saved, and what will happen instead.
+class _VideoNotice extends StatelessWidget {
+  const _VideoNotice({required this.hasAlternative});
+
+  final bool hasAlternative;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Container(
+      key: const ValueKey('videoNotSavedNotice'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: palette.surfaceMuted,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: palette.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.videocam_off_outlined, size: 18, color: palette.inkMuted),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              hasAlternative
+                  ? 'Video is not saved. The readable text on this page can '
+                        'be, and the entry will link back to the original for '
+                        'anything that plays.'
+                  : 'Video is not saved, and this page has no readable text '
+                        'to save instead. Open it in the Browser when you '
+                        'want to watch it.',
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.45,
+                color: palette.inkMuted,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Use this for the whole collection."
+class _RememberToggle extends StatelessWidget {
+  const _RememberToggle({
+    required this.value,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final String label;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return InkWell(
+      key: const ValueKey('rememberCaptureMode'),
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: Checkbox(
+                value: value,
+                visualDensity: VisualDensity.compact,
+                onChanged: (v) => onChanged(v ?? false),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Use "$label" for this collection from now on',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.4,
+                  color: palette.inkMuted,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _RangeOption extends StatelessWidget {
   const _RangeOption({
+    super.key,
     required this.icon,
     required this.title,
     required this.sub,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
   });
 
   final IconData icon;
@@ -436,6 +733,10 @@ class _RangeOption extends StatelessWidget {
   final String sub;
   final bool selected;
   final VoidCallback onTap;
+
+  /// A disabled option stays on screen with its reason in [sub]. Hiding it
+  /// would answer "why can I not save the text here" with silence.
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -445,7 +746,7 @@ class _RangeOption extends StatelessWidget {
       borderRadius: BorderRadius.circular(14),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
           decoration: BoxDecoration(
@@ -456,7 +757,11 @@ class _RangeOption extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(icon, size: 20, color: palette.primary),
+              Icon(
+                icon,
+                size: 20,
+                color: enabled ? palette.primary : palette.inkFaint,
+              ),
               const SizedBox(width: 11),
               Expanded(
                 child: Column(
@@ -468,7 +773,7 @@ class _RangeOption extends StatelessWidget {
                         fontSize: 14,
                         fontVariations: wght(500),
                         fontWeight: FontWeight.w500,
-                        color: palette.ink,
+                        color: enabled ? palette.ink : palette.inkFaint,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -477,7 +782,7 @@ class _RangeOption extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11.5,
                         height: 1.4,
-                        color: palette.inkMuted,
+                        color: enabled ? palette.inkMuted : palette.inkFaint,
                       ),
                     ),
                   ],

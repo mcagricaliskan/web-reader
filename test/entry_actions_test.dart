@@ -103,6 +103,7 @@ void main() {
         title: 'Foo Entry 12',
         sourceUrl: sourceUrl,
         urlKey: '$sourceUrl#$id',
+        artifactFormat: 'imageSequence',
         saveStatus: saveStatus,
         contentPath: offline ? 'library/collection-1/entries/$id' : null,
         savedAt: DateTime(2026, 7, 20),

@@ -14,6 +14,7 @@ import '../save/selection_request.dart';
 import '../save/page_hint.dart';
 import '../core/url_utils.dart';
 import '../storage/database.dart';
+import '../storage/manifest.dart';
 import 'collection_identity.dart';
 import 'content_shape.dart';
 
@@ -699,6 +700,10 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
         contentKind: ContentKind.unknownWebContent.name,
         contentKindConfidence: ShapeConfidence.low.name,
         contentKindIsUserSet: false,
+        // Nothing is stored, so there is no artifact yet. The column carries
+        // its default rather than a claim: a discovered entry has no package,
+        // and `save_status`/`content_path` are what say so.
+        artifactFormat: ArtifactFormat.imageSequence.name,
         // Known to exist at the source; holds nothing locally. Everything that
         // means "readable offline" keys off contentPath + status, so this can
         // never masquerade as an offline entry.

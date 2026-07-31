@@ -90,6 +90,7 @@ void main() {
       title: 'Foo Entry $n',
       sourceUrl: 'https://x.example/guide/foo/$n',
       urlKey: 'https://x.example/guide/foo/$n',
+      artifactFormat: 'imageSequence',
       saveStatus: saveStatus,
       contentPath: relative,
       savedAt: DateTime(2026, 7, 20),

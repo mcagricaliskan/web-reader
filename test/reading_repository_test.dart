@@ -43,6 +43,7 @@ void main() {
           title: 'Fixture Collection Entry $n',
           sourceUrl: 'https://x.example/guide/foo/$n',
           urlKey: 'https://x.example/guide/foo/$n',
+          artifactFormat: 'imageSequence',
           saveStatus: status,
           contentPath: 'library/collection-1/entries/c$n',
           savedAt: DateTime(2026, 7, 20),
@@ -103,8 +104,8 @@ void main() {
         'c1',
         const ReadingPosition(
           fraction: 0.42,
-          imageIndex: 3,
-          offsetInImage: 0.25,
+          anchorIndex: 3,
+          offsetInAnchor: 0.25,
         ),
       );
 
@@ -120,7 +121,7 @@ void main() {
       await seed();
       await reading.saveProgress(
         'c1',
-        const ReadingPosition(fraction: 0.98, imageIndex: 5),
+        const ReadingPosition(fraction: 0.98, anchorIndex: 5),
         completed: true,
       );
 
@@ -138,7 +139,7 @@ void main() {
 
         await reading.saveProgress(
           'c1',
-          const ReadingPosition(fraction: 0.2, imageIndex: 1),
+          const ReadingPosition(fraction: 0.2, anchorIndex: 1),
         );
 
         final entry = await db.entryById('c1');
@@ -161,7 +162,11 @@ void main() {
       await seed();
       await reading.saveProgress(
         'c1',
-        const ReadingPosition(fraction: 0.5, imageIndex: 2, offsetInImage: 0.5),
+        const ReadingPosition(
+          fraction: 0.5,
+          anchorIndex: 2,
+          offsetInAnchor: 0.5,
+        ),
       );
 
       // What a restart looks like: a fresh repository over the same rows.
@@ -169,8 +174,8 @@ void main() {
       final position = reloaded.positionOf((await db.entryById('c1'))!);
 
       expect(position.fraction, closeTo(0.5, 0.001));
-      expect(position.imageIndex, 2);
-      expect(position.offsetInImage, closeTo(0.5, 0.001));
+      expect(position.anchorIndex, 2);
+      expect(position.offsetInAnchor, closeTo(0.5, 0.001));
     });
   });
 
@@ -189,7 +194,11 @@ void main() {
       await seed();
       await reading.saveProgress(
         'c1',
-        const ReadingPosition(fraction: 0.6, imageIndex: 3, offsetInImage: 0.4),
+        const ReadingPosition(
+          fraction: 0.6,
+          anchorIndex: 3,
+          offsetInAnchor: 0.4,
+        ),
         completed: true,
       );
       await reading.markUnread('c1');
@@ -365,12 +374,12 @@ void main() {
       // before the first write lands and then clobber it.
       final f1 = reading.saveProgress(
         'c1',
-        const ReadingPosition(fraction: 0.99, imageIndex: 5),
+        const ReadingPosition(fraction: 0.99, anchorIndex: 5),
         completed: true,
       );
       final f2 = reading.saveProgress(
         'c1',
-        const ReadingPosition(fraction: 0.98, imageIndex: 5),
+        const ReadingPosition(fraction: 0.98, anchorIndex: 5),
       );
       await Future.wait([f1, f2]);
 
@@ -399,7 +408,7 @@ void main() {
         reading.markUnread('c1'),
         reading.saveProgress(
           'c1',
-          const ReadingPosition(fraction: 0.4, imageIndex: 2),
+          const ReadingPosition(fraction: 0.4, anchorIndex: 2),
         ),
       ];
       await Future.wait(futures);

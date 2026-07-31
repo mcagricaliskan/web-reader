@@ -161,6 +161,7 @@ void main() {
         title: 'Foo Entry $n',
         sourceUrl: entryUrl(n),
         urlKey: entryUrl(n),
+        artifactFormat: 'imageSequence',
         saveStatus: status,
         contentPath: relative,
         savedAt: DateTime(2026, 7, 10),
@@ -205,6 +206,7 @@ void main() {
     final running = run.start(
       range: SaveScope.fixedCount,
       entryLimit: 2,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
@@ -266,6 +268,7 @@ void main() {
     final running = run.start(
       range: SaveScope.fixedCount,
       entryLimit: 2,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
@@ -293,7 +296,7 @@ void main() {
     final reading = ReadingRepository(db);
     await reading.saveProgress(
       'c2',
-      const ReadingPosition(fraction: 0.6, imageIndex: 1, offsetInImage: 0.3),
+      const ReadingPosition(fraction: 0.6, anchorIndex: 1, offsetInAnchor: 0.3),
       completed: true,
     );
     final before = (await db.entryById('c2'))!;
@@ -302,6 +305,7 @@ void main() {
     final running = run.start(
       range: SaveScope.fixedCount,
       entryLimit: 1,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(2),
       policy: DuplicatePolicy.ask,
     );
@@ -344,6 +348,7 @@ void main() {
     final running = run.start(
       range: SaveScope.fixedCount,
       entryLimit: 2,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
@@ -376,6 +381,7 @@ void main() {
     final running = run.start(
       range: SaveScope.fixedCount,
       entryLimit: 2,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
@@ -404,6 +410,7 @@ void main() {
     final running = run.start(
       range: SaveScope.fixedCount,
       entryLimit: 2,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
@@ -445,10 +452,10 @@ void main() {
     await db.upsertRun(
       SaveRun(
         visitedCanonicals: '',
-        includeImages: true,
         origin: 'queue',
         scope: 'fixedCount',
         id: 'run-interrupted',
+        captureModeIsUserSet: false,
         startUrl: entryUrl(1),
         currentUrl: entryUrl(1),
         requestedEntries: 1,
@@ -489,6 +496,7 @@ void main() {
       run.start(
         range: SaveScope.fixedCount,
         entryLimit: 1,
+        captureModeIsUserSet: false,
         startUrl: entryUrl(1),
         policy: DuplicatePolicy.ask,
         sessionDuplicate: SessionDuplicateDecision.replaceCompleteForSession,
@@ -504,6 +512,7 @@ void main() {
     final running = run.start(
       range: SaveScope.fixedCount,
       entryLimit: 1,
+      captureModeIsUserSet: false,
       startUrl: entryUrl(1),
       policy: DuplicatePolicy.ask,
     );
@@ -526,6 +535,7 @@ void main() {
       run.start(
         range: SaveScope.fixedCount,
         entryLimit: 2,
+        captureModeIsUserSet: false,
         startUrl: entryUrl(1),
         policy: DuplicatePolicy.ask,
         sessionDuplicate: SessionDuplicateDecision.skipCompleteForSession,
@@ -558,6 +568,7 @@ void main() {
       run.start(
         range: SaveScope.fixedCount,
         entryLimit: 1,
+        captureModeIsUserSet: false,
         startUrl: entryUrl(1),
         policy: DuplicatePolicy.ask,
         sessionDuplicate: SessionDuplicateDecision.skipCompleteForSession,

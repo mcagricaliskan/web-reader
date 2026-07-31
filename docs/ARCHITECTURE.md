@@ -31,7 +31,8 @@ shelf is a union of collections and standalone entries
 image-dominant *and* part of a dated feed *and* ordered by publication date.
 
 - **ContentKind**: standalonePage · article · datedPost · sequentialText ·
-  imageDominant · paginatedDocument · longFormDocument · unknownWebContent
+  imageDominant · **videoDominant** · paginatedDocument · longFormDocument ·
+  unknownWebContent
 - **SequenceKind**: none · explicitNextPrev · numberedPagination · openEndedNext ·
   chronologicalFeed · reverseChronologicalFeed · continuousPage · manualSelection
 - **OrderingBasis**: explicitNumericIndex · publicationDate · detectedNextLink ·
@@ -42,6 +43,42 @@ numbering starts at 1, that a total is known, that a sequence increases, that
 "next" means newer, that every entry belongs to a collection, or that a
 collection has a final entry. `collections.known_entry_total` is nullable and
 usually null.
+
+### 3.1 Three separate questions
+
+`ContentKind` is only one of three, and conflating any two of them is what
+produced a library where every entry was an image list:
+
+| Concept | Question | Where | Who decides |
+|---|---|---|---|
+| **ContentKind** | What is this *page*? | `library/content_shape.dart`, `entries.content_kind` | Detection; the user can correct the label |
+| **CaptureMode** | What should the *save* produce? | `save/capture_mode.dart`, `save_runs.capture_mode`, `queue_tasks.capture_mode`, `entries.capture_mode` | The user, from what detection says is possible |
+| **ArtifactFormat** | What does the stored *package* hold? | `storage/manifest.dart`, `entries.artifact_format`, `manifest.json` | The save that wrote it — a fact, not a claim |
+
+**Only `ArtifactFormat` decides how an entry is read.** Correcting a label to
+"article" changes what the library calls an image package and nothing else;
+the reader still opens it as the image sequence it physically is. Reader mode
+is *derived* from the artifact rather than stored, so the two cannot disagree.
+
+`CaptureCapabilities` (`save/capture_mode.dart`) turns a probe into the set of
+modes the engine can genuinely carry out on that page, the reason each
+unavailable one is unavailable, and which to preselect. The save sheet is built
+from it, so it can never offer a mode the engine would then refuse — and the
+engine resolves against the *same* function on the settled page, so the two
+cannot disagree.
+
+Two fallbacks live in that one function rather than being duplicated:
+
+- **Unclassifiable and not video** → the image attempt is offered. It is the
+  only path with user assistance behind it, and a page nothing could classify
+  used to be saved that way.
+- **Video-dominant with nothing readable** → nothing is offered, the sheet's
+  launch buttons are disabled, and the run refuses.
+
+The engine resolves on the **settled** probe, after scrolling, not on the one
+taken at page load: on the second entry of a multi-entry run a lazy image page
+has barely loaded at that point, and deciding from it is how entry 2 would end
+up stored in a different format from entry 1.
 
 ## 4. Detection — generic and domain-independent
 
@@ -55,6 +92,19 @@ if one does.
 Two rules are load-bearing: a number in a URL is not evidence of a structure, and
 arriving from the web is not evidence of a page.
 
+**Video** is classified, never captured. `videoDominant` requires all three of:
+a player inside the readable region, occupying at least
+`kVideoDominantViewportShare` (20%) of the measured viewport, on a page that is
+neither prose nor a run of full-size images. A page that merely embeds a clip
+stays what it is. `PageMediaSignals` carries geometry only — a count, an area
+and an in-region flag — and deliberately no media URL of any kind.
+
+**Text extraction** is split the same way detection is. `bridge_script.dart`
+walks the readable region and reports every candidate block with flags
+(`chrome`, `hidden`, tag, size); `save/document_extraction.dart` decides what
+survives. The judgement half is pure Dart over literal fixtures, which is what
+makes "what ends up in a user's saved copy" testable without a WebView.
+
 Feed **direction** is measured from the dates on the page, never assumed —
 getting it backwards saves the wrong end of a blog.
 
@@ -62,6 +112,10 @@ getting it backwards saves the wrong end of a blog.
 
 **Built today:**
 
+0. **What to save** and **how much to save** are separate choices, in one sheet.
+   The capture modes are *Images only* · *Text only* · *Text and images*;
+   unavailable ones stay on screen, disabled, with the reason beside them. The
+   default comes from detection and every alternative is one tap away.
 1. The default and preselected scope is **Save current page only**.
 2. `SaveScope` is `currentPageOnly` | `selectedEntries` | `fixedCount` |
    `untilNoNextPage`. `SaveLimits.forScope` is the only constructor and **cannot
@@ -73,6 +127,15 @@ getting it backwards saves the wrong end of a blog.
 4. Every multi-entry save is user-initiated, bounded, visible in the queue,
    cancellable, retryable, and survives a restart as *queued and unstarted* —
    the start authorisation is never persisted.
+5. A collection can **remember** a capture mode (`collections.preferred_capture_mode`).
+   It is a proposal, never an instruction: every page is re-measured and the
+   preference is run through `CaptureCapabilities.resolve`, so a remembered
+   mode that no longer applies falls back and the run says so in its log.
+   A multi-entry run re-resolves per entry, because entry 7 may not be shaped
+   like entry 1.
+6. A text extraction that finds nothing is reported and walked past. It
+   deliberately does **not** route into reader-area selection: that assistance
+   hands back a container of images and cannot help a page with no prose.
 
 **Deferred — modelled but not on screen.** The domain layer computes everything
 the review step needs (`detectSequence` returns the kind, direction, known total
@@ -91,7 +154,7 @@ The app detects and stops. There is no retry-with-different-headers, no
 alternate-URL attempt, no cookie manipulation, and no rate-limit wait-out
 anywhere in the codebase.
 
-## 7. Image-heavy and unsupported media
+## 7. Capture modes and unsupported media
 
 **Built today.** Audio and video are **not saved**: `AssetFetcher` accepts image
 bytes only, verified by magic number rather than `Content-Type`. `<video>`,
@@ -100,12 +163,19 @@ bytes only, verified by magic number rather than `Content-Type`. `<video>`,
 read or fetched. Images are stored byte-for-byte in app-private storage — no
 re-encoding, and no export to Photos, Gallery or Downloads.
 
-**Deferred — modelled but not on screen.** `save_runs.include_images` carries the
-text-only answer end to end and `PageContentSignals.looksImageDominant` detects
-the case, but the *Text only / Text and images / Cancel* dialog is not built, so
-nothing asks yet and the flag is always true in practice. The unsupported-media
-placeholder in the reader is likewise not built. Wording for both is fixed in
-`STORE_PACKAGE.md` §6.3 and §6.6.
+**Built today.** The capture modes are on screen in the save sheet, and the
+old `save_runs.include_images` boolean is gone: it could not express the
+difference between an ordered sequence of full-size images and an article with
+pictures in it, and nothing ever read it. `save_runs.capture_mode` and
+`queue_tasks.capture_mode` carry a real `CaptureMode` end to end.
+
+A page that is primarily a video is classified `videoDominant`, the sheet says
+plainly that video is not saved, and — when the page carries no readable text —
+the save is refused rather than falling back to sweeping up its thumbnails.
+A document's inline image that was not stored renders as an honest "this image
+was not saved" placeholder in its right position.
+
+**Not built, and out of scope:** any video capture or playback. See §11.
 
 ## 8. Database — version 1, created whole
 
@@ -115,6 +185,13 @@ data-copying routine anywhere in the project.
 
 Tables: `collections` · `entries` · `save_runs` · `user_page_hints` · `settings` ·
 `queue_tasks` · `browsing_history` · `saved_sites` · `favicon_cache`.
+
+Columns carrying the three separated concepts:
+`entries.content_kind` / `content_kind_confidence` / `content_kind_is_user_set`
+(what the page was) · `entries.artifact_format` / `capture_mode` (what the
+package holds and how it was produced) · `collections.preferred_capture_mode`
+(what to propose next time) · `save_runs.capture_mode` /
+`capture_mode_is_user_set` and the same pair on `queue_tasks`.
 
 Relationships: `entries.collection_id → collections.id`, nullable. The four
 browsing tables reference nothing in the library and nothing references them, so
@@ -132,6 +209,38 @@ unique index on `saved_sites(url_key)`.
 Pages live in each entry's `manifest.json`, next to the bytes they describe,
 rather than in a table that could disagree with the files.
 
+### 8.1 Entry packages and manifest versioning
+
+    library/<collection-id>/entries/<entry-id>/
+      manifest.json        always
+      document.json        structured-document entries only
+      assets/001.png …     image pages, or a document's inline images
+    library/standalone/<entry-id>/    entries belonging to no collection
+
+**`manifest.json` is version 2.** It gained `artifact`, `captureMode` and a
+`document` reference. Version 1 packages are read exactly as written and are
+never rewritten in place: a manifest with no `artifact` field is an image
+sequence, because that is the only thing this app could produce when it wrote
+one. That rule is asserted against literal version-1 JSON in
+`test/document_persistence_test.dart`, not against something this build wrote.
+
+An `artifact` value this build does not recognise resolves to
+`ArtifactFormat.unknown` and the reader says the entry was saved in a format it
+cannot open. It is deliberately *not* read as an image sequence — misreading a
+newer package would be worse than refusing it.
+
+`document.json` is a list of typed blocks with plain text and offset-based
+emphasis marks. It is **not** HTML: a saved page cannot carry a script, a
+stylesheet, an iframe, an event handler or a remote reference, and the offline
+reader has no HTML engine in it at all.
+
+The database is still **version 1 with no migration system**, per the rule at
+the top of this section: nothing has shipped, so the new columns were added to
+`onCreate` rather than to a migration branch. The durable user data is the
+packages on disk, and `storage/recovery.dart` rebuilds library rows from them —
+for both manifest versions, and for standalone entries as well as collected
+ones.
+
 ## 9. Invariants worth keeping
 
 - **Reading state is writable only from `lib/reading/`.** `writeEntryReading` is
@@ -141,6 +250,16 @@ rather than in a table that could disagree with the files.
 - **Removing offline files is not deleting an entry.** Only `content_path`,
   `byte_size` and `offline_removed_at` are written; everything else survives, and
   the entry reads as "Not available offline — save again".
+- **Semantic label and stored format are separate, and only one is editable.**
+  `setEntryContentKind` writes `content_kind` and cannot reach
+  `artifact_format`. Relabelling an image package as an article changes what it
+  is called; it never causes the reader to parse it as a document.
+- **A reading anchor belongs to an artifact.** `ReadingPosition.anchorIndex` is
+  a panel index for an image sequence and a *block* index for a document. When
+  a re-save changes an entry's stored format, `carryReading` keeps everything
+  that is a fact about the content (finished, first opened, the
+  content-independent fraction) and resets only the anchor, which would
+  otherwise drop the reader somewhere arbitrary and call it "where you were".
 - **An entry's `source_url` is durable.** Every writer names its columns, so it
   survives removal, archive, restore, re-save and reading updates. It is what
   "Open original page" stands on.
@@ -174,17 +293,70 @@ yet reachable from a screen.
 |---|---|
 | Library / Collection / Entry model, standalone entries | **Built**, tested |
 | Version-1 schema, no migration system | **Built**, tested (`schema_v1_test.dart`) |
-| Content-shape model and detection | **Built**, unit-tested at the domain layer |
+| Content-shape model and detection | **Built**; `detectContentKind` / `detectSequence` / `detectCaptureCapabilities` unit-tested directly (`content_detection_test.dart`) |
+| Capture modes (images · text · text+images) | **Built**, tested (`document_save_test.dart`, `document_extraction_test.dart`) |
+| Structured-document extraction and storage | **Built**, tested |
+| Structured-document reader | **Built**, tested (`document_reader_test.dart`) |
+| Manifest v1 → v2 compatibility | **Built**, tested against literal v1 JSON |
+| Collection capture-mode preference, with validated fallback | **Built**, tested |
+| Entry content-type correction (UI) | **Built** — label only; cannot change the stored artifact |
 | Semantic labels, one producer | **Built**, tested |
 | Stopping conditions and `StopReason` | **Built** in `stop_conditions.dart` and wired into the run; **no dedicated tests yet** |
 | Bounded scopes, required `range`, no unbounded run | **Built**, tested |
-| Audio/video never fetched | **Built** (image-only MIME allow-list); no dedicated media test |
+| Audio/video never fetched | **Built** (image-only MIME allow-list) |
+| Video-dominant pages classified and refused | **Built**, tested; **no video capture or playback exists** |
 | Offline reader, reading position, queue, cleanup, archive, storage | **Built**, tested |
 | Repository-cleanliness guard | **Built**, tested |
 | Save-scope review step (UI) | **Deferred** |
 | First-use and contextual content-rights disclosures (UI) | **Deferred** |
-| Image-heavy confirmation (UI) | **Deferred** |
-| Unsupported-media placeholder in the reader | **Deferred** |
+| Video capture or playback | **Not built, and out of scope** — see §11 |
 | Privacy / Terms / Content-rights settings pages | **Deferred** |
 | Hosted demo site, store assets | **Deferred**, external |
 | Device runtime verification | **Not run** — simulator launch only |
+
+## 11. The video boundary
+
+Video is **detected and refused**, never captured. What exists:
+
+- `ContentKind.videoDominant`, with the three guards in §4.
+- `PageMediaSignals` — a count, the largest player's laid-out area, and whether
+  it sits in the readable region. **Geometry only.** There is no field here that
+  holds a media URL, and adding one would turn a classification signal into the
+  first half of a downloader.
+- Save-sheet copy saying video is not saved, and what will happen instead.
+- A refusal when a video page carries nothing readable, rather than a fallback
+  that sweeps up its thumbnails.
+- `ArtifactFormat`, which a future video artifact could join as another value
+  without disturbing the image or document formats.
+
+What does **not** exist, and is out of scope: video URL extraction, network
+interception, iframe inspection for media addresses, HLS, DASH, DRM, video file
+storage, background video downloading, playback, picture-in-picture, subtitles,
+seasons, and any genre-specific logic. `CaptureMode` has no video value on
+purpose — the save sheet is built from that enum, so a mode the engine cannot
+honour would become a button that lies.
+
+Nothing in this repository, its store copy or its documentation describes video
+saving as supported.
+
+## 12. Known limitations
+
+- **Text extraction is heuristic and says so.** The readable region is chosen
+  from standard landmarks, then from paragraph density. A page that structures
+  itself unusually may lose blocks or keep furniture; the failure mode is a
+  named, explained refusal or a visibly incomplete document, never a silent
+  half-save.
+- **Furniture exclusion uses generic class/id words** (`comment`, `advert`,
+  `sidebar`, `related`, `share`, …) alongside HTML landmarks. These are
+  structural conventions, not a site list — but a page that names its main
+  column with one of them will lose blocks.
+- **A document restores *to* its position, not *at* it.** A paragraph has no
+  offset until it has been laid out, so the document reader scrolls to the
+  saved block on the first frame after measurement. The image reader still
+  opens at its position, because panel heights are known from the manifest.
+- **A document is built in full rather than lazily**, so every block offset is
+  exact and restore is precise. Extraction caps the block count; a pathological
+  page is bounded rather than unbounded.
+- **The database has no migration system.** A developer with a library created
+  before these columns existed must reset it; the packages on disk are
+  unaffected and `storage/recovery.dart` rebuilds the rows from them.

@@ -84,6 +84,7 @@ void main() {
         title: 'Foo Part 487 Oku',
         sourceUrl: sourceUrl,
         urlKey: sourceUrl,
+        artifactFormat: 'imageSequence',
         saveStatus: 'complete',
         contentPath: offline ? 'library/collection-1/entries/c1' : null,
         savedAt: DateTime(2026, 7, 20),
@@ -258,7 +259,7 @@ void main() {
     await seed();
     await ReadingRepository(
       db,
-    ).saveProgress('c1', const ReadingPosition(fraction: 0.42, imageIndex: 2));
+    ).saveProgress('c1', const ReadingPosition(fraction: 0.42, anchorIndex: 2));
     await open(tester);
     await tester.longPress(row);
     await tester.pumpAndSettle();

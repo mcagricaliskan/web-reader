@@ -173,6 +173,10 @@ EntryLabels labelsFor({
       _ => EntryLabelStyle.item,
     },
 
+    // A video page is never given a genre noun either. Whatever was saved from
+    // it is readable text, not the video — calling it an "episode" would name
+    // the thing the app deliberately did not keep.
+    ContentKind.videoDominant ||
     ContentKind.longFormDocument ||
     ContentKind.standalonePage => EntryLabelStyle.item,
 

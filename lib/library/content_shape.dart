@@ -32,6 +32,15 @@ enum ContentKind {
   /// Mostly images, with little text. Says nothing about the subject matter.
   imageDominant,
 
+  /// The page is primarily a video player, and the video is what it is for.
+  ///
+  /// **Detected, never captured.** The app does not save audio or video, so
+  /// this classification exists to say so honestly — and to stop the save
+  /// flow from quietly falling back to sweeping up a video page's thumbnails
+  /// and calling that an offline copy. A page that merely *contains* a player
+  /// is not this: see `content_detection.dart` for the guards.
+  videoDominant,
+
   /// One page of a document with real pagination (page 3 of 12).
   paginatedDocument,
 

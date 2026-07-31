@@ -10,6 +10,8 @@ import '../storage/database.dart';
 import '../storage/file_store.dart';
 import '../storage/manifest.dart';
 import 'asset_fetcher.dart';
+import 'capture_mode.dart';
+import 'document_extraction.dart';
 import 'save_state.dart';
 import 'image_candidates.dart';
 import 'next_page.dart';
@@ -32,6 +34,10 @@ class EntrySaveResult {
     this.nextResult,
     this.readerHintFailed = false,
     this.extractionFailed = false,
+    this.documentFailure,
+    this.captureMode,
+    this.nothingToSave = false,
+    this.videoDominant = false,
     this.pageUrl = '',
     this.error,
     this.detectedImages = 0,
@@ -50,18 +56,91 @@ class EntrySaveResult {
   /// A saved reader-area rule matched nothing on this page.
   final bool readerHintFailed;
 
-  /// Generic extraction found too little to be an entry.
+  /// **Image** extraction found too little to be an entry. This is the flag
+  /// that routes a run into "point at the reader area", which is why it is
+  /// image-specific: that assistance hands back a container of *images*, so
+  /// offering it for a page with no readable prose would be a dead end
+  /// dressed up as help.
   final bool extractionFailed;
+
+  /// Why text extraction produced nothing, when it did. Deliberately a
+  /// separate field from [extractionFailed]: the two failures have different
+  /// causes, different messages and different remedies.
+  final DocumentExtractionFailure? documentFailure;
+
+  /// The mode this entry was actually saved in — the fallback, when the
+  /// requested one could not be honoured on this page.
+  final CaptureMode? captureMode;
+
+  /// The settled page could hold nothing this app saves. Distinct from every
+  /// other failure: there is nothing to retry and nothing to assist with, so
+  /// the run reports it and walks on.
+  final bool nothingToSave;
+
+  /// …and it was a video page, which gets its own wording.
+  final bool videoDominant;
+
   final String pageUrl;
   final String? error;
+
+  /// Images detected and stored. For a document these are its inline images.
   final int detectedImages;
   final int storedImages;
 
   bool get isUsable =>
       status == SaveStatus.complete || status == SaveStatus.partial;
+
+  /// Whether the run should offer user-assisted reader-area selection.
+  ///
+  /// Only ever for an image sequence. A prose page that failed to extract is
+  /// reported and moved past — see `documentFailure`.
+  bool get needsReaderAreaAssist => extractionFailed || readerHintFailed;
 }
 
 class SaveCancelled implements Exception {}
+
+/// Reading state carried across a re-save.
+///
+/// Saving an entry must never move the user's place or un-finish something
+/// they read. The one case where part of that cannot hold is a **format
+/// change**: an anchor recorded against 40 image panels means nothing against
+/// 300 text blocks, and applying it would drop the reader somewhere arbitrary
+/// and call it "where you were".
+///
+/// So the split is: everything that is a fact about the *content* survives
+/// (finished, first opened, last read, and the content-independent fraction);
+/// only the anchor, which is a fact about the *artifact*, is reset. The
+/// fraction then does exactly the job it was designed for — approximate but
+/// always meaningful — and the reader lands in the right part of the entry.
+class CarriedReading {
+  const CarriedReading({
+    this.readStatus = 'unread',
+    this.fraction = 0,
+    this.pageIndex = 0,
+    this.offsetInPage = 0,
+    this.anchorReset = false,
+  });
+
+  final String readStatus;
+  final double fraction;
+  final int pageIndex;
+  final double offsetInPage;
+
+  /// True when a format change forced the anchor back to the start.
+  final bool anchorReset;
+}
+
+CarriedReading carryReading(Entry? existing, ArtifactFormat artifact) {
+  if (existing == null) return const CarriedReading();
+  final changed = ArtifactFormat.fromName(existing.artifactFormat) != artifact;
+  return CarriedReading(
+    readStatus: existing.readStatus,
+    fraction: existing.progressFraction,
+    pageIndex: changed ? 0 : existing.progressPageIndex,
+    offsetInPage: changed ? 0 : existing.progressOffsetInPage,
+    anchorReset: changed,
+  );
+}
 
 /// Saves the page the WebView is currently showing.
 ///
@@ -140,6 +219,25 @@ class SaveEngine {
     required String? collectionId,
     required int entryOrder,
     required Set<String> visitedNormalized,
+
+    /// What to produce. **Required**, for the same reason `range` is required
+    /// on `SaveRunController.start`: no caller may inherit a default about
+    /// what it takes off someone else's page.
+    ///
+    /// **Null means "decide from this page"** — which is a decision, not an
+    /// absence of one, and it is deliberately made *here* rather than by the
+    /// caller. The caller only has the probe taken when the page loaded; on
+    /// the second and later entries of a run that page has not been scrolled
+    /// yet, so a lazy-loading image sequence still looks like a page with no
+    /// images. This method has the settled probe, and that is the only
+    /// measurement worth deciding on.
+    ///
+    /// A non-null mode is still validated against the settled page, so a
+    /// remembered preference cannot force an impossible save.
+    required CaptureMode? captureMode,
+
+    /// True when a person chose [captureMode] rather than detection.
+    bool captureModeIsUserSet = false,
     UserPageHint? readerHint,
     UserPageHint? nextHint,
     bool replaceExisting = false,
@@ -227,6 +325,73 @@ class SaveEngine {
         // Went hidden between the guard and the probe: wait and re-measure.
         await _waitForRenderedSurface('verify');
         probeWithLinks = await browser.probe(withLinks: true);
+      }
+
+      // --- decide what this page becomes ---------------------------------
+      // Measured on the SETTLED probe, after scrolling: before it, a lazy
+      // page reports whatever happened to have loaded, and deciding from that
+      // is how entry 2 of a run ends up saved in a different format from
+      // entry 1.
+      final capabilities = detectCaptureCapabilities(
+        probeWithLinks,
+        config: config,
+      );
+      final resolution = capabilities.resolve(captureMode);
+      if (resolution.explanation != null) _log(resolution.explanation!);
+
+      // A page that is *about* its video, with nothing readable on it, is the
+      // one case that gets refused outright. Sweeping up its thumbnails and
+      // calling that an offline copy is exactly what this exists to prevent.
+      if (resolution.mode == null && capabilities.videoDominant) {
+        _log(
+          'nothing to save: this page is a video, and it has no readable '
+          'text to save instead',
+        );
+        return EntrySaveResult(
+          status: SaveStatus.failed,
+          entryId: entryId,
+          nothingToSave: true,
+          videoDominant: true,
+          error: 'video is not saved, and this page has no text to save',
+          pageUrl: pageUrl,
+        );
+      }
+
+      // A taught reader-area rule beats detection outright: the user pointed
+      // at the container of images, so there is nothing left to infer.
+      //
+      // The `?? imageSequence` is unreachable in practice — capabilities only
+      // yield no mode for a video page with no text, which returned above —
+      // and is written rather than forced so a future value cannot turn this
+      // into a crash.
+      final resolvedMode = readerHint != null
+          ? CaptureMode.imageSequence
+          : (resolution.mode ?? CaptureMode.imageSequence);
+
+      if (captureMode == null || captureMode != resolvedMode) {
+        _log('capture mode: ${resolvedMode.name} (${capabilities.content})');
+      }
+
+      // --- the fork -----------------------------------------------------
+      // Everything above is shared: a page has to be loaded, scrolled and
+      // measured whatever it is going to be stored as. Everything below
+      // depends on what was asked for, and the two paths converge again at
+      // the download loop.
+      if (resolvedMode.isDocument) {
+        return await _saveDocument(
+          captureMode: resolvedMode,
+          captureModeIsUserSet: captureModeIsUserSet && resolution.honoured,
+          entryId: entryId,
+          existing: existing,
+          owningCollectionId: owningCollectionId,
+          entryOrder: entryOrder,
+          pageUrl: pageUrl,
+          pageTitle: pageTitle,
+          probe: probeWithLinks,
+          visitedNormalized: visitedNormalized,
+          nextHint: nextHint,
+          replaceExisting: replaceExisting,
+        );
       }
 
       // A user-taught reader area wins over the generic heuristic — the user
@@ -374,49 +539,23 @@ class SaveEngine {
       // 8. Detect the next entry before we leave the page --------------
       _emit((p) => p.copyWith(state: SaveState.detectingNext));
 
-      String? hintHref;
-      if (nextHint != null) {
-        final match = await browser.applyLocator(nextHint.locator.toJson());
-        if (match != null && match.isMatch) {
-          hintHref = match.href;
-          _log(
-            'saved next-link rule matched (${match.matchedSignals}, '
-            'score ${match.score}${match.ambiguous ? ", ambiguous" : ""})',
-          );
-        } else {
-          _log(
-            'saved next-link rule did not match: '
-            '${match?.failureReason ?? "no result"}',
-          );
-        }
-      }
-
-      final next = resolveNextPage(
-        probeWithLinks,
-        currentUrl: pageUrl,
+      final next = await _resolveNext(
+        probe: probeWithLinks,
+        pageUrl: pageUrl,
         visitedNormalized: visitedNormalized,
-        hintHref: hintHref,
+        nextHint: nextHint,
       );
-      if (next.needsUserSelection) {
-        _log('next: not confident — ${next.reason}');
-      } else if (next.hasNext) {
-        _log(
-          'next: ${next.chosen!.href} '
-          'via ${next.chosen!.strategy.label} (${next.chosen!.evidence})',
-        );
-      } else {
-        _log(
-          'next: none (${next.considered.length} candidates considered, '
-          '${next.rejection?.name ?? "no candidates"})',
-        );
-      }
 
       // 9. Save: manifest -> atomic move -> database --------------------
       _emit((p) => p.copyWith(state: SaveState.saving, message: 'Saving'));
 
       final status = failed == 0 ? SaveStatus.complete : SaveStatus.partial;
+      final imageShape = detectContentKind(probeWithLinks);
       final manifest = EntryManifest(
         schemaVersion: EntryManifest.currentSchemaVersion,
+        artifact: ArtifactFormat.imageSequence,
+        captureMode: CaptureMode.imageSequence.name,
+        captureModeIsUserSet: captureModeIsUserSet && resolution.honoured,
         entryId: entryId,
         collectionId: owningCollectionId,
         sourceUrl: pageUrl,
@@ -430,10 +569,8 @@ class SaveEngine {
         nextUrl: next.chosen?.href,
         entryOrder: entryOrder,
         host: Uri.tryParse(pageUrl)?.host.toLowerCase(),
-        contentKind: detectContentKind(probeWithLinks).kind.name,
-        contentKindConfidence: detectContentKind(
-          probeWithLinks,
-        ).confidence.name,
+        contentKind: imageShape.kind.name,
+        contentKindConfidence: imageShape.confidence.name,
         publishedAt: probeWithLinks.content.publishedAt,
         assets: entries,
       );
@@ -464,6 +601,13 @@ class SaveEngine {
       // on the row always wins: detection must never overwrite a correction.
       final shape = detectContentKind(probeWithLinks);
       final keepUserKind = existing?.contentKindIsUserSet == true;
+      final carried = carryReading(existing, ArtifactFormat.imageSequence);
+      if (carried.anchorReset) {
+        _log(
+          're-saved as an image sequence over a different format — reading '
+          'position kept as a fraction, exact anchor reset',
+        );
+      }
 
       await db.upsertEntry(
         Entry(
@@ -483,6 +627,8 @@ class SaveEngine {
               ? existing!.contentKindConfidence
               : shape.confidence.name,
           contentKindIsUserSet: keepUserKind,
+          artifactFormat: ArtifactFormat.imageSequence.name,
+          captureMode: CaptureMode.imageSequence.name,
           saveStatus: status.name,
           contentPath: relativePath,
           savedAt: manifest.savedAt,
@@ -503,13 +649,14 @@ class SaveEngine {
             url: pageUrl,
             number: entryNumber,
           ),
-          // Reading state is carried over verbatim, never rebuilt. Saving a
-          // entry — including re-downloading one — must not move the user's
-          // place or un-finish something they had read.
-          readStatus: existing?.readStatus ?? 'unread',
-          progressFraction: existing?.progressFraction ?? 0,
-          progressPageIndex: existing?.progressPageIndex ?? 0,
-          progressOffsetInPage: existing?.progressOffsetInPage ?? 0,
+          // Reading state is carried over, never rebuilt. Saving an entry —
+          // including re-downloading one — must not move the user's place or
+          // un-finish something they had read. See [carryReading] for the one
+          // part that cannot survive a change of stored format.
+          readStatus: carried.readStatus,
+          progressFraction: carried.fraction,
+          progressPageIndex: carried.pageIndex,
+          progressOffsetInPage: carried.offsetInPage,
           firstOpenedAt: existing?.firstOpenedAt,
           lastReadAt: existing?.lastReadAt,
           completedAt: existing?.completedAt,
@@ -557,6 +704,7 @@ class SaveEngine {
         nextUrl: next.hasNext ? next.chosen?.href : null,
         nextEvidence: next.chosen?.evidence,
         nextResult: next,
+        captureMode: CaptureMode.imageSequence,
         pageUrl: pageUrl,
         detectedImages: entries.length,
         storedImages: stored,
@@ -576,6 +724,356 @@ class SaveEngine {
       _log('save error: $e\n$stack');
       return _fail(entryId, e.toString());
     }
+  }
+
+  // --- structured documents -----------------------------------------------
+
+  /// Save the page as text, optionally with the images that sit inside it.
+  ///
+  /// Shares staging, the download loop, next-page detection and the atomic
+  /// commit with the image path — the difference is what gets written, not how
+  /// safely it gets written.
+  Future<EntrySaveResult> _saveDocument({
+    required CaptureMode captureMode,
+    required bool captureModeIsUserSet,
+    required String entryId,
+    required Entry? existing,
+    required String? owningCollectionId,
+    required int entryOrder,
+    required String pageUrl,
+    required String pageTitle,
+    required PageProbe probe,
+    required Set<String> visitedNormalized,
+    UserPageHint? nextHint,
+    bool replaceExisting = false,
+  }) async {
+    StagingHandle? staging;
+    try {
+      _emit(
+        (p) => p.copyWith(
+          state: SaveState.extracting,
+          message: 'Reading the text',
+        ),
+      );
+      final tExtract = DateTime.now();
+
+      final raw = await browser.extractDocument();
+      final extraction = extractDocument(
+        raw,
+        mode: captureMode,
+        sourceUrl: pageUrl,
+        fallbackTitle: pageTitle,
+      );
+      _time('extractText', tExtract);
+      await _checkpoint();
+
+      if (!extraction.isSuccess) {
+        final failure =
+            extraction.failure ?? DocumentExtractionFailure.noReadableContent;
+        _log(
+          'text extraction failed: ${failure.name} (${extraction.regionBasis})',
+        );
+        return EntrySaveResult(
+          status: SaveStatus.failed,
+          entryId: entryId,
+          // Deliberately NOT `extractionFailed`: that flag routes the run into
+          // "point at the reader area", which hands back images and cannot
+          // help a page with no prose.
+          documentFailure: failure,
+          captureMode: captureMode,
+          error: failure.message,
+          pageUrl: pageUrl,
+        );
+      }
+
+      var document = extraction.document!;
+      _log(
+        'document: ${document.blockCount} blocks, ${document.textLength} chars '
+        'from ${extraction.regionBasis} '
+        '(${extraction.droppedBlocks} blocks dropped'
+        '${extraction.truncated ? ', TRUNCATED' : ''})',
+      );
+
+      // 2. Inline images ------------------------------------------------
+      staging = await fileStore.beginEntry(
+        collectionId: owningCollectionId,
+        entryId: entryId,
+      );
+
+      final requests = extraction.imageRequests;
+      final toFetch = requests.where((r) => r.needsFetch).toList();
+      var assets = <EntryAsset>[
+        for (final r in toFetch)
+          EntryAsset(
+            index: r.assetIndex,
+            sourceUrl: r.url,
+            status: AssetStatus.pending,
+            width: r.width,
+            height: r.height,
+          ),
+      ];
+
+      if (assets.isNotEmpty) {
+        _emit(
+          (p) => p.copyWith(
+            state: SaveState.fetchingAssets,
+            detectedImages: assets.length,
+            storedImages: 0,
+            failedImages: 0,
+            message: '${assets.length} images to fetch',
+          ),
+        );
+        final tDownload = DateTime.now();
+        assets = await _downloadAll(
+          entries: assets,
+          staging: staging,
+          refererUrl: pageUrl,
+          userAgent: await browser.userAgent(),
+          cookieHeader: await browser.cookieHeaderFor(pageUrl),
+        );
+        _time('download', tDownload);
+        await _checkpoint();
+      } else if (captureMode == CaptureMode.textAndImages) {
+        // Asked for, and there were none. Not a failure: the text is the
+        // entry, and saying so is more useful than refusing to save it.
+        _log('no meaningful inline images on this page — saving the text');
+      }
+
+      final storedIndexes = {
+        for (final a in assets)
+          if (a.isStored) a.index,
+      };
+      final failedImages = assets.length - storedIndexes.length;
+      document = applyImageResults(
+        document,
+        requests: requests,
+        storedAssetIndexes: storedIndexes,
+      );
+
+      // 3. Next entry, before we leave the page -------------------------
+      _emit((p) => p.copyWith(state: SaveState.detectingNext));
+      final next = await _resolveNext(
+        probe: probe,
+        pageUrl: pageUrl,
+        visitedNormalized: visitedNormalized,
+        nextHint: nextHint,
+      );
+
+      // 4. Write ---------------------------------------------------------
+      _emit((p) => p.copyWith(state: SaveState.saving, message: 'Saving'));
+
+      // Text present but an image missing is `partial`, exactly like a
+      // half-downloaded image sequence: the entry opens and reads, and the
+      // reader is told what is not there. Only a total absence of text is a
+      // failure, and that was handled above.
+      final status = failedImages == 0
+          ? SaveStatus.complete
+          : SaveStatus.partial;
+
+      await staging.documentFile.writeAsString(document.encode(), flush: true);
+
+      final shape = detectContentKind(probe);
+      final manifest = EntryManifest(
+        schemaVersion: EntryManifest.currentSchemaVersion,
+        artifact: ArtifactFormat.structuredDocument,
+        captureMode: captureMode.name,
+        captureModeIsUserSet: captureModeIsUserSet,
+        document: DocumentRef(
+          relativePath: FileStore.documentFileName,
+          blockCount: document.blockCount,
+          textLength: document.textLength,
+        ),
+        entryId: entryId,
+        collectionId: owningCollectionId,
+        sourceUrl: pageUrl,
+        canonicalUrl: probe.canonicalUrl,
+        title: pageTitle,
+        savedAt: DateTime.now(),
+        status: status,
+        statusReason: failedImages == 0 ? null : 'assetsFailed:$failedImages',
+        detectedAssetCount: assets.length,
+        storedAssetCount: storedIndexes.length,
+        nextUrl: next.chosen?.href,
+        entryOrder: entryOrder,
+        host: Uri.tryParse(pageUrl)?.host.toLowerCase(),
+        contentKind: shape.kind.name,
+        contentKindConfidence: shape.confidence.name,
+        publishedAt: probe.content.publishedAt,
+        assets: assets,
+      );
+
+      final tCommit = DateTime.now();
+      final relativePath = replaceExisting || existing?.contentPath != null
+          ? await fileStore.commitReplacing(staging, manifest)
+          : await fileStore.commit(staging, manifest);
+      staging = null;
+
+      final byteSize = await fileStore.entryByteSize(relativePath);
+      final hints = probe.pageHints;
+      final entryNumber = parseEntryNumber(
+        title: pageTitle,
+        url: pageUrl,
+        extra: [
+          hints.h1,
+          hints.ogTitle,
+          if (hints.breadcrumbs.isNotEmpty) hints.breadcrumbs.last.text,
+        ],
+      );
+      final keepUserKind = existing?.contentKindIsUserSet == true;
+      final carried = carryReading(existing, ArtifactFormat.structuredDocument);
+      if (carried.anchorReset) {
+        _log(
+          're-saved as a document over a different format — reading position '
+          'kept as a fraction, exact anchor reset',
+        );
+      }
+
+      await db.upsertEntry(
+        Entry(
+          id: entryId,
+          collectionId: owningCollectionId,
+          title: pageTitle,
+          sourceUrl: pageUrl,
+          urlKey: normalizeUrl(pageUrl),
+          canonicalUrl: probe.canonicalUrl,
+          host: Uri.tryParse(pageUrl)?.host.toLowerCase() ?? '',
+          sourceTitle: probe.title.trim().isEmpty ? null : probe.title.trim(),
+          publishedAt: probe.content.publishedAt,
+          contentKind: keepUserKind ? existing!.contentKind : shape.kind.name,
+          contentKindConfidence: keepUserKind
+              ? existing!.contentKindConfidence
+              : shape.confidence.name,
+          contentKindIsUserSet: keepUserKind,
+          artifactFormat: ArtifactFormat.structuredDocument.name,
+          captureMode: captureMode.name,
+          saveStatus: status.name,
+          contentPath: relativePath,
+          savedAt: manifest.savedAt,
+          detectedAssetCount: assets.length,
+          storedAssetCount: storedIndexes.length,
+          nextSourceUrl: next.chosen?.href,
+          entryOrder: existing != null && existing.entryOrder > 0
+              ? existing.entryOrder
+              : entryOrder,
+          saveError: failedImages == 0 ? null : '$failedImages image(s) failed',
+          byteSize: byteSize,
+          entryNumber: entryNumber,
+          sourceMarker: sourceMarkerFrom(
+            title: pageTitle,
+            url: pageUrl,
+            number: entryNumber,
+          ),
+          readStatus: carried.readStatus,
+          progressFraction: carried.fraction,
+          progressPageIndex: carried.pageIndex,
+          progressOffsetInPage: carried.offsetInPage,
+          firstOpenedAt: existing?.firstOpenedAt,
+          lastReadAt: existing?.lastReadAt,
+          completedAt: existing?.completedAt,
+          progressUpdatedAt: existing?.progressUpdatedAt,
+          discoveredAt: existing?.discoveredAt,
+          discoveryBasis: existing?.discoveryBasis,
+          discoveryConfidence: existing?.discoveryConfidence,
+        ),
+      );
+      await db.clearOfflineRemovedMark(entryId);
+      if (owningCollectionId != null) {
+        await db.markCollectionSaved(owningCollectionId, manifest.savedAt);
+      }
+
+      _time('commit', tCommit);
+      _log(
+        'saved a ${captureMode.name} document: ${document.blockCount} blocks, '
+        '${storedIndexes.length}/${assets.length} inline images -> '
+        '$relativePath (${status.name})',
+      );
+      _log(
+        '[timing] ${_timings.entries.map((e) => '${e.key}=${e.value}ms').join(' · ')}',
+      );
+
+      _emit(
+        (p) => p.copyWith(
+          state: status == SaveStatus.complete
+              ? SaveState.complete
+              : SaveState.partial,
+          storedImages: storedIndexes.length,
+          failedImages: failedImages,
+          message: 'Saved ${document.blockCount} blocks of text',
+        ),
+      );
+
+      return EntrySaveResult(
+        status: status,
+        entryId: entryId,
+        manifest: manifest,
+        nextUrl: next.hasNext ? next.chosen?.href : null,
+        nextEvidence: next.chosen?.evidence,
+        nextResult: next,
+        captureMode: captureMode,
+        pageUrl: pageUrl,
+        detectedImages: assets.length,
+        storedImages: storedIndexes.length,
+      );
+    } on SaveCancelled {
+      if (staging != null) await fileStore.discard(staging);
+      _emit(
+        (p) => p.copyWith(state: SaveState.cancelled, message: 'Cancelled'),
+      );
+      return EntrySaveResult(
+        status: SaveStatus.failed,
+        entryId: entryId,
+        error: 'cancelled',
+      );
+    } catch (e, stack) {
+      if (staging != null) await fileStore.discard(staging);
+      _log('document save error: $e\n$stack');
+      return _fail(entryId, e.toString());
+    }
+  }
+
+  /// Next-page resolution, shared by both save paths.
+  Future<NextPageResult> _resolveNext({
+    required PageProbe probe,
+    required String pageUrl,
+    required Set<String> visitedNormalized,
+    UserPageHint? nextHint,
+  }) async {
+    String? hintHref;
+    if (nextHint != null) {
+      final match = await browser.applyLocator(nextHint.locator.toJson());
+      if (match != null && match.isMatch) {
+        hintHref = match.href;
+        _log(
+          'saved next-link rule matched (${match.matchedSignals}, '
+          'score ${match.score}${match.ambiguous ? ", ambiguous" : ""})',
+        );
+      } else {
+        _log(
+          'saved next-link rule did not match: '
+          '${match?.failureReason ?? "no result"}',
+        );
+      }
+    }
+    final next = resolveNextPage(
+      probe,
+      currentUrl: pageUrl,
+      visitedNormalized: visitedNormalized,
+      hintHref: hintHref,
+    );
+    if (next.needsUserSelection) {
+      _log('next: not confident — ${next.reason}');
+    } else if (next.hasNext) {
+      _log(
+        'next: ${next.chosen!.href} '
+        'via ${next.chosen!.strategy.label} (${next.chosen!.evidence})',
+      );
+    } else {
+      _log(
+        'next: none (${next.considered.length} candidates considered, '
+        '${next.rejection?.name ?? "no candidates"})',
+      );
+    }
+    return next;
   }
 
   EntrySaveResult _fail(String entryId, String reason) {

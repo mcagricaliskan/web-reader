@@ -40,6 +40,7 @@ void main() {
     title: 'ch',
     sourceUrl: 'https://x.example/guide/$itemId/$id',
     urlKey: 'https://x.example/guide/$itemId/$id',
+    artifactFormat: 'imageSequence',
     saveStatus: 'complete',
     contentPath: 'library/$itemId/entries/$id',
     detectedAssetCount: 1,

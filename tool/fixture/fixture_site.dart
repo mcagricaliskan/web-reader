@@ -6,6 +6,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'text_fixtures.dart';
+
 const int kEntryCount = 3;
 const int kContentImagesPerEntry = 6;
 
@@ -51,6 +53,57 @@ Future<bool> handleFixtureRequest(
       return true;
     }
     await _html(res, localisedEntryPage(variant, n, entryCount: entryCount));
+    return true;
+  }
+
+  // Text-shaped fixtures, for exercising the capture modes deterministically:
+  //   /text/<n>        prose only, no meaningful images  -> Text only
+  //   /textimages/<n>  prose with two inline figures     -> Text and images
+  //   /videopage       a player that fills the viewport  -> nothing to save
+  //   /ambiguous       short text and two medium images  -> low confidence
+  final textMatch = RegExp(r'^/(text|textimages)/(\d+)$').firstMatch(path);
+  if (textMatch != null) {
+    final withImages = textMatch.group(1) == 'textimages';
+    final n = int.parse(textMatch.group(2)!);
+    if (n < 1 || n > entryCount) {
+      res.statusCode = 404;
+      await _html(res, '<h1>No such entry</h1>');
+      return true;
+    }
+    await _html(
+      res,
+      textEntryPage(n, entryCount: entryCount, withImages: withImages),
+    );
+    return true;
+  }
+
+  if (path == '/videopage') {
+    await _html(res, videoPage());
+    return true;
+  }
+
+  if (path == '/ambiguous') {
+    await _html(res, ambiguousPage());
+    return true;
+  }
+
+  // Figures for the text fixtures. Same generator as the panels, different
+  // route, so a text page's images cannot be confused with a sequence's.
+  // Figures for the text fixtures. Same generator as the panels, different
+  // route, and the size is explicit: a page that DECLARES a 1x1 tracking pixel
+  // must be served an actual 1x1 image, because the browser reports the
+  // natural size and the extractor believes it over the attribute.
+  final figureMatch = RegExp(r'^/figure/(\d+)/(\d+)\.png$').firstMatch(path);
+  if (figureMatch != null) {
+    await _png(
+      res,
+      panelPng(
+        entry: int.parse(figureMatch.group(1)!),
+        index: int.parse(figureMatch.group(2)!),
+        width: int.tryParse(req.uri.queryParameters['w'] ?? '') ?? 640,
+        height: int.tryParse(req.uri.queryParameters['h'] ?? '') ?? 420,
+      ),
+    );
     return true;
   }
 
@@ -204,8 +257,13 @@ $buf
 
 /// A content panel: distinct colour per entry, plus `index` white bars so
 /// panel order is verifiable by eye in the reader.
-Uint8List panelPng({required int entry, required int index}) {
-  const w = 800, h = 1200;
+Uint8List panelPng({
+  required int entry,
+  required int index,
+  int width = 800,
+  int height = 1200,
+}) {
+  final w = width, h = height;
   const palette = [
     [0x1e, 0x3a, 0x8a],
     [0x7c, 0x2d, 0x12],
@@ -224,7 +282,7 @@ Uint8List panelPng({required int entry, required int index}) {
   }
   for (var b = 0; b < index; b++) {
     final x0 = 40 + b * 60;
-    for (var y = 60; y < 220; y++) {
+    for (var y = 60; y < 220 && y < h; y++) {
       for (var x = x0; x < x0 + 40 && x < w; x++) {
         final o = (y * w + x) * 3;
         rgb[o] = 0xff;

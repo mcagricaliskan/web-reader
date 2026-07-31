@@ -19,6 +19,11 @@ import '../browser/page_data.dart';
 import '../library/content_shape.dart';
 import 'next_page.dart';
 
+/// The share of the viewport a player must occupy, inside the content region,
+/// before a page counts as being *about* its video rather than as one that
+/// happens to contain one.
+const double kVideoDominantViewportShare = 0.2;
+
 /// What kind of thing this page is.
 ContentShape detectContentKind(PageProbe probe) {
   final c = probe.content;
@@ -46,6 +51,16 @@ ContentShape detectContentKind(PageProbe probe) {
           '${c.hasArticleElement ? ' + <article>' : ''}',
     );
   }
+
+  // A page that *is* a video, as opposed to one that merely contains one.
+  //
+  // Three guards, and all three are required, because the failure mode here is
+  // not a missed classification but a false one: an article with an embedded
+  // clip, a recipe with a trailer, or a listing page of thumbnails must all
+  // stay what they are. Reaching this line already means the page has no
+  // published pagination and is not a dated post with prose.
+  final video = _videoDominance(probe);
+  if (video != null) return video;
 
   // Image-dominant: measured area against measured prose. Deliberately says
   // nothing about what the images depict — there is no path from "mostly
@@ -186,6 +201,50 @@ SequenceShape detectSequence(
     basis: next.considered.isEmpty
         ? 'no continuation controls on the page'
         : 'every continuation candidate was rejected',
+  );
+}
+
+/// Is this page *about* its video?
+///
+/// Returns null unless every guard holds, because a wrong `videoDominant` is
+/// worse than a missed one: it removes capture options from a page that could
+/// have been saved perfectly well.
+///
+/// 1. **A player inside the readable region.** An advert in the header, a
+///    preview in a sidebar and a promo in the footer are all page furniture,
+///    and `videoInContentRegion` is false for every one of them.
+/// 2. **Big, relative to the screen.** A thumbnail is not a player. The
+///    comparison is against the measured viewport, so it means the same thing
+///    on a phone and on a tablet; a probe that could not measure the viewport
+///    declines to classify rather than dividing by zero.
+/// 3. **Not already something else.** A page with real prose is an article
+///    that happens to have a video in it, and a page of full-size images is an
+///    image page that happens to have one. Only a page that is neither is left.
+ContentShape? _videoDominance(PageProbe probe) {
+  final media = probe.media;
+  final c = probe.content;
+
+  if (media.videoCount == 0) return null;
+  if (!media.videoInContentRegion) return null;
+
+  final viewport = probe.viewportArea;
+  if (viewport <= 0) return null;
+
+  final share = media.primaryVideoPixels / viewport;
+  if (share < kVideoDominantViewportShare) return null;
+
+  // A page carrying a real article, or a real run of full-size images, is that
+  // thing first. This is what keeps "incidental video" out.
+  if (c.looksProse || c.looksImageDominant) return null;
+
+  return ContentShape(
+    kind: ContentKind.videoDominant,
+    // "Half the screen is a player and there is no article here" is a firm
+    // answer; a fifth of the screen is a likely one.
+    confidence: share >= 0.35 ? ShapeConfidence.high : ShapeConfidence.medium,
+    basis:
+        'player fills ${(share * 100).round()}% of the viewport inside the '
+        'content region, with ${c.textLength} chars of prose',
   );
 }
 

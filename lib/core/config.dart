@@ -175,12 +175,14 @@ SaveScope saveScopeFromName(String? name) => SaveScope.fromName(name);
 /// Constructed only through [SaveLimits.forScope], which cannot produce an
 /// unbounded run: `maxEntries` is always a positive number, clamped to the
 /// configured safety ceiling.
+///
+/// **Bounds only.** What a save *produces* is `CaptureMode`, which travels
+/// beside these limits rather than inside them: "how many entries and how many
+/// bytes" and "images or text" are independent questions, and the old
+/// `includeImages` boolean living here was what made the second one look like
+/// a limit and then never get read by anything.
 class SaveLimits {
-  const SaveLimits._({
-    required this.maxEntries,
-    this.maxBytes,
-    this.includeImages = true,
-  });
+  const SaveLimits._({required this.maxEntries, this.maxBytes});
 
   /// The bounded limits for [scope].
   ///
@@ -191,7 +193,6 @@ class SaveLimits {
     SaveScope scope, {
     int? requestedCount,
     int? maxBytes,
-    bool includeImages = true,
     SaveConfig config = kDefaultSaveConfig,
   }) {
     final entries = switch (scope) {
@@ -210,11 +211,7 @@ class SaveLimits {
           config.untilEndSafetyLimit,
         ),
     };
-    return SaveLimits._(
-      maxEntries: entries,
-      maxBytes: maxBytes,
-      includeImages: includeImages,
-    );
+    return SaveLimits._(maxEntries: entries, maxBytes: maxBytes);
   }
 
   /// Always a positive number. There is no representation of "no limit".
@@ -223,17 +220,12 @@ class SaveLimits {
   /// The user's storage ceiling in bytes, when they set one.
   final int? maxBytes;
 
-  /// Whether the offline copy includes page images. Answered by the user for an
-  /// image-heavy page; true otherwise.
-  final bool includeImages;
-
   bool get isSinglePage => maxEntries == 1;
 
   @override
   String toString() =>
       '$maxEntries entries'
-      '${maxBytes == null ? '' : ', ${(maxBytes! / (1024 * 1024)).round()} MB'}'
-      '${includeImages ? '' : ', text only'}';
+      '${maxBytes == null ? '' : ', ${(maxBytes! / (1024 * 1024)).round()} MB'}';
 }
 
 const kDefaultSaveConfig = SaveConfig();

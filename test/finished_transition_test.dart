@@ -119,6 +119,7 @@ void main() {
         title: 'Entry $n',
         sourceUrl: 'https://x.example/guide/$collectionId/$n',
         urlKey: 'https://x.example/guide/$collectionId/$n',
+        artifactFormat: 'imageSequence',
         saveStatus: withFiles ? 'complete' : 'knownRemote',
         contentPath: relative,
         savedAt: DateTime(2026, 7, 20),
