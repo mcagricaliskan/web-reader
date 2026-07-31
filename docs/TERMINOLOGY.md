@@ -70,7 +70,7 @@ Rules, all enforced in `labelsFor`:
 | `CaptureJobController` / `capture_jobs` | `SaveRunController` / `save_runs` |
 | `CaptureEngine` / `CaptureState` / `CaptureProgress` | `SaveEngine` / `SaveState` / `SaveProgress` |
 | `CapturePreflight` / `CaptureConfig` / `CaptureOrigin` | `SavePreflight` / `SaveConfig` / `SaveOrigin` |
-| `CaptureRangeMode {currentChapter, fixedCount, untilEnd}` | `SaveScope {currentPageOnly, selectedEntries, fixedCount, untilNoNextPage}` + `SaveLimits` |
+| `CaptureRangeMode {currentChapter, fixedCount, untilEnd}` | `SaveScope {currentPageOnly, selectedEntries, fixedCount}` + `SaveLimits` (the open-ended range was removed: its real ceiling was invisible to the user, and with no field to type one into it saved exactly one entry) |
 | `AssetDownloader` / `AssetEntry` | `AssetFetcher` / `EntryAsset` |
 | `SaveState.downloading` | `SaveState.fetchingAssets` |
 | `SiteRule` / `site_rule_rows` / `RuleScope` | `UserPageHint` / `user_page_hints` / `HintScope` |

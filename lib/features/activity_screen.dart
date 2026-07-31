@@ -397,11 +397,8 @@ class _TaskRow extends ConsumerWidget {
 
   String _title(QueueTaskType type, QueueTask task) => switch (type) {
     QueueTaskType.entrySave => 'Save · ${task.startUrl ?? 'entry'}',
-    // An until-end run's entryLimit is the internal safety bound, not a
-    // count the user chose — say what they asked for.
-    QueueTaskType.sequenceSave
-        when SaveScope.fromName(task.scope) == SaveScope.untilNoNextPage =>
-      'Save · until the end',
+    // Every multi-entry row now carries the number the user typed, so the
+    // count is always the honest title.
     QueueTaskType.sequenceSave =>
       'Save · ${kPlainEntryLabels.count(task.entryLimit ?? 1)}',
     QueueTaskType.collectionCheck => 'Check for updates',
@@ -677,7 +674,6 @@ class _QueuedSaveRow extends ConsumerWidget {
     final uri = Uri.tryParse(url);
     final knowsSource = url.isNotEmpty && (uri?.host.isNotEmpty ?? false);
     final mode = switch (SaveScope.fromName(task.scope)) {
-      SaveScope.untilNoNextPage => 'until there is no next page',
       SaveScope.currentPageOnly => 'this page only',
       SaveScope.selectedEntries ||
       SaveScope.fixedCount => kPlainEntryLabels.count(task.entryLimit ?? 1),

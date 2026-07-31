@@ -87,12 +87,42 @@ class PageRef {
   final String text;
 }
 
-/// Words that mark an entry within a title, across the languages seen so far.
-/// Hints, not a dictionary: a title with none of these still groups correctly
-/// via the URL fingerprint, which is the primary signal.
-const _entryWordPattern =
-    r'(?:entry|chap|ch|bölüm|bolum|entry|epis|ep|kapitel|'
-    r'cap[ií]tulo|capitulo|part|volume|vol)';
+/// Words that mark an entry, in **priority order**, across the languages seen
+/// so far. Hints, not a dictionary: a title with none of these still groups
+/// correctly via the URL fingerprint, which is the primary signal.
+///
+/// Two properties are load-bearing, and both were once absent:
+///
+/// 1. **Full words come before their abbreviations.** The list used to hold
+///    `chap|ch` but not `chapter`, so `"Chapter 12"` matched only the prefix
+///    and then demanded a digit where `"ter 12"` stood — the commonest entry
+///    title in English parsed as *no number at all*.
+/// 2. **The groups are ordered.** A chapter number beats a part number, which
+///    beats a volume number, so `"Vol. 2 Chapter 9"` is entry 9 and not
+///    entry 2.
+const _entryWordGroups = <String>[
+  r'chapters?|chapitres?|chap|ch|bölümü|bölüm|bolumu|bolum|kapitel|'
+      r'cap[ií]tulos?|capitulos?',
+  r'episodes?|épisodes?|epis|ep',
+  r'entry|entries',
+  r'parts?',
+  r'volumes?|vol',
+];
+
+/// Any entry word, for the places that only need to know one is present.
+final String _anyEntryWord = _entryWordGroups.join('|');
+
+/// One word group, fenced so it cannot match inside a longer word.
+///
+/// Without the fences `ch` matched inside `Watch`, so `"Watch 1080p"` parsed
+/// as entry 1080. The lookbehind rejects a preceding letter or digit; the
+/// lookahead rejects a following letter, which is also what stops `chap` from
+/// claiming the first four characters of `chapter`.
+String _fencedWord(String group) =>
+    r'(?<![\p{L}\p{N}])(?:' + group + r')(?![\p{L}])';
+
+/// Every entry word, fenced. Used where priority does not matter.
+final String _entryWordPattern = _fencedWord(_anyEntryWord);
 
 final _trailingEntryWordThenNumber = RegExp(
   r'[\s\-–—:,\.]*' +
@@ -161,32 +191,38 @@ double? parseEntryNumber({
   return _numberInUrl(url);
 }
 
-/// An entry number in prose: `Entry 487`, `487. Bölüm`, `Bölüm 487,5`.
+/// An entry number in prose: `Chapter 12`, `Entry 487`, `487. Bölüm`,
+/// `Bölüm 487,5`.
+///
+/// Word groups are tried in priority order, so a title that names more than
+/// one kind of number (`"Vol. 2 Chapter 9"`) yields the most specific one.
 double? _numberInText(String? source) {
   if (source == null || source.trim().isEmpty) return null;
 
-  // Number after an entry word.
-  final near = RegExp(
-    '$_entryWordPattern'
-    r'\s*[\.\-–—:#]?\s*(\d+(?:[.,]\d+)?)',
-    caseSensitive: false,
-    unicode: true,
-  ).firstMatch(source);
-  if (near != null) {
-    final n = double.tryParse(near.group(1)!.replaceAll(',', '.'));
-    if (n != null) return n;
-  }
+  for (final group in _entryWordGroups) {
+    final word = _fencedWord(group);
 
-  // Number before it — `487. Bölüm`, `487 화`.
-  final before = RegExp(
-    r'(\d+(?:[.,]\d+)?)\s*\.?\s*'
-    '$_entryWordPattern',
-    caseSensitive: false,
-    unicode: true,
-  ).firstMatch(source);
-  if (before != null) {
-    final n = double.tryParse(before.group(1)!.replaceAll(',', '.'));
-    if (n != null) return n;
+    // Number after an entry word: `Chapter 12`.
+    final after = RegExp(
+      word + r'\s*[\.\-–—:#]?\s*(\d+(?:[.,]\d+)?)',
+      caseSensitive: false,
+      unicode: true,
+    ).firstMatch(source);
+    if (after != null) {
+      final n = double.tryParse(after.group(1)!.replaceAll(',', '.'));
+      if (n != null) return n;
+    }
+
+    // Number before it — `487. Bölüm`, `487 화`.
+    final before = RegExp(
+      r'(\d+(?:[.,]\d+)?)\s*\.?\s*' + word,
+      caseSensitive: false,
+      unicode: true,
+    ).firstMatch(source);
+    if (before != null) {
+      final n = double.tryParse(before.group(1)!.replaceAll(',', '.'));
+      if (n != null) return n;
+    }
   }
   return null;
 }
@@ -212,27 +248,35 @@ double? _numberInUrl(String? url) {
 
   // Word then number, with an optional decimal tail: `/entry-385-5`,
   // `/entry/137`, `/bolum_12`.
-  final after = RegExp(
-    '$_entryWordPattern'
-    r'[\s._\-/]*(\d+)(?:[-_.](\d{1,2}))?(?!\d)',
-    caseSensitive: false,
-    unicode: true,
-  ).firstMatch(path);
-  if (after != null) {
-    final n = build(after, 1, 2);
-    if (n != null) return n;
-  }
+  //
+  // **The LAST match wins, not the first.** A path carries the collection and
+  // the entry, in that order — `/read/the-guide-vol-1/chapter-88` — and the
+  // collection's slug is identical for every entry in it. Taking the first
+  // match read `vol-1` and numbered all 88 chapters "1"; taking the last one
+  // reads the segment that actually varies.
+  for (final group in _entryWordGroups) {
+    final word = _fencedWord(group);
 
-  // Number then word: `/883-part`, `/487-5-bolum`.
-  final beforeWord = RegExp(
-    r'(\d+)(?:[-_.](\d{1,2}))?[\s._\-/]*'
-    '$_entryWordPattern',
-    caseSensitive: false,
-    unicode: true,
-  ).firstMatch(path);
-  if (beforeWord != null) {
-    final n = build(beforeWord, 1, 2);
-    if (n != null) return n;
+    final after = RegExp(
+      word + r'[\s._\-/]*(\d+)(?:[-_.](\d{1,2}))?(?!\d)',
+      caseSensitive: false,
+      unicode: true,
+    ).allMatches(path);
+    if (after.isNotEmpty) {
+      final n = build(after.last, 1, 2);
+      if (n != null) return n;
+    }
+
+    // Number then word: `/883-part`, `/487-5-bolum`.
+    final beforeWord = RegExp(
+      r'(\d+)(?:[-_.](\d{1,2}))?[\s._\-/]*' + word,
+      caseSensitive: false,
+      unicode: true,
+    ).allMatches(path);
+    if (beforeWord.isNotEmpty) {
+      final n = build(beforeWord.last, 1, 2);
+      if (n != null) return n;
+    }
   }
 
   // Last resort: a bare number in the final path segment. No decimal

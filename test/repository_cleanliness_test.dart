@@ -84,6 +84,18 @@ void main() {
         'contextual display labels; the canonical model is Entry',
     'lib/library/content_shape.dart':
         'doc comment explaining that a number in a URL is not a chapter',
+    // The entry-number parser's word list. These are words **other people's
+    // websites print in their titles and URLs**, fed in as parser input so a
+    // number can be read out of them — not names this product uses for its own
+    // model, which is still Entry. The distinction is the same one that lets
+    // `entry_labels.dart` hold the display vocabulary: recognising a word is
+    // not adopting it. The list is also why `"Chapter 12"` parses at all; it
+    // held only `chap|ch` once, and the commonest entry title in English came
+    // out as no number.
+    'lib/library/collection_identity.dart':
+        'parser input — words a source may print, not this app\'s model',
+    'test/entry_number_test.dart':
+        'exercises that parser against the titles and URLs sites really use',
     // This file names the words in order to forbid them.
     'test/repository_cleanliness_test.dart': 'the forbidden list itself',
     'test/schema_v1_test.dart':

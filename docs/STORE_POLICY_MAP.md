@@ -270,7 +270,6 @@ cookie manipulation and no waiting-out of a rate limit.
 | Layout changed | image-heavy → text, or content disappeared | `structureChanged` |
 | Unclear next page | confidence gate in the next-page chain | `lowConfidence` |
 | User's ceiling | `SaveLimits.maxEntries` / `maxBytes` | `userLimitReached` / `storageLimitReached` |
-| Safety ceiling | `untilEndSafetyLimit` | `safetyLimitReached` |
 
 Two design points matter for review:
 

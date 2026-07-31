@@ -735,15 +735,15 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
   }
 
   Future<void> _runLoop({required int limit, required String startUrl}) async {
-    final runDeadline = DateTime.now().add(
-      scope == SaveScope.untilNoNextPage
-          ? config.untilEndRunDuration
-          : config.maxRunDuration,
-    );
+    final runDeadline = DateTime.now().add(config.maxRunDuration);
     var url = startUrl;
     var stored = 0;
-    var hitSafetyLimit = false;
     var diskStop = false;
+    // The chain ended before the requested number did. A different outcome
+    // from stopping at the user's ceiling, and they must not share a
+    // sentence: one says "that is all there is", the other "that is all you
+    // asked for".
+    var ranOutOfEntries = false;
 
     /// New save attempts. This — not pages walked — is what the requested
     /// count means: "save 3 entries" starting inside saved territory
@@ -1239,17 +1239,15 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
       }
 
       if (attempts >= limit) {
-        if (scope == SaveScope.untilNoNextPage && result.nextUrl != null) {
-          // The chain went on but the safety bound did not — say so
-          // distinctly; this is not a confirmed end of the collection.
-          hitSafetyLimit = true;
-          _addLog(
-            'until-end safety limit ($limit entries) reached with a next '
-            'entry still available',
-          );
-        } else {
-          _addLog('requested entry limit reached');
-        }
+        _addLog(
+          result.nextUrl != null
+              // Stopping at the user's number with the chain still going is a
+              // different fact from reaching the end of a collection, and the
+              // two must not share a sentence.
+              ? 'reached the $limit entries you asked for, with more still '
+                    'available'
+              : 'requested entry limit reached',
+        );
         break;
       }
 
@@ -1326,6 +1324,7 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
 
       if (next == null) {
         _addLog('no valid next entry — end of chain');
+        ranOutOfEntries = true;
         break;
       }
       url = next;
@@ -1346,30 +1345,20 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
         '${skipped > 0 ? ' · skipped $skipped existing' : ''}'
         ' · traversed $traversed';
 
-    // Stopping short of a confirmed end has two different causes and they must
-    // not share a sentence. If the ceiling was the number the *user* set, saying
-    // "the safety limit" blames the app for a bound the user chose; if it was the
-    // internal ceiling, saying "reached the end" claims an ending nobody found.
-    final userSetTheCeiling = limit < config.untilEndSafetyLimit;
+    // Every ceiling is now a number the user typed, so there is one honest
+    // sentence for stopping at it. The app no longer has an internal bound it
+    // could hit and have to explain — that was the "safety limit" wording, and
+    // it existed only for the open-ended scope this app no longer offers.
     stopReason ??= diskStop
         ? StopReason.insufficientStorage
-        : hitSafetyLimit
-        ? (userSetTheCeiling
-              ? StopReason.userLimitReached
-              : StopReason.safetyLimitReached)
-        : scope == SaveScope.untilNoNextPage
+        : ranOutOfEntries
         ? StopReason.noNextPage
         : StopReason.userLimitReached;
 
     final message = diskStop
         ? 'Stopped: not enough disk space. $counts. '
               'Existing downloads are unaffected.'
-        : hitSafetyLimit
-        ? (userSetTheCeiling
-              ? 'Reached the limit you set, before a confirmed end. $counts.'
-              : 'Stopped at the safety limit before a confirmed end of '
-                    'collection. $counts.')
-        : scope == SaveScope.untilNoNextPage
+        : ranOutOfEntries
         ? 'Reached the end of the collection. $counts.'
         : skipped > 0
         ? 'Requested $limit new · $counts'
@@ -1386,7 +1375,6 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     if (_runId != null) await db.deleteRun(_runId!);
     _addLog(
       'run finished (${scope.name}'
-      '${hitSafetyLimit ? ', safety limit' : ''}'
       '${diskStop ? ', disk stop' : ''}): '
       '$stored new entry(s) stored of $limit requested'
       '${skipped > 0 ? ' · $skipped skipped as already saved' : ''}'
@@ -1560,8 +1548,8 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     final remaining = run.requestedEntries - run.completedEntries;
     await db.deleteRun(run.id);
     await start(
-      // An until-end resume continues until the end — the safety limit
-      // starts fresh; the visited set is what prevents re-saving.
+      // A resume continues with what is left of the number the user typed;
+      // the visited set is what prevents re-saving what already landed.
       entryLimit: remaining <= 0 ? 1 : remaining,
       startUrl: run.currentUrl ?? run.startUrl,
       policy: duplicatePolicyFromName(run.duplicatePolicy),

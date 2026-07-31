@@ -117,11 +117,19 @@ getting it backwards saves the wrong end of a blog.
    unavailable ones stay on screen, disabled, with the reason beside them. The
    default comes from detection and every alternative is one tap away.
 1. The default and preselected scope is **Save current page only**.
-2. `SaveScope` is `currentPageOnly` | `selectedEntries` | `fixedCount` |
-   `untilNoNextPage`. `SaveLimits.forScope` is the only constructor and **cannot
-   produce an unbounded run**: `maxEntries` is always a positive integer, clamped
-   to the configured safety ceiling. An open-ended scope requires an explicit
-   maximum.
+2. `SaveScope` is `currentPageOnly` | `selectedEntries` | `fixedCount`.
+   `SaveLimits.forScope` is the only constructor and **cannot produce an
+   unbounded run**: `maxEntries` is always a positive integer, clamped to
+   `maxEntriesPerRun`.
+
+   There is deliberately **no open-ended scope**. The app used to offer "until
+   there is no next page", bounded by an internal ceiling the user never saw —
+   and, because the sheet had no field to type one into, it passed a count of 1
+   and saved exactly one entry. A typed number is the same safety guarantee
+   stated plainly: the run stops where the person said it would, and every
+   ceiling in the app is now one they chose and can see. A row persisted with
+   the removed scope reads as `currentPageOnly`, the safest value, rather than
+   saving more than was asked for.
 3. `SaveRunController.start` takes `range` as a **required** parameter, so no
    caller can inherit a default about how much of someone else's site to touch.
 4. Every multi-entry save is user-initiated, bounded, visible in the queue,

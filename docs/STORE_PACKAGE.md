@@ -333,8 +333,9 @@ Scope options, in this order, with the first preselected:
 
 1. **Save current page only**
 2. **Review related items** → the reviewable list, then **Save selected items**
-3. **Save a number of items** → typed positive integer
-4. **Continue until no next page is found** → requires a maximum count
+3. **Save a number of items** → typed positive integer, up to the per-run
+   ceiling. There is no open-ended option: every run stops at a number the
+   user chose.
 
 ### 6.5 Restricted-access stopping
 
@@ -352,7 +353,6 @@ Verbatim from `StopReason.message`:
 | Layout changed | Stopped: the page layout changed, so continuing might have saved the wrong thing. |
 | Unclear next | Stopped: it was not clear which link continues the sequence. |
 | Limit | Reached the limit you set. |
-| Safety ceiling | Stopped at the safety limit, before finding a confirmed end. |
 
 ### 6.6 Video pages
 

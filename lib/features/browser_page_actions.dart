@@ -117,7 +117,7 @@ class _PageActionsSheet extends ConsumerWidget {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Current entry, a number, or until the end',
+                              'This entry, or a number of entries from here',
                               style: TextStyle(
                                 fontSize: 11.5,
                                 color: palette.onPrimary.withValues(

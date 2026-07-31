@@ -121,6 +121,11 @@ void main() {
     for (final line in run.log.reversed) {
       debugPrint('[run] $line');
     }
+    // Loading a page kicks off a favicon fetch that writes to the database
+    // without anyone awaiting it. Closing the connection out from under it
+    // throws *after* the test has already passed, which reads as a failure
+    // and is not one — so give the in-flight write somewhere to land first.
+    await Future<void>.delayed(const Duration(milliseconds: 600));
     await db.close();
   });
 

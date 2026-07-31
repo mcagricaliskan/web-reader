@@ -49,7 +49,9 @@ build.
   `SaveRunController.start` takes `range` as a **required** parameter so nothing
   inherits a default about how much of someone else's site to touch.
 - `SaveLimits.forScope` is the only way to build limits and cannot produce an
-  unbounded run. An open-ended scope requires an explicit maximum.
+  unbounded run. There is **no open-ended scope**: a multi-entry save is a
+  number the user typed, so every ceiling is one they chose and can see. Do not
+  reintroduce a range whose real bound lives in `SaveConfig`.
 - Show the detection result *before* saving more than one page: what was found,
   the domain, the count or that it is unknown, the shape, the direction, the stop
   condition, the estimate, and how to cancel.

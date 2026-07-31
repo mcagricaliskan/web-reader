@@ -38,7 +38,6 @@ void main() {
     downloadRetries: 0,
     cooldownBetweenEntries: Duration.zero,
     maxEntriesPerRun: 10,
-    untilEndSafetyLimit: 3,
   );
 
   setUpAll(() async {
@@ -132,86 +131,58 @@ void main() {
     expect((await db.allEntries()).length, 2);
   });
 
-  test('until-end runs to a confirmed end of chain and says so', () async {
-    servePages(2); // ends inside the safety limit of 3
+  test('a collection that ends early stops there, not at the number', () async {
+    servePages(2);
     browser.setUrl(entryUrl(1));
     await run.start(
-      // The ceiling the user set. An open-ended scope always has one.
-      entryLimit: 3,
+      // Room for more than the collection holds.
+      entryLimit: 5,
       captureModeIsUserSet: false,
       startUrl: entryUrl(1),
-      range: SaveScope.untilNoNextPage,
+      range: SaveScope.fixedCount,
     );
 
     expect((await db.allEntries()).length, 2);
-    expect(run.progress.message, contains('Reached the end of the collection'));
-    expect(run.progress.message, isNot(contains('safety limit')));
+    expect(run.stopReason, StopReason.noNextPage);
   });
 
-  test('until-end stops at the safety limit with a distinct result', () async {
-    servePages(6); // longer than the safety limit of 3
+  test('the typed number is the ceiling, and it is the user\'s', () async {
+    servePages(6);
     browser.setUrl(entryUrl(1));
     await run.start(
-      // At (or above) the internal ceiling, so the ceiling is what binds.
       entryLimit: 3,
       captureModeIsUserSet: false,
       startUrl: entryUrl(1),
-      range: SaveScope.untilNoNextPage,
+      range: SaveScope.fixedCount,
     );
 
     expect((await db.allEntries()).length, 3, reason: 'bounded');
-    expect(
-      run.progress.message,
-      contains(
-        'Stopped at the safety limit before a confirmed end of collection',
-      ),
-      reason: 'the app bound the run, and says so',
-    );
-    expect(run.stopReason, StopReason.safetyLimitReached);
+    // Every ceiling is now one the user typed, so nothing may blame an
+    // internal "safety limit" the user never saw.
+    expect(run.stopReason, StopReason.userLimitReached);
+    expect(run.progress.message, isNot(contains('safety limit')));
   });
 
   test(
-    'a user-set ceiling is reported as the user\'s, not the app\'s',
+    'a navigation loop stops the run before the number is reached',
     () async {
-      servePages(6);
+      servePages(2, loopBackFrom: 2); // 1 -> 2 -> 1
       browser.setUrl(entryUrl(1));
       await run.start(
-        // Below the internal ceiling: this bound is the user's choice.
-        entryLimit: 2,
+        // A ceiling above the loop, so it is the loop that ends the run.
+        entryLimit: 5,
         captureModeIsUserSet: false,
         startUrl: entryUrl(1),
-        range: SaveScope.untilNoNextPage,
+        range: SaveScope.fixedCount,
       );
 
-      expect((await db.allEntries()).length, 2);
-      expect(run.progress.message, contains('Reached the limit you set'));
       expect(
-        run.progress.message,
-        isNot(contains('safety limit')),
-        reason: 'blaming the app for a bound the user chose is a lie',
+        (await db.allEntries()).length,
+        2,
+        reason: 'each entry once; the loop edge is rejected as visited',
       );
-      expect(run.stopReason, StopReason.userLimitReached);
     },
   );
-
-  test('until-end detects a navigation loop and stops', () async {
-    servePages(2, loopBackFrom: 2); // 1 -> 2 -> 1
-    browser.setUrl(entryUrl(1));
-    await run.start(
-      // A ceiling above the loop, so it is the loop that ends the run.
-      entryLimit: 3,
-      captureModeIsUserSet: false,
-      startUrl: entryUrl(1),
-      range: SaveScope.untilNoNextPage,
-    );
-
-    expect(
-      (await db.allEntries()).length,
-      2,
-      reason: 'each entry once; the loop edge is rejected as visited',
-    );
-    expect(run.progress.message, contains('Reached the end of the collection'));
-  });
 
   test('the range mode is persisted on the run row', () async {
     // No page for the URL: the run records itself, then fails to inspect —
@@ -221,21 +192,20 @@ void main() {
       entryLimit: 1,
       captureModeIsUserSet: false,
       startUrl: entryUrl(9),
-      range: SaveScope.untilNoNextPage,
+      range: SaveScope.fixedCount,
     );
-    // The run persisted at least once with the mode before finishing.
-    expect(run.scope, SaveScope.untilNoNextPage);
+    expect(run.scope, SaveScope.fixedCount);
   });
 
   test('resume continues in the persisted mode', () async {
     servePages(2);
     browser.setUrl(entryUrl(1));
-    // A killed until-end run left this row behind.
+    // A killed run left this row behind.
     await db.upsertRun(
       SaveRun(
         visitedCanonicals: '',
         origin: 'queue',
-        scope: SaveScope.untilNoNextPage.name,
+        scope: SaveScope.fixedCount.name,
         id: 'run-1-aaaaaaaa',
         collectionId: null,
         captureModeIsUserSet: false,
@@ -253,9 +223,15 @@ void main() {
     final row = (await db.findResumableRun())!;
     await run.resumeRun(row);
 
-    expect(run.scope, SaveScope.untilNoNextPage);
+    expect(run.scope, SaveScope.fixedCount);
     expect((await db.allEntries()).length, 2, reason: 'ran to the end');
-    expect(run.progress.message, contains('Reached the end of the collection'));
+  });
+
+  test('an unrecognised persisted scope reads as the safest one', () {
+    // Rows written before the open-ended scope was removed must not resolve
+    // to something that saves more than the user asked for.
+    expect(saveScopeFromName('untilNoNextPage'), SaveScope.currentPageOnly);
+    expect(saveScopeFromName(null), SaveScope.currentPageOnly);
   });
 
   test('disk refusal blocks the start with a distinct error', () async {

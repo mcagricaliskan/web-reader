@@ -41,8 +41,8 @@ class SaveRangeChoice {
 
   final SaveScope mode;
 
-  /// Meaningful for [SaveScope.fixedCount] and, as a user-set ceiling, for
-  /// [SaveScope.untilNoNextPage].
+  /// The number of new entries to save. Meaningful for
+  /// [SaveScope.fixedCount]; 1 for the current page.
   final int count;
 
   /// The user's storage ceiling for this run, when they set one.
@@ -74,13 +74,18 @@ class SaveRangeChoice {
   final SaveSheetAction action;
 }
 
-/// The three save ranges — exactly three, no count presets — and the two
-/// things that can be done with the chosen range.
+/// The two save ranges — no count presets — and the two things that can be
+/// done with the chosen range.
 ///
-/// "Number of entries" takes a typed positive integer (new save
-/// attempts; skipped existing entries do not consume it). "Until the end"
-/// follows the chain to a confirmed end, bounded by the internal safety
-/// limit. Both show what disk space the run can expect to use.
+/// "Number of entries" takes a typed positive integer (new save attempts;
+/// skipped existing entries do not consume it) and shows what disk space the
+/// run can expect to use.
+///
+/// There is deliberately **no open-ended range**. The app used to offer
+/// "until there is no next page", bounded by an internal ceiling the user
+/// never saw — and, because the sheet had no field for it, it passed a count
+/// of 1 and saved exactly one entry. A typed number is the same safety
+/// guarantee stated plainly: the run stops where the person said it would.
 ///
 /// [busyLabel] names whatever already owns the Browser. When it is set, direct
 /// start is not on offer at all — queueing still is, because queueing starts
@@ -335,7 +340,9 @@ class _RangeSheetState extends State<_RangeSheet> {
               _RangeOption(
                 icon: Icons.tag,
                 title: 'Number of entries',
-                sub: 'Save a count of new entries from here',
+                sub:
+                    'Type how many to save from here — up to '
+                    '${widget.config.maxEntriesPerRun}',
                 selected: _mode == SaveScope.fixedCount,
                 onTap: () => setState(() {
                   _mode = SaveScope.fixedCount;
@@ -354,8 +361,9 @@ class _RangeSheetState extends State<_RangeSheet> {
                     labelText: 'How many new entries?',
                     helperText:
                         'New saves only — already saved entries that get '
-                        'skipped do not use up this number.',
-                    helperMaxLines: 3,
+                        'skipped do not use up this number. The save stops '
+                        'here, or sooner if the collection ends.',
+                    helperMaxLines: 4,
                     errorText: _countError,
                     border: const OutlineInputBorder(),
                   ),
@@ -377,16 +385,6 @@ class _RangeSheetState extends State<_RangeSheet> {
                   ),
                 ],
               ],
-              const SizedBox(height: 7),
-              _RangeOption(
-                icon: Icons.all_inclusive,
-                title: 'Until the end',
-                sub:
-                    'Follow next-entry links to the end of the collection '
-                    '(safety limit: ${widget.config.untilEndSafetyLimit})',
-                selected: _mode == SaveScope.untilNoNextPage,
-                onTap: () => setState(() => _mode = SaveScope.untilNoNextPage),
-              ),
               const SizedBox(height: 12),
               Text(
                 free == null

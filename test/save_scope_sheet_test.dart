@@ -54,13 +54,17 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  testWidgets('exactly the three choices, no count presets', (tester) async {
+  testWidgets('exactly the two choices, no count presets', (tester) async {
     await tester.pumpWidget(host(onResult: (_) {}));
     await open(tester);
 
     expect(find.text('Current entry'), findsOneWidget);
     expect(find.text('Number of entries'), findsOneWidget);
-    expect(find.text('Until the end'), findsOneWidget);
+    // No open-ended range. It was bounded by a ceiling the user never saw,
+    // and — with no field to type one into — it passed a count of 1 and saved
+    // exactly one entry.
+    expect(find.text('Until the end'), findsNothing);
+    expect(find.textContaining('safety limit'), findsNothing);
     expect(find.textContaining('3 entries'), findsNothing);
     expect(find.textContaining('5 entries'), findsNothing);
     expect(find.textContaining('Next 3'), findsNothing);
@@ -95,15 +99,13 @@ void main() {
       await tester.pumpWidget(host(onResult: (r) => result = r));
       await open(tester);
 
-      await tester.ensureVisible(find.text('Until the end'));
-
+      await tester.ensureVisible(find.text('Number of entries'));
       await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Until the end'));
+      await tester.tap(find.text('Number of entries'));
       await tester.pumpAndSettle();
 
       expect(result, isNull, reason: 'choosing a range decides nothing yet');
-      expect(find.text('Until the end'), findsOneWidget);
+      expect(find.text('Number of entries'), findsOneWidget);
       expect(find.byKey(const ValueKey('saveStartNow')), findsOneWidget);
       // No queue/start question anywhere but here.
       expect(find.text('Start queued saves?'), findsNothing);
@@ -134,28 +136,29 @@ void main() {
       await tester.pumpWidget(host(onResult: (r) => result = r));
       await open(tester);
 
-      await tester.ensureVisible(find.text('Until the end'));
-
+      await tester.ensureVisible(find.text('Number of entries'));
       await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Until the end'));
+      await tester.tap(find.text('Number of entries'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '150');
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('saveStartNow')));
       await tester.pumpAndSettle();
 
-      expect(result?.mode, SaveScope.untilNoNextPage);
+      expect(result?.mode, SaveScope.fixedCount);
+      expect(result?.count, 150, reason: 'the number the user typed');
       expect(result?.action, SaveSheetAction.startNow);
     });
 
-    testWidgets('until the end names its safety limit', (tester) async {
+    testWidgets('the count field names the ceiling it will accept', (
+      tester,
+    ) async {
       await tester.pumpWidget(host(onResult: (_) {}));
       await open(tester);
       expect(
-        find.textContaining(
-          'safety limit: ${const SaveConfig().untilEndSafetyLimit}',
-        ),
+        find.textContaining('up to ${const SaveConfig().maxEntriesPerRun}'),
         findsOneWidget,
       );
     });

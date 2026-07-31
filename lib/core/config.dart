@@ -27,10 +27,8 @@ class SaveConfig {
     this.widthClusterTolerance = 0.12,
     this.minAssetBytes = 512,
     this.cooldownBetweenEntries = const Duration(milliseconds: 1200),
-    this.maxEntriesPerRun = 100,
-    this.untilEndSafetyLimit = 150,
-    this.maxRunDuration = const Duration(minutes: 20),
-    this.untilEndRunDuration = const Duration(minutes: 45),
+    this.maxEntriesPerRun = 500,
+    this.maxRunDuration = const Duration(minutes: 45),
     this.maxSkippedPerRun = 50,
     this.minFreeSpaceToStart = 500 * 1024 * 1024,
     this.emergencyReserve = 200 * 1024 * 1024,
@@ -99,20 +97,18 @@ class SaveConfig {
   final int minAssetBytes;
   final Duration cooldownBetweenEntries;
 
-  /// Upper bound on a user-entered fixed entry count. Input validation, not a
-  /// preset: the save-scope sheet refuses anything above this.
+  /// Upper bound on a user-entered entry count. **Input validation, not a
+  /// preset**: the save sheet refuses anything above it, and nothing ever
+  /// selects it on the user's behalf.
+  ///
+  /// This is now the only ceiling. The app used to also offer "until there is
+  /// no next page", bounded by a separate internal limit — an open-ended scope
+  /// whose real bound the user never saw. A typed number is the same guarantee
+  /// stated plainly: the run stops where the person said it would.
   final int maxEntriesPerRun;
 
-  /// Hard safety bound for "until the end" — high enough to never masquerade
-  /// as an entry count, low enough that a navigation loop the validator
-  /// misses cannot crawl a site forever. Hitting it reports its own distinct
-  /// result ("stopped at the safety limit"), never a quiet "complete".
-  final int untilEndSafetyLimit;
+  /// Hard duration bound for a run, whatever it was asked for.
   final Duration maxRunDuration;
-
-  /// Until-end runs are legitimately long; they get a wider (still hard)
-  /// duration bound than fixed-count runs.
-  final Duration untilEndRunDuration;
 
   /// The requested entry count means *new save attempts*; entries
   /// skipped as already saved do not consume it. This caps how many skips a
@@ -148,13 +144,10 @@ enum SaveScope {
   /// Items the user picked from a review list.
   selectedEntries,
 
-  /// A number of entries the user typed.
-  fixedCount,
-
-  /// Follow next-links until none is found — **with an explicit ceiling**. This
-  /// is never "unlimited": [SaveLimits] always carries a maximum entry count,
-  /// and the run reports `safetyLimitReached` distinctly if it gets there.
-  untilNoNextPage;
+  /// A number of entries the user typed. The only multi-entry scope: there is
+  /// deliberately no open-ended one, so every run stops at a number a person
+  /// chose and can see.
+  fixedCount;
 
   static SaveScope fromName(String? name) => SaveScope.values.firstWhere(
     (m) => m.name == name,
@@ -163,9 +156,6 @@ enum SaveScope {
   );
 
   bool get isMultiEntry => this != SaveScope.currentPageOnly;
-
-  /// True when the user must state a ceiling before the run may start.
-  bool get requiresExplicitLimit => this == SaveScope.untilNoNextPage;
 }
 
 SaveScope saveScopeFromName(String? name) => SaveScope.fromName(name);
@@ -186,9 +176,9 @@ class SaveLimits {
 
   /// The bounded limits for [scope].
   ///
-  /// [requestedCount] is what the user typed; it is clamped rather than trusted.
-  /// For an open-ended scope with no stated count the *safety ceiling* applies —
-  /// so even a user who skips the field gets a bounded run.
+  /// [requestedCount] is what the user typed; it is clamped rather than
+  /// trusted. There is no scope without a count, so there is no path to an
+  /// unbounded run.
   factory SaveLimits.forScope(
     SaveScope scope, {
     int? requestedCount,
@@ -205,11 +195,6 @@ class SaveLimits {
         1,
         config.maxEntriesPerRun,
       ),
-      SaveScope.untilNoNextPage =>
-        (requestedCount ?? config.untilEndSafetyLimit).clamp(
-          1,
-          config.untilEndSafetyLimit,
-        ),
     };
     return SaveLimits._(maxEntries: entries, maxBytes: maxBytes);
   }

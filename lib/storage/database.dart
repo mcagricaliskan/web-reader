@@ -331,8 +331,10 @@ class SaveRuns extends Table {
   TextColumn get sessionDuplicateDecision => text().nullable()();
   TextColumn get sessionPartialDecision => text().nullable()();
 
-  /// `SaveScope.name` — currentPageOnly | selectedEntries | fixedCount |
-  /// untilNoNextPage. A resume continues in the same mode.
+  /// `SaveScope.name` — currentPageOnly | selectedEntries | fixedCount.
+  /// A resume continues in the same mode, and an unrecognised value (a row
+  /// written before the open-ended scope was removed) reads as the safest
+  /// one rather than saving more than was asked for.
   TextColumn get scope =>
       text().withDefault(const Constant('currentPageOnly'))();
 

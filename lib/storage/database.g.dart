@@ -4435,8 +4435,10 @@ class SaveRun extends DataClass implements Insertable<SaveRun> {
   final String? sessionDuplicateDecision;
   final String? sessionPartialDecision;
 
-  /// `SaveScope.name` — currentPageOnly | selectedEntries | fixedCount |
-  /// untilNoNextPage. A resume continues in the same mode.
+  /// `SaveScope.name` — currentPageOnly | selectedEntries | fixedCount.
+  /// A resume continues in the same mode, and an unrecognised value (a row
+  /// written before the open-ended scope was removed) reads as the safest
+  /// one rather than saving more than was asked for.
   final String scope;
 
   /// The user's explicit storage ceiling in bytes, when they set one. Required

@@ -798,9 +798,10 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     }
 
     // Look ahead over the stored next-URL chain so the sheet can summarise the
-    // range instead of only the entry in front of us. Bounded for
-    // until-end: the lookahead is a courtesy summary, not a crawl.
-    final lookahead = choice.mode == SaveScope.untilNoNextPage ? 10 : limit;
+    // range instead of only the entry in front of us. Capped: the lookahead is
+    // a courtesy summary, not a crawl, and the user may have typed a big
+    // number.
+    final lookahead = limit > 20 ? 20 : limit;
     final range = lookahead > 1
         ? await preflight.inspectRange(url, lookahead)
         : null;

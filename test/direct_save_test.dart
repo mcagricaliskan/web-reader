@@ -374,11 +374,11 @@ void main() {
           action,
           PreflightChoice.saveFollowing,
           limit: 7,
-          range: SaveScope.untilNoNextPage,
+          range: SaveScope.fixedCount,
         )!;
         expect(result.action, action);
         expect(result.entryLimit, 7);
-        expect(result.range, SaveScope.untilNoNextPage);
+        expect(result.range, SaveScope.fixedCount);
       }
     });
 

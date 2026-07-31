@@ -61,11 +61,7 @@ enum StopReason {
   // --- device and user -----------------------------------------------------
   insufficientStorage,
   cancelledByUser,
-  interrupted,
-
-  /// The absolute safety ceiling, hit before any confirmed end. Reported
-  /// distinctly so it never reads as "reached the end".
-  safetyLimitReached;
+  interrupted;
 
   static StopReason? fromName(String? name) => name == null
       ? null
@@ -123,8 +119,6 @@ enum StopReason {
           'affected.',
     StopReason.cancelledByUser => 'Stopped at your request.',
     StopReason.interrupted => 'Interrupted before it finished.',
-    StopReason.safetyLimitReached =>
-      'Stopped at the safety limit, before finding a confirmed end.',
   };
 
   /// Short label for the Activity row.
@@ -147,7 +141,6 @@ enum StopReason {
     StopReason.insufficientStorage => 'Out of space',
     StopReason.cancelledByUser => 'Stopped',
     StopReason.interrupted => 'Interrupted',
-    StopReason.safetyLimitReached => 'Safety limit',
   };
 }
 
