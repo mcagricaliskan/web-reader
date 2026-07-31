@@ -17,6 +17,7 @@ import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
 import 'save_queue_ui.dart';
+import 'collection_delete_action.dart';
 import 'entry_actions.dart';
 import 'entry_details_sheet.dart';
 import 'cleanup_dialogs.dart';
@@ -622,11 +623,54 @@ class _CollectionDetailState extends ConsumerState<_CollectionDetail> {
                   context.push('/rules');
                 },
               ),
+              // Everything above leaves the collection in the library. This
+              // does not, so it sits below a rule, in the danger colour, at
+              // the far end of the sheet — a tap meant for "Element rules"
+              // must not be able to land on it.
+              if (group.collection != null) ...[
+                const Divider(height: 12),
+                ListTile(
+                  key: const ValueKey('deleteCollectionEntry'),
+                  leading: Icon(
+                    Icons.delete_forever,
+                    color: AppPalette.of(context).danger,
+                  ),
+                  title: Text(
+                    'Delete permanently',
+                    style: TextStyle(color: AppPalette.of(context).danger),
+                  ),
+                  subtitle: const Text(
+                    'Removes the collection, its entries and their files',
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _confirmDeleteCollection();
+                  },
+                ),
+              ],
               const SizedBox(height: 8),
             ],
           ),
         ),
       );
+
+  /// Permanent deletion, and the way off this screen.
+  ///
+  /// The router is read before anything is awaited, and the pop runs the
+  /// moment the user confirms — see [confirmDeleteCollection] for why leaving
+  /// first is the safe order. If there is nothing to pop back to, this
+  /// screen's own "no longer listed" state is the landing instead.
+  Future<void> _confirmDeleteCollection() async {
+    final router = GoRouter.of(context);
+    await confirmDeleteCollection(
+      context,
+      ref,
+      group,
+      onConfirmed: () {
+        if (router.canPop()) router.pop();
+      },
+    );
+  }
 
   /// Queue a bounded save over the discovered entries' own URLs (M14:
   /// all autonomous work goes through the activity queue, so it shows up in

@@ -68,6 +68,15 @@ class FileStore {
       ? p.join(libraryFolderName, standaloneFolderName, entryId)
       : p.join(libraryFolderName, collectionId, 'entries', entryId);
 
+  /// Where one collection's entries live, relative to the store root.
+  ///
+  /// The parent of every `entries/<entry-id>` directory it owns, so permanent
+  /// deletion can move the whole collection in one atomic step — including the
+  /// `.previous` backups an interrupted replacement leaves inside it, which no
+  /// per-entry path names.
+  static String collectionRelativePath(String collectionId) =>
+      p.join(libraryFolderName, collectionId);
+
   /// Turn a stored relative path into a usable absolute one.
   String resolve(String relativePath) => p.join(rootDir.path, relativePath);
 

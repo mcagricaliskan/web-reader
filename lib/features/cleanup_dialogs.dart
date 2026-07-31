@@ -322,6 +322,44 @@ Future<bool> showRemovalConfirm({
   return confirmed ?? false;
 }
 
+/// The design's dark toast, addressed to a messenger read *before* an await.
+///
+/// A permanent delete pops the screen it was started from, so by the time
+/// there is something to say the context that asked is on its way out. Taking
+/// the messenger and the palette while it is still alive is what lets the
+/// confirmation survive the navigation. No Undo here, deliberately: this
+/// entry point exists for outcomes that cannot be undone.
+void showCleanupToastOn(
+  ScaffoldMessengerState messenger,
+  AppPalette palette, {
+  required String text,
+  IconData icon = Icons.delete_sweep,
+  bool persist = false,
+}) {
+  messenger.clearSnackBars();
+  messenger.showSnackBar(
+    SnackBar(
+      duration: const Duration(milliseconds: 4200),
+      persist: persist,
+      backgroundColor: palette.toastSurface,
+      content: _toastRow(palette, icon, text),
+    ),
+  );
+}
+
+Row _toastRow(AppPalette palette, IconData icon, String text) => Row(
+  children: [
+    Icon(icon, size: 19, color: palette.toastAccent),
+    const SizedBox(width: 10),
+    Expanded(
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 12.5, height: 1.4, color: palette.toastInk),
+      ),
+    ),
+  ],
+);
+
 /// The design's dark toast, with an optional Undo.
 void showCleanupToast(
   BuildContext context, {
@@ -343,22 +381,7 @@ void showCleanupToast(
       // the only case where it is kept.
       persist: MediaQuery.maybeOf(context)?.accessibleNavigation ?? false,
       backgroundColor: palette.toastSurface,
-      content: Row(
-        children: [
-          Icon(icon, size: 19, color: palette.toastAccent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 12.5,
-                height: 1.4,
-                color: palette.toastInk,
-              ),
-            ),
-          ),
-        ],
-      ),
+      content: _toastRow(palette, icon, text),
       action: undo == null
           ? null
           : SnackBarAction(

@@ -15,6 +15,7 @@ import 'save/page_hint_repository.dart';
 import 'features/resume_point.dart';
 import 'features/library_screen.dart' show LibraryCollection;
 import 'library/library_sort.dart';
+import 'library/collection_deletion.dart';
 import 'library/collection_repository.dart';
 import 'library/update_checker.dart';
 import 'queue/task_queue.dart';
@@ -103,6 +104,26 @@ final cleanupProvider = Provider<CleanupService>((ref) {
 final taskQueueProvider = Provider<TaskQueueController>(
   (ref) => ref.watch(appServicesProvider).taskQueue,
 );
+
+/// Permanent collection deletion.
+///
+/// Degrades the same way [cleanupProvider] does: a widget test that overrides
+/// the database and the file store only still gets a working service, and
+/// without a queue there is simply no pending work for it to cancel.
+final collectionDeletionProvider = Provider<CollectionDeletionService>((ref) {
+  TaskQueueController? queue;
+  try {
+    queue = ref.watch(appServicesProvider).taskQueue;
+  } catch (_) {
+    queue = null;
+  }
+  return CollectionDeletionService(
+    db: ref.watch(databaseProvider),
+    fileStore: ref.watch(fileStoreProvider),
+    cleanup: ref.watch(cleanupProvider),
+    queue: queue,
+  );
+});
 
 /// The persisted appearance preference (default: follow the system).
 final appearanceProvider = StreamProvider<AppearanceMode>(

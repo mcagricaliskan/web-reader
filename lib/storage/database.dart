@@ -727,6 +727,23 @@ class AppDatabase extends _$AppDatabase {
   Future<void> writeCollectionShape(String id, CollectionsCompanion values) =>
       (update(collections)..where((t) => t.id.equals(id))).write(values);
 
+  /// Delete one collection's row.
+  ///
+  /// Its entries must be gone first: `PRAGMA foreign_keys` is on, so this
+  /// fails rather than orphaning them. Only permanent deletion reaches here —
+  /// archiving writes [setCollectionLifecycle] and removing offline files
+  /// writes no collection column at all.
+  Future<int> deleteCollection(String id) =>
+      (delete(collections)..where((t) => t.id.equals(id))).go();
+
+  /// Delete every entry of one collection, reading state included.
+  ///
+  /// The counterpart of [deleteCollection] and never used on its own: an
+  /// entry-shaped hole under a collection that still exists would be a
+  /// collection that has lost its contents without saying so.
+  Future<int> deleteEntriesForCollection(String collectionId) =>
+      (delete(entries)..where((t) => t.collectionId.equals(collectionId))).go();
+
   /// Remove collections nothing points at. Only ever empty ones — a collection
   /// with entries is never deleted here.
   Future<int> deleteEmptyCollections() async {
@@ -978,6 +995,12 @@ class AppDatabase extends _$AppDatabase {
   Future<void> deleteRun(String id) =>
       (delete(saveRuns)..where((t) => t.id.equals(id))).go();
 
+  /// Every run row, resumable or not. Read by permanent collection deletion,
+  /// which has to recognise an interrupted run that was walking the collection
+  /// being deleted — the resume offer is otherwise delayed work that rebuilds
+  /// it.
+  Future<List<SaveRun>> allRuns() => select(saveRuns).get();
+
   // --- settings -------------------------------------------------------------
 
   Future<void> setSetting(String key, String value) =>
@@ -1040,6 +1063,16 @@ class AppDatabase extends _$AppDatabase {
             .go();
     return deleted > 0;
   }
+
+  /// Drop every activity row that names one collection, in any state.
+  ///
+  /// Reachable only from permanent collection deletion, and unlike
+  /// [deleteTerminalQueueTask] it does not spare live rows — the caller has
+  /// already cancelled them, and a row still naming a collection that no
+  /// longer exists is either work aimed at nothing or history about nothing.
+  Future<int> deleteQueueTasksForCollection(String collectionId) => (delete(
+    queueTasks,
+  )..where((t) => t.collectionId.equals(collectionId))).go();
 
   Future<List<QueueTask>> pendingQueueTasks() =>
       (select(queueTasks)
