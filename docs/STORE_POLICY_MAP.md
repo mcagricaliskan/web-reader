@@ -121,7 +121,8 @@ without hidden gestures:
 native library · collections and standalone entries · offline reader with page
 geometry restored from stored dimensions · durable reading position and
 Continue Reading · a visible, cancellable, retryable work queue · search ·
-archive · per-entry and bulk offline-file removal with undo · storage metering
+archive · per-entry and bulk offline-file removal with undo · permanent
+collection deletion, confirmed and complete · storage metering
 with per-collection breakdown · source attribution and *Open original page* ·
 user-controlled save scope · native loading, empty, offline and error states.
 

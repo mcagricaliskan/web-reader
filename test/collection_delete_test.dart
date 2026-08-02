@@ -812,6 +812,49 @@ void main() {
       await settleDown(tester);
     });
 
+    testWidgets('the delete action is reachable on a phone-sized screen', (
+      tester,
+    ) async {
+      // The collection menu has seven actions. In the default 9/16-height
+      // sheet they do not fit, and what falls off the bottom is the last one
+      // — the destructive one, present in the tree and impossible to tap.
+      // The other tests here run on a 1600pt-tall view, which has room for
+      // anything and so proves nothing about a real device.
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await seedOutsideTheFakeClock(tester, () async {
+        await seedCollection('s1');
+        await seedEntry('s1', 1);
+      });
+
+      await tester.pumpWidget(
+        harness(
+          home: const Scaffold(body: Center(child: Text('BEHIND'))),
+        ),
+      );
+      await pumpUntil(tester, find.text('BEHIND'));
+      GoRouter.of(tester.element(find.text('BEHIND'))).push('/collection/s1');
+      await pumpUntil(tester, menuButton);
+      await settle(tester);
+
+      await tester.tap(menuButton);
+      final tile = find.byKey(const ValueKey('deleteCollectionEntry'));
+      await pumpUntil(tester, tile);
+      await settle(tester);
+
+      // Reachable, not merely present: scroll it into view if the sheet needs
+      // to, then tap it for real.
+      await tester.ensureVisible(tile);
+      await settle(tester);
+      await tester.tap(tile);
+      await pumpUntil(tester, find.text('Delete this collection?'));
+
+      expect(find.text('Delete this collection?'), findsOneWidget);
+      await settleDown(tester);
+    });
+
     testWidgets('a standalone entry has no delete-collection action', (
       tester,
     ) async {

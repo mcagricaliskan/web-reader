@@ -122,7 +122,21 @@ and refused. Do not add video URL extraction, HLS/DASH, interception or playback
   only DAO method that can reach a reading column.
 - A completed entry is 100% read, enforced on write and again on display.
 - Removing offline files is never deleting an entry: only `content_path`,
-  `byte_size` and `offline_removed_at` are written.
+  `byte_size` and `offline_removed_at` are written. Archiving is never deleting
+  a collection either: it writes `lifecycle` and `archived_at` and nothing else.
+  Neither may be offered as a way to delete.
+- **Permanent deletion is `CollectionDeletionService.delete`, whole.** It
+  cancels the collection's queue work (by collection id, and by address for a
+  save that carries none), refuses while an entry is open in the reader or a
+  save is still on it, moves every owned directory into `tmp/deleting-<id>`
+  **before** any row goes, then deletes the queue rows, the interrupted runs,
+  the entries and the collection in one transaction, then discards the staged
+  tree. The file move is not an optimisation: rows first would leave packages
+  under `library/` for startup recovery to rebuild the deleted entries from.
+  `deleteCollection` / `deleteEntriesForCollection` /
+  `deleteQueueTasksForCollection` / `allRuns` belong to that service and have no
+  other caller — never delete the collection row on its own. Rationale and the
+  full inventory of what goes and what stays: ARCHITECTURE.md §8.2.
 - `entries.source_url` is durable metadata — every writer names its columns.
 - `entries.collection_id` is nullable. A standalone entry is a first-class
   library item; never wrap one in a collection of one.

@@ -544,112 +544,121 @@ class _CollectionDetailState extends ConsumerState<_CollectionDetail> {
   Future<void> _showMenu(BuildContext context, WidgetRef ref) =>
       showModalBottomSheet<void>(
         context: context,
+        // Seven actions do not fit in the default 9/16-height sheet, and the
+        // one that gets clipped is always the last — which is now the
+        // destructive one. Same fix, and the same reason, as the entry sheet
+        // in `entry_actions.dart`.
+        isScrollControlled: true,
         builder: (sheetContext) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.edit),
-                title: const Text('Rename'),
-                subtitle: const Text('Your name, source title kept'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _promptRename(context, ref, group);
-                },
-              ),
-              if (group.lifecycle != 'archived')
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
                 ListTile(
-                  leading: const Icon(Icons.inventory_2),
-                  title: const Text('Archive'),
-                  subtitle: const Text('Hidden from library · reversible'),
-                  onTap: () async {
+                  leading: const Icon(Icons.edit),
+                  title: const Text('Rename'),
+                  subtitle: const Text('Your name, source title kept'),
+                  onTap: () {
                     Navigator.of(sheetContext).pop();
-                    final archived = await confirmArchiveCollection(
-                      context,
-                      ref,
-                      group,
-                    );
-                    // Back to the library: the collection just left it, and
-                    // staying here would imply it did not.
-                    if (archived && context.mounted) context.pop();
+                    _promptRename(context, ref, group);
                   },
                 ),
-              ListTile(
-                leading: const Icon(Icons.checklist),
-                title: const Text('Manage downloads'),
-                subtitle: const Text('Select entries · remove offline files'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _enterSelection();
-                },
-              ),
-              ListTile(
-                key: const ValueKey('collectionCleanupPrefEntry'),
-                leading: const Icon(Icons.auto_delete),
-                title: const Text('Downloaded entries'),
-                subtitle: Text(
-                  collectionCleanupSummary(
-                    collectionCleanupFromName(group.cleanupPreference),
+                if (group.lifecycle != 'archived')
+                  ListTile(
+                    leading: const Icon(Icons.inventory_2),
+                    title: const Text('Archive'),
+                    subtitle: const Text('Hidden from library · reversible'),
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      final archived = await confirmArchiveCollection(
+                        context,
+                        ref,
+                        group,
+                      );
+                      // Back to the library: the collection just left it, and
+                      // staying here would imply it did not.
+                      if (archived && context.mounted) context.pop();
+                    },
                   ),
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  showCollectionCleanupSheet(
-                    context: context,
-                    ref: ref,
-                    collectionId: group.id,
-                    collectionName: group.displayName,
-                    current: collectionCleanupFromName(group.cleanupPreference),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_sweep),
-                title: const Text('Remove offline files…'),
-                subtitle: const Text(
-                  'Whole collection · keeps history and read marks',
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _confirmRemoveCollection();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.ads_click),
-                title: const Text('Element rules'),
-                subtitle: Text(group.host),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  context.push('/rules');
-                },
-              ),
-              // Everything above leaves the collection in the library. This
-              // does not, so it sits below a rule, in the danger colour, at
-              // the far end of the sheet — a tap meant for "Element rules"
-              // must not be able to land on it.
-              if (group.collection != null) ...[
-                const Divider(height: 12),
                 ListTile(
-                  key: const ValueKey('deleteCollectionEntry'),
-                  leading: Icon(
-                    Icons.delete_forever,
-                    color: AppPalette.of(context).danger,
-                  ),
-                  title: Text(
-                    'Delete permanently',
-                    style: TextStyle(color: AppPalette.of(context).danger),
-                  ),
-                  subtitle: const Text(
-                    'Removes the collection, its entries and their files',
+                  leading: const Icon(Icons.checklist),
+                  title: const Text('Manage downloads'),
+                  subtitle: const Text('Select entries · remove offline files'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _enterSelection();
+                  },
+                ),
+                ListTile(
+                  key: const ValueKey('collectionCleanupPrefEntry'),
+                  leading: const Icon(Icons.auto_delete),
+                  title: const Text('Downloaded entries'),
+                  subtitle: Text(
+                    collectionCleanupSummary(
+                      collectionCleanupFromName(group.cleanupPreference),
+                    ),
                   ),
                   onTap: () {
                     Navigator.of(sheetContext).pop();
-                    _confirmDeleteCollection();
+                    showCollectionCleanupSheet(
+                      context: context,
+                      ref: ref,
+                      collectionId: group.id,
+                      collectionName: group.displayName,
+                      current: collectionCleanupFromName(
+                        group.cleanupPreference,
+                      ),
+                    );
                   },
                 ),
+                ListTile(
+                  leading: const Icon(Icons.delete_sweep),
+                  title: const Text('Remove offline files…'),
+                  subtitle: const Text(
+                    'Whole collection · keeps history and read marks',
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _confirmRemoveCollection();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.ads_click),
+                  title: const Text('Element rules'),
+                  subtitle: Text(group.host),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    context.push('/rules');
+                  },
+                ),
+                // Everything above leaves the collection in the library. This
+                // does not, so it sits below a rule, in the danger colour, at
+                // the far end of the sheet — a tap meant for "Element rules"
+                // must not be able to land on it.
+                if (group.collection != null) ...[
+                  const Divider(height: 12),
+                  ListTile(
+                    key: const ValueKey('deleteCollectionEntry'),
+                    leading: Icon(
+                      Icons.delete_forever,
+                      color: AppPalette.of(context).danger,
+                    ),
+                    title: Text(
+                      'Delete permanently',
+                      style: TextStyle(color: AppPalette.of(context).danger),
+                    ),
+                    subtitle: const Text(
+                      'Removes the collection, its entries and their files',
+                    ),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _confirmDeleteCollection();
+                    },
+                  ),
+                ],
+                const SizedBox(height: 8),
               ],
-              const SizedBox(height: 8),
-            ],
+            ),
           ),
         ),
       );

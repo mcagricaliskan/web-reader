@@ -7,8 +7,8 @@
 
 | Data | Where | Deleted by |
 |---|---|---|
-| Collections, entries, reading position, read state | `entries` / `collections` in the app-private SQLite database | Settings → Storage (files); the debug-only full reset (rows) |
-| Saved page bytes (text + images) | `webread/library/…` in app-private storage, excluded from device backup | Remove offline files (per entry, per collection, all finished) |
+| Collections, entries, reading position, read state | `entries` / `collections` in the app-private SQLite database | Collection detail → ⋯ → *Delete permanently*, per collection; the debug-only full reset, for everything |
+| Saved page bytes (text + images) | `webread/library/…` in app-private storage, excluded from device backup | Remove offline files (per entry, per collection, all finished), which keeps the rows; *Delete permanently*, which removes the collection's files and its rows together |
 | Browsing history (manual navigation only) | `browsing_history`, retained 90 days or 5,000 rows | Browser → Full history → Clear |
 | Saved sites | `saved_sites` — empty until the user adds one | per-row removal |
 | Favicons | `favicon_cache`, ≤ 24 KB each, purely derived | Settings → Browser data |

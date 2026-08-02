@@ -452,8 +452,10 @@ WHERE THINGS ARE
 
 - Save scope and the review step: Browser → Save
 - Queue, progress, cancel, retry: Library → Activity (top of the Library screen)
-- Delete saved files: Collection detail → select → Remove offline files;
-  or Settings → Storage
+- Delete saved files, keeping the library entry: Collection detail → select →
+  Remove offline files; or Settings → Storage
+- Delete a whole collection permanently, files and records together:
+  Collection detail → ⋯ → Delete permanently
 - Clear browsing history: Browser → Home → Full history → Clear
 - Clear website data (cookies, cache): Settings → Browser data
 - Privacy, Terms, Content rights: Settings → About
@@ -513,7 +515,7 @@ developer.
 | Web browsing history | Stored on device only; not collected (Play: local-only processing need not be disclosed) |
 | Files and docs | Stored on device only; not collected |
 | Is data encrypted in transit? | N/A — no data is sent to the developer |
-| Can users request deletion? | **Yes**, in-app: Settings → Storage, Browser data, and the debug-only full reset |
+| Can users request deletion? | **Yes**, in-app and without an account: per-collection *Delete permanently*, Settings → Storage, Browser data, and the debug-only full reset |
 | Committed to Play Families policy | **No** |
 | Independent security review | No |
 

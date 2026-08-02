@@ -25,6 +25,10 @@ nullable, no collection row is created for a single saved page, and the library
 shelf is a union of collections and standalone entries
 (`LibraryCollection` in `lib/features/library_screen.dart`).
 
+The three ways content leaves again — archived, its offline files removed, or
+deleted permanently — are three different operations with three different blast
+radii. §8.2 is the authoritative account of which is which.
+
 ## 3. Content shape — three independent dimensions
 
 `lib/library/content_shape.dart`. Kept independent because a page can be
@@ -201,9 +205,13 @@ package holds and how it was produced) · `collections.preferred_capture_mode`
 (what to propose next time) · `save_runs.capture_mode` /
 `capture_mode_is_user_set` and the same pair on `queue_tasks`.
 
-Relationships: `entries.collection_id → collections.id`, nullable. The four
-browsing tables reference nothing in the library and nothing references them, so
-clearing history can never cascade into saved content.
+Relationships: `entries.collection_id → collections.id`, nullable, with
+`PRAGMA foreign_keys = ON` set in `beforeOpen`. There is **no `ON DELETE
+CASCADE`**: a collection row cannot go while an entry still points at it, which
+is what forces permanent deletion to remove dependents first and in a
+transaction (§8.2). The four browsing tables reference nothing in the library
+and nothing references them, so clearing history can never cascade into saved
+content.
 
 Indexes created with the schema: a **partial unique index** on
 `entries(url_key) WHERE collection_id IS NULL` (a composite UNIQUE cannot enforce
@@ -249,6 +257,118 @@ packages on disk, and `storage/recovery.dart` rebuilds library rows from them �
 for both manifest versions, and for standalone entries as well as collected
 ones.
 
+That last property is a **capability, not a guarantee that a row always comes
+back**, and the difference matters: recovery reconciles the packages it finds,
+so anything that intends a row to stay gone has to remove the package too. That
+is exactly why permanent deletion takes the files out of `library/` before it
+touches a row — see §8.2.
+
+### 8.2 Three ways content leaves: archive · remove files · delete
+
+Three operations, three blast radii, and none of them is a substitute for
+another. The confirmation copy for each is built on this table.
+
+| Operation | Entry point | Rows written | Files | Reversible |
+|---|---|---|---|---|
+| **Archive a collection** | `CollectionRepository.archive` → `setCollectionLifecycle` | `collections.lifecycle` + `archived_at`, nothing else | untouched | **Yes** — *Restore* puts it back exactly as it was |
+| **Remove offline files** | `CleanupService.removeOffline` (soft, with undo) / `removeOfflineNow` (bulk) | `content_path`, `byte_size`, `offline_removed_at` on the entry, nothing else | that entry's bytes | **Yes** in substance — the entry never left the library, so it reads "Not available offline — save again", and the soft path also has a real undo window |
+| **Delete a collection permanently** | `CollectionDeletionService.delete` (`lib/library/collection_deletion.dart`) | the collection row, its entry rows, and the local work records that named it | every file the collection owns | **No.** The *source* can be saved again, which produces a new collection with a new id |
+
+Archiving hides, removal frees space, and only deletion removes the record.
+Archiving a collection is not a quiet way to delete it, and removing offline
+files is not a way to delete an entry — see the two invariants in §9.
+
+The action lives on the collection screen's overflow menu, below a rule and in
+the danger colour, and it is offered only for an actual collection: a
+standalone entry has no collection to delete. There is one confirmation, not a
+type-the-name step — nothing else in this product uses that pattern.
+
+#### What deletion removes
+
+- the `collections` row, and with it the collection-scoped preferences and
+  pointers stored on it: `cleanup_preference`, `preferred_capture_mode`,
+  `last_opened_entry_id`, `last_completed_entry_id`, `last_read_at`, and the
+  update-check columns;
+- every `entries` row of that collection, and therefore the reading state
+  carried on those rows — `read_status`, `progress_fraction`, the anchor,
+  `first_opened_at`, `completed_at` — so Continue Reading stops offering it
+  because the rows it derives from are gone;
+- `queue_tasks` rows naming the collection, **in any state**, waiting or
+  historical;
+- `save_runs` rows for an interrupted run that was walking it, so the library's
+  Resume card cannot re-walk a collection that no longer exists;
+- `library/<collection-id>/` entire, including the `.previous` backups an
+  interrupted replacement leaves inside it;
+- any entry file outside that tree — an entry saved standalone and later moved
+  into the collection keeps its `library/standalone/<entry-id>` path, because
+  reassignment moves the row and not the bytes;
+- `tmp/undo-<entry-id>` and `tmp/<entry-id>`: a removal still inside its undo
+  window would otherwise restore a package under `library/`, and startup
+  recovery would reconcile it back into existence.
+
+#### What deletion keeps
+
+Other collections and their files · standalone entries that were never part of
+it · `user_page_hints` · `saved_sites` · `browsing_history` · `favicon_cache` ·
+`settings` · queue history belonging to anything else.
+
+The hints are the deliberate one. They are keyed to a *host and page shape*,
+not to a collection, they are shared with every other collection on that host,
+and they are what makes saving the same source again work as well as it did the
+first time. Deleting a collection is not a statement about the site it came
+from.
+
+#### The order, and why it is that order
+
+1. **Stop the work.** The collection's queue rows are cancelled through the
+   existing conditional-`UPDATE` path (§9): waiting rows are cancelled outright,
+   a running one is asked to stop at its next safe point. Save tasks carry a
+   collection id only when the caller knew one, so a save started from the
+   Browser is matched by **address** instead — the entries' URLs, plus same host
+   and same `collectionFingerprint` as the stored `collection_key` for a page
+   that has never been saved. That second test is skipped for a key that is not
+   a path (`manual:…`, `title:…`, `host:…`, and the `…#…` form a low-confidence
+   grouping gets), because those keys are built so that nothing matches them.
+   A row matched only by address is **cancelled, not deleted**: it names no
+   collection, so it survives step 4 as ordinary cancelled history rather than
+   disappearing from Activity without explanation.
+2. **Refuse if anything still holds it.** A cooperative stop lands between
+   entries, not instantly. If an entry is open in the reader or mid-save
+   (`CleanupService.lockReasonFor`), if the live run is on one of the
+   collection's addresses, or if a task naming it is still pending, the delete
+   **refuses and nothing is touched**. `DeleteRefusal` names which
+   — `gone` · `inUse` · `filesKept` — and the UI shows the reason. Deleting
+   under an in-flight save would either resurrect the collection or fail the
+   save on a foreign-key error.
+3. **Move the files out of the library.** Every owned directory is *renamed*
+   into `tmp/deleting-<collection-id>` — one atomic rename each, no partial
+   trees. A failure here restores what was already moved and returns
+   `DeleteRefusal.filesKept`; **nothing has been deleted** and the collection
+   still works.
+4. **Delete the rows in one transaction**, dependents first: queue rows, then
+   the matching runs, then the entries, then the collection. The foreign key
+   makes that order mandatory rather than stylistic (§8).
+5. **Discard the staged tree.** A failure at this last step leaks into `tmp/`,
+   which the startup sweep already owns. It is not a failed delete.
+
+The filesystem cannot join the SQL transaction, so the ordering is chosen to
+make the **reachable** intermediate state the harmless one:
+
+- a crash between 3 and 4 leaves rows whose files are gone. That is a state the
+  app already handles: opening such an entry finds no package, calls
+  `markEntryContentMissing` — dropping `content_path` and recording *local files
+  missing* — and says so instead of failing. The collection is still listed and
+  a second delete finishes the job. Nothing comes back to life.
+- the reverse order — rows first, bytes second — would leave committed packages
+  under `library/` with no rows, and the next launch would reconcile them into
+  a collection the user deleted. That failure is silent and looks like a bug in
+  the app rather than an interrupted delete, which is why the ordering is not a
+  preference.
+
+Afterwards the same source can be saved again: identity is matched on
+`(host, collection_key)`, the deleted row is gone, so a save creates a new
+collection rather than joining a ghost.
+
 ## 9. Invariants worth keeping
 
 - **Reading state is writable only from `lib/reading/`.** `writeEntryReading` is
@@ -257,7 +377,21 @@ ones.
   `read_status` is `completed`, on write and again on display.
 - **Removing offline files is not deleting an entry.** Only `content_path`,
   `byte_size` and `offline_removed_at` are written; everything else survives, and
-  the entry reads as "Not available offline — save again".
+  the entry reads as "Not available offline — save again". Deleting is a
+  different operation with a different entry point (§8.2), and neither this nor
+  archiving may be offered as a way to do it.
+- **Collection-owned state is deleted through `CollectionDeletionService`, or
+  it is not deleted.** Permanent deletion is one flow — cancel the collection's
+  queue work, refuse while an entry is locked or a save is still on it, move
+  every owned directory out of `library/` *before* any row goes, then remove the
+  queue rows, the interrupted runs, the entries and the collection in one
+  transaction. Each part is load-bearing: skipping the file move lets startup
+  recovery rebuild the entries from the manifests still on disk; skipping the
+  cancellation lets delayed work write into a collection that is being deleted.
+  `deleteCollection`, `deleteEntriesForCollection`,
+  `deleteQueueTasksForCollection` and `allRuns` are that service's vocabulary
+  and have no other caller — deleting the collection row on its own leaves
+  orphaned files, live queue rows and a foreign-key error. See §8.2.
 - **Semantic label and stored format are separate, and only one is editable.**
   `setEntryContentKind` writes `content_kind` and cannot reach
   `artifact_format`. Relabelling an image package as an article changes what it
@@ -314,6 +448,7 @@ yet reachable from a screen.
 | Audio/video never fetched | **Built** (image-only MIME allow-list) |
 | Video-dominant pages classified and refused | **Built**, tested; **no video capture or playback exists** |
 | Offline reader, reading position, queue, cleanup, archive, storage | **Built**, tested |
+| Permanent collection deletion (§8.2) | **Built**, tested (`collection_delete_test.dart`) |
 | Repository-cleanliness guard | **Built**, tested |
 | Save-scope review step (UI) | **Deferred** |
 | First-use and contextual content-rights disclosures (UI) | **Deferred** |
