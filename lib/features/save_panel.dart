@@ -357,7 +357,7 @@ class SaveResultBanner extends StatelessWidget {
 Future<void> _copyLog(BuildContext context, SaveRunController run) async {
   final p = run.progress;
   final buffer = StringBuffer()
-    ..writeln('Web Reader save log')
+    ..writeln('Scrollary save log')
     ..writeln('state: ${p.state.name}  (${p.state.label})')
     ..writeln('url: ${p.currentUrl}')
     ..writeln(

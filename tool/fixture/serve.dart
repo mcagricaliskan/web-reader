@@ -1,7 +1,7 @@
 // Standalone fixture server, for driving the app by hand in the Simulator.
 //
 //   dart tool/fixture/serve.dart [port]
-//   then browse to http://localhost:8099/entry/1 inside Web Reader
+//   then browse to http://localhost:8099/entry/1 inside Scrollary
 //
 // The automated integration test does NOT need this: it serves the same
 // fixture in-process so it can shut the source down mid-test.

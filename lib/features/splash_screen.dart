@@ -51,7 +51,7 @@ class StartupSplash extends StatelessWidget {
                 _BrandMark(palette: palette),
                 const SizedBox(height: 22),
                 Text(
-                  'Web Reader',
+                  'Scrollary',
                   style: TextStyle(
                     fontFamily: 'Newsreader',
                     fontSize: 30,

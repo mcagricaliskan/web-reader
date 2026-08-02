@@ -27,7 +27,7 @@ Hosted at a developer-controlled origin. Tests and reviewer notes refer to it as
 - All images original artwork or photographs the developer owns.
 - No real person's name, likeness or private detail.
 - No third-party logo, trademark or brand name anywhere.
-- A visible footer on every page: "Demo content for Keepread. Original work,
+- A visible footer on every page: "Demo content for Scrollary. Original work,
   free to save."
 
 ## 3. In-app support already present

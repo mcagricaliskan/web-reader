@@ -98,7 +98,7 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp> {
     final appearance =
         ref.watch(appearanceProvider).value ?? AppearanceMode.system;
     return MaterialApp.router(
-      title: 'Web Reader',
+      title: 'Scrollary',
       debugShowCheckedModeBanner: false,
       theme: appTheme(),
       darkTheme: appDarkTheme(),

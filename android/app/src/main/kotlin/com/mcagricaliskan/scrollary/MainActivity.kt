@@ -1,4 +1,4 @@
-package com.mcagricaliskan.webreader
+package com.mcagricaliskan.scrollary
 
 import android.os.StatFs
 import io.flutter.embedding.android.FlutterActivity

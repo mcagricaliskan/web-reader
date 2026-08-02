@@ -1,4 +1,4 @@
-# Web Reader
+# Scrollary
 
 A general-purpose personal reading tool for iOS and Android. Save web pages you
 are legally permitted to keep, organise them in a personal library, and read them

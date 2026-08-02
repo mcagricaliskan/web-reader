@@ -1,4 +1,4 @@
-# Web Reader — project instructions
+# Scrollary — project instructions
 
 A general-purpose personal reading tool, iOS-first and Android-compatible:
 embedded browser + explicit page saving + offline reading library.
