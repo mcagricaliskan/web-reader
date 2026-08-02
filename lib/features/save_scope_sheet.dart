@@ -182,6 +182,10 @@ class _RangeSheetState extends State<_RangeSheet> {
   // A harmless editable default, not a preset: the field is focused and
   // fully replaceable, and nothing is enqueued until the user confirms.
   final _countField = TextEditingController(text: '2');
+
+  /// Held so the sheet can put the keyboard away itself. A number pad has no
+  /// return key on iOS, so nothing but this can take the focus back.
+  final _countFocus = FocusNode(debugLabel: 'saveCountField');
   SaveScope _mode = SaveScope.currentPageOnly;
   String? _countError;
 
@@ -214,6 +218,7 @@ class _RangeSheetState extends State<_RangeSheet> {
   @override
   void dispose() {
     _countField.dispose();
+    _countFocus.dispose();
     super.dispose();
   }
 
@@ -241,6 +246,21 @@ class _RangeSheetState extends State<_RangeSheet> {
       return null;
     }
     return n;
+  }
+
+  /// "Done": accept the number that has been typed and put the keyboard away.
+  ///
+  /// **It is not a third launch.** It keeps the typed value, runs the same
+  /// validation the two launches run so a bad number is answered where it was
+  /// typed, drops focus — and stops there, with the sheet still open on the
+  /// buttons that do start something. Confirming how much to save and
+  /// authorising the save are separate acts, and a Done that quietly started a
+  /// run would be exactly the button that lies this sheet is built to avoid.
+  void _confirmCount() {
+    if (_validatedCount() != null && _countError != null) {
+      setState(() => _countError = null);
+    }
+    _countFocus.unfocus();
   }
 
   /// True when this page can hold nothing at all — a video with no readable
@@ -353,10 +373,21 @@ class _RangeSheetState extends State<_RangeSheet> {
                 const SizedBox(height: 8),
                 TextField(
                   controller: _countField,
+                  focusNode: _countFocus,
                   autofocus: true,
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  // Honoured where the platform draws a return key. iOS draws
+                  // none on a number pad, which is why it is never the only
+                  // way out — see the Done button below.
+                  textInputAction: TextInputAction.done,
                   onChanged: (_) => setState(() => _countError = null),
+                  onSubmitted: (_) => _confirmCount(),
+                  // Flutter leaves a mobile text field focused when the user
+                  // taps elsewhere. Tapping the sheet is a plain way to say
+                  // "I have finished typing", and this does not consume the
+                  // tap, so whatever was tapped still does its own job.
+                  onTapOutside: (_) => _countFocus.unfocus(),
                   decoration: InputDecoration(
                     labelText: 'How many new entries?',
                     helperText:
@@ -366,6 +397,17 @@ class _RangeSheetState extends State<_RangeSheet> {
                     helperMaxLines: 4,
                     errorText: _countError,
                     border: const OutlineInputBorder(),
+                    // In the field, above the keyboard, and present whether or
+                    // not the platform gave the keyboard a key of its own.
+                    suffixIcon: TextButton(
+                      key: const ValueKey('saveCountDone'),
+                      onPressed: _confirmCount,
+                      child: const Text('Done'),
+                    ),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 0,
+                      minHeight: 44,
+                    ),
                   ),
                 ),
                 if (n != null &&

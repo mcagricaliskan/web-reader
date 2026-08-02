@@ -1008,6 +1008,17 @@ window.__wr = window.__wr || (function () {
 const String kCallProbe = 'return window.__wr.probe({withLinks: false});';
 const String kCallProbeWithLinks =
     'return window.__wr.probe({withLinks: true});';
+
+/// Geometry and images only — no content, media or access signals.
+///
+/// What the scroll loop actually reads. The full probe additionally walks the
+/// readable region twice and clones the whole body a third time to lowercase
+/// it for the access phrases (`contentSignals`, `mediaSignals`,
+/// `accessSignals`), and that work is repeated on **every scroll step** of a
+/// document the save is deliberately making taller. None of it is consulted
+/// until the settled probe, which still asks for all of it.
+const String kCallProbeLight =
+    'return window.__wr.probe({withLinks: false, withSignals: false});';
 const String kCallScrollStep = 'return window.__wr.scrollStep(dy);';
 const String kCallScrollTo = 'return window.__wr.scrollTo(y);';
 const String kCallFetchBase64 = 'return await window.__wr.fetchAsBase64(url);';

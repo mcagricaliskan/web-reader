@@ -274,6 +274,153 @@ void main() {
     expect(result?.action, SaveSheetAction.startNow);
   });
 
+  /// Confirming the number and authorising the save are separate acts. A
+  /// number pad has no return key on iOS, so the sheet has to offer the way
+  /// out itself — and that way out must not start anything.
+  group('confirming the typed count', () {
+    /// A phone-sized surface: with the count field open the sheet is taller
+    /// than the test default.
+    void phone(WidgetTester tester) {
+      tester.view.physicalSize = const Size(390, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    /// Chooses the typed-count range on an already-open sheet.
+    Future<TextField> chooseCount(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Number of entries'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Number of entries'));
+      await tester.pumpAndSettle();
+      return tester.widget<TextField>(find.byType(TextField));
+    }
+
+    Future<TextField> openCount(WidgetTester tester) async {
+      phone(tester);
+      await open(tester);
+      return chooseCount(tester);
+    }
+
+    testWidgets('the Done action is on screen with the field', (tester) async {
+      // At 320pt: the field, its label and the action share one row on the
+      // narrowest phone the design supports.
+      narrow(tester);
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await open(tester);
+
+      // Not before: with no count to confirm there is nothing to confirm.
+      expect(find.byKey(const ValueKey('saveCountDone')), findsNothing);
+
+      await chooseCount(tester);
+      final done = find.byKey(const ValueKey('saveCountDone'));
+      expect(done, findsOneWidget);
+      expect(find.text('Done'), findsOneWidget);
+      expect(tester.getRect(done).right, lessThanOrEqualTo(320));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Done keeps the value, drops focus, and starts nothing', (
+      tester,
+    ) async {
+      SaveRangeChoice? result;
+      await tester.pumpWidget(host(onResult: (r) => result = r));
+      final field = await openCount(tester);
+
+      await tester.enterText(find.byType(TextField), '12');
+      await tester.pumpAndSettle();
+      expect(field.focusNode!.hasFocus, isTrue, reason: 'typing focuses it');
+
+      await tester.ensureVisible(find.byKey(const ValueKey('saveCountDone')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveCountDone')));
+      await tester.pumpAndSettle();
+
+      expect(field.controller!.text, '12', reason: 'the value is kept');
+      expect(field.focusNode!.hasFocus, isFalse);
+      expect(tester.testTextInput.isVisible, isFalse);
+      // Confirming a number is not authorising a save.
+      expect(result, isNull);
+      expect(find.byKey(const ValueKey('saveStartNow')), findsOneWidget);
+      expect(find.byKey(const ValueKey('saveAddToQueue')), findsOneWidget);
+      // …and the launch that does authorise one still carries the number.
+      await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveStartNow')));
+      await tester.pumpAndSettle();
+      expect(result?.mode, SaveScope.fixedCount);
+      expect(result?.count, 12);
+      expect(result?.action, SaveSheetAction.startNow);
+    });
+
+    testWidgets('the keyboard\'s own Done does the same thing', (tester) async {
+      SaveRangeChoice? result;
+      await tester.pumpWidget(host(onResult: (r) => result = r));
+      final field = await openCount(tester);
+
+      await tester.enterText(find.byType(TextField), '7');
+      await tester.pumpAndSettle();
+      expect(field.textInputAction, TextInputAction.done);
+
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+
+      expect(field.controller!.text, '7');
+      expect(field.focusNode!.hasFocus, isFalse);
+      expect(result, isNull);
+    });
+
+    testWidgets('Done answers a bad number where it was typed', (tester) async {
+      SaveRangeChoice? result;
+      await tester.pumpWidget(host(onResult: (r) => result = r));
+      final field = await openCount(tester);
+
+      await tester.enterText(find.byType(TextField), '0');
+      await tester.ensureVisible(find.byKey(const ValueKey('saveCountDone')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveCountDone')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('1 or more'), findsOneWidget);
+      expect(field.controller!.text, '0', reason: 'nothing is typed for them');
+      expect(result, isNull);
+
+      // The same bound the launches enforce, named the same way.
+      await tester.enterText(find.byType(TextField), '9999');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveCountDone')));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('At most ${const SaveConfig().maxEntriesPerRun}'),
+        findsOneWidget,
+      );
+      expect(result, isNull);
+
+      // A number that is fine clears the answer and leaves the field alone.
+      await tester.enterText(find.byType(TextField), '4');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveCountDone')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('At most'), findsNothing);
+      expect(find.textContaining('1 or more'), findsNothing);
+      expect(field.controller!.text, '4');
+    });
+
+    testWidgets('tapping the sheet elsewhere also puts the keyboard away', (
+      tester,
+    ) async {
+      await tester.pumpWidget(host(onResult: (_) {}));
+      final field = await openCount(tester);
+      expect(field.focusNode!.hasFocus, isTrue);
+
+      // A tap on another control does its own job *and* ends the editing.
+      await tester.tap(find.text('Current entry'));
+      await tester.pumpAndSettle();
+
+      expect(field.focusNode!.hasFocus, isFalse);
+      expect(tester.testTextInput.isVisible, isFalse);
+      expect(find.byType(TextField), findsNothing, reason: 'range switched');
+    });
+  });
+
   testWidgets('insufficient space refuses before any choice', (tester) async {
     SaveRangeChoice? result;
     await tester.pumpWidget(

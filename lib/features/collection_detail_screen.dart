@@ -685,30 +685,31 @@ class _CollectionDetailState extends ConsumerState<_CollectionDetail> {
   /// all autonomous work goes through the activity queue, so it shows up in
   /// history and serializes on the shared WebView by construction).
   ///
-  /// `skipComplete`, not `ask`: the user just said "save the new ones", so
-  /// walking over an already saved entry in between should skip it quietly
-  /// — that is the request, not a surprise.
+  /// One single-page task per discovered entry, in **reading order** — which
+  /// [TaskQueueController.enqueueEntries] establishes, whatever order this
+  /// list was being *shown* in. The list arrives display-sorted, and the
+  /// default display sort is newest-first: reading `.first` off it started
+  /// the fetch at the newest entry (91 of 74–91) instead of the oldest, so a
+  /// partially finished batch left a hole at the front of the collection
+  /// rather than a contiguous block.
+  ///
+  /// `skipComplete`, not `ask`: the user just said "save the new ones", so an
+  /// entry that is already held is skipped quietly — that is the request, not
+  /// a surprise.
   Future<void> _saveNewEntries(
     BuildContext context,
     WidgetRef ref,
     List<Entry> knownRemote,
   ) async {
     final queue = ref.read(taskQueueProvider);
-    final result = await queue.enqueueSave(
-      startUrl: knownRemote.first.sourceUrl,
-      entryLimit: knownRemote.length,
-      collectionId: group.id,
+    final result = await queue.enqueueEntries(
+      knownRemote,
       policy: DuplicatePolicy.skipComplete,
     );
     if (!context.mounted) return;
-    // One walk over the chain, queued. It waits like everything else — the
-    // Browser opens when the user starts the queue, not because they tapped
-    // "save new" (D46).
-    showQueuedConfirmation(
-      context,
-      result,
-      what: '${group.labels.count(knownRemote.length)} newly found',
-    );
+    // Queued, not started. They wait like everything else — the Browser opens
+    // when the user starts the queue, not because they tapped "save new" (D46).
+    showBatchQueuedConfirmation(context, result);
   }
 
   Future<void> _promptRename(

@@ -457,13 +457,11 @@ class PageProbe {
 
   int get resolvedImageCount => images.where((i) => i.isResolved).length;
 
-  /// Signature used to detect "nothing changed since the last probe".
-  String get stabilitySignature =>
-      '$documentHeight'
-      '|${images.length}'
-      '|$resolvedImageCount'
-      '|$pendingImageCount'
-      '|$brokenImageCount';
+  // "Nothing changed since the last probe" is deliberately **not** a getter
+  // here. It needs the save's own idea of which images could be entry content,
+  // which needs `SaveConfig` — and a page model that reached for save
+  // configuration would be the wrong shape. It lives in
+  // `save/page_stability.dart` instead, as a pure function over this class.
 }
 
 /// One emphasis range as the page reported it.

@@ -16,6 +16,7 @@ import 'save_state.dart';
 import 'image_candidates.dart';
 import 'next_page.dart';
 import 'page_hint.dart';
+import 'page_stability.dart';
 import '../library/collection_identity.dart';
 import '../library/collection_repository.dart';
 import '../library/content_shape.dart';
@@ -1101,7 +1102,7 @@ class SaveEngine {
         DateTime.now().isBefore(deadline)) {
       await _checkpoint();
       try {
-        final probe = await browser.probe();
+        final probe = await browser.probe(withSignals: false);
         last = probe;
         if (probe.domReady) return probe;
       } catch (_) {
@@ -1127,7 +1128,7 @@ class SaveEngine {
       await _checkpoint();
       PageProbe probe;
       try {
-        probe = await browser.probe();
+        probe = await browser.probe(withSignals: false);
       } catch (_) {
         // Mid-navigation; the caller's own probe loop handles that case.
         return;
@@ -1166,17 +1167,23 @@ class SaveEngine {
   /// wait — but a pending image with a content-sized box (or no measurable
   /// size at all, which is unknowable and therefore treated as relevant)
   /// still does.
-  int _relevantPendingCount(PageProbe probe) {
-    final threshold = (config.minImageEdge * 0.7).round();
-    return probe.images.where((i) {
-      if (i.effectiveUrl == null || i.hidden || i.inPageChrome) return false;
-      if (i.complete || i.isResolved) return false;
-      final w = i.effectiveWidth > 0 ? i.effectiveWidth : i.renderedWidth;
-      final h = i.effectiveHeight > 0 ? i.effectiveHeight : i.renderedHeight;
-      if (w == 0 && h == 0) return true; // unknown: assume it matters
-      return w >= threshold || h >= threshold;
-    }).length;
-  }
+  ///
+  /// The test is [couldBeContent], the same one final selection is built on.
+  /// This used to carry its own threshold — 0.7 of the size floor, on *either*
+  /// edge — which admitted images the save would then reject: a 300x250
+  /// advertisement slot cleared the loosened width test and held the entry for
+  /// the whole of [SaveConfig.maxAssetWait] before being discarded as too
+  /// small.
+  ///
+  /// A **broken** image is not pending. It has finished, badly, and it stays a
+  /// candidate so its download fails explicitly and the entry is marked
+  /// partial — waiting for it would only spend the timeout.
+  int _relevantPendingCount(PageProbe probe) => probe.images
+      .where(
+        (i) =>
+            couldBeContent(i, config: config) && !i.complete && !i.isResolved,
+      )
+      .length;
 
   /// Track the best candidate set seen while traversing, for the collapse
   /// guard at extraction time.
@@ -1246,7 +1253,7 @@ class SaveEngine {
     var probe = start;
     var stableChecks = 0;
     var iterations = 0;
-    var lastSignature = probe.stabilitySignature;
+    var lastStability = measureStability(probe, config: config);
     var lastChangeAt = DateTime.now();
     var lastDocHeight = probe.documentHeight;
     var resolvedStreak = 0;
@@ -1270,7 +1277,7 @@ class SaveEngine {
             message: 'Scrolling (pass $pass)',
           ),
         );
-        probe = await browser.probe();
+        probe = await browser.probe(withSignals: false);
         lastChangeAt = DateTime.now();
         continue;
       }
@@ -1285,10 +1292,16 @@ class SaveEngine {
           probe.scrollY +
           viewport *
               (1 + config.fastScrollStepViewports + config.lookaheadViewports);
+      // Only an image that could be *entry content* is worth slowing down for.
+      // The test was any unresolved image with a URL, which handed the pace of
+      // a save to whatever advertisement, avatar or decorative asset happened
+      // to sit in the next few viewports — none of which final selection would
+      // keep. An image with no measurable size still qualifies: unknown is not
+      // the same as small, and the careful pace is the right answer when the
+      // page has not told us yet.
       final unresolvedNear = probe.images.any(
         (i) =>
-            i.effectiveUrl != null &&
-            !i.hidden &&
+            couldBeContent(i, config: config) &&
             !i.isResolved &&
             !i.isBroken &&
             i.documentTop < lookahead,
@@ -1317,7 +1330,7 @@ class SaveEngine {
         fast ? config.fastScrollDelay : config.scrollDelay,
       );
 
-      probe = await browser.probe();
+      probe = await browser.probe(withSignals: false);
       _trackPeak(probe);
 
       // Scroll commands that move nothing: with a rendered viewport this is
@@ -1337,9 +1350,14 @@ class SaveEngine {
         frozenSteps = 0;
       }
 
-      final signature = probe.stabilitySignature;
-      if (signature != lastSignature) {
-        lastSignature = signature;
+      // Change is judged over the images that could be entry content, plus the
+      // page's height and total image count — see save/page_stability.dart. A
+      // decorative image cycling at the bottom of the page used to reset this
+      // on every probe, which is how a settled entry could run to the save
+      // deadline without anything readable having changed.
+      final stability = measureStability(probe, config: config);
+      if (stability != lastStability) {
+        lastStability = stability;
         lastChangeAt = DateTime.now();
         stableChecks = 0;
       }
@@ -1392,7 +1410,7 @@ class SaveEngine {
   Future<PageProbe> _waitForPendingAssets() async {
     _emit((p) => p.copyWith(state: SaveState.waitingForAssets));
     final assetDeadline = DateTime.now().add(config.maxAssetWait);
-    var probe = await browser.probe();
+    var probe = await browser.probe(withSignals: false);
 
     // Wait only for images that could be content. A comments-section avatar
     // stuck in "loading" forever is not a reason to hold the entry for
@@ -1404,7 +1422,7 @@ class SaveEngine {
       await _checkpoint();
       _emit((p) => p.copyWith(message: '$relevant image(s) still loading'));
       await Future<void>.delayed(const Duration(milliseconds: 300));
-      probe = await browser.probe();
+      probe = await browser.probe(withSignals: false);
       relevant = _relevantPendingCount(probe);
     }
 

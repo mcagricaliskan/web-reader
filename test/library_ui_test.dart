@@ -18,6 +18,7 @@ import 'package:web_reader/core/device_capacity_provider.dart';
 import 'package:web_reader/core/device_storage.dart';
 import 'package:web_reader/features/storage_screen.dart';
 import 'package:web_reader/providers.dart';
+import 'package:web_reader/queue/task_queue.dart';
 import 'package:web_reader/ui/status_style.dart';
 import 'package:web_reader/library/content_shape.dart';
 import 'package:web_reader/storage/database.dart';
@@ -109,6 +110,10 @@ void main() {
     fail('timed out waiting for $finder');
   }
 
+  /// The queue the screens under test enqueue into; rebuilt by [harness] so a
+  /// test can read back what a tap actually queued, and in which order.
+  late TaskQueueController queue;
+
   Widget harness(Widget child) {
     lastPushedRoute = null;
     final router = GoRouter(
@@ -138,19 +143,28 @@ void main() {
     // run (for the check/save actions); both get inert instances over an
     // unattached browser, so no WebView is ever stood up.
     final browser = BrowserController();
+    final checker = UpdateChecker(browser: browser, db: db);
+    final saveRun = SaveRunController(
+      browser: browser,
+      db: db,
+      fileStore: FileStore(harnessRoot),
+    );
+    // Real scheduler, stubbed work: queueing, ordering and history are the
+    // real thing, and no WebView is ever asked for.
+    queue = TaskQueueController(
+      db: db,
+      browser: browser,
+      saveRun: saveRun,
+      checker: checker,
+      saveRunner: (_) async => const QueueOutcome.success('saved'),
+      checkRunner: (_) async => const QueueOutcome.success('checked'),
+    );
     return ProviderScope(
       overrides: [
         databaseProvider.overrideWithValue(db),
-        updateCheckerProvider.overrideWithValue(
-          UpdateChecker(browser: browser, db: db),
-        ),
-        saveRunProvider.overrideWithValue(
-          SaveRunController(
-            browser: browser,
-            db: db,
-            fileStore: FileStore(harnessRoot),
-          ),
-        ),
+        updateCheckerProvider.overrideWithValue(checker),
+        saveRunProvider.overrideWithValue(saveRun),
+        taskQueueProvider.overrideWithValue(queue),
         // A known device reading, so the header's storage entry renders a
         // real number instead of waiting on a platform channel.
         deviceStorageProvider.overrideWithValue(_FixedDeviceStorage()),
@@ -564,6 +578,40 @@ void main() {
       // read, so it never becomes tappable into the reader.
       expect(find.byKey(const ValueKey('remoteRow-r886')), findsOneWidget);
       expect(find.byKey(const ValueKey('entryRow-r886')), findsNothing);
+    });
+
+    screenTest('saving the new entries starts at the oldest, not the newest', (
+      tester,
+    ) async {
+      // The library holds up to 885; the source has 886–890. The list is
+      // *shown* newest-first, and that display order used to become the
+      // execution order — the fetch started at 890.
+      final id = await seedCollection();
+      for (var n = 886; n <= 890; n++) {
+        await seedKnownRemote(id, n);
+      }
+
+      await tester.pumpWidget(
+        harness(CollectionDetailScreen(collectionId: id)),
+      );
+      await pumpUntil(tester, find.textContaining('NEW ON SOURCE'));
+      // Newest first on screen — deliberate, and left alone.
+      expect(
+        tester.getRect(find.text('890. part')).top,
+        lessThan(tester.getRect(find.text('886. part')).top),
+      );
+
+      await tester.tap(find.textContaining('Save 5 saved items'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final rows = (await queue.queuedSaves())
+        ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+      expect(rows.map((t) => t.startUrl), [
+        for (var n = 886; n <= 890; n++) '$collection/part-$n',
+      ]);
+      // Nothing started: queueing is never a start (D46).
+      expect(queue.saveStartAuthorised, isFalse);
     });
   });
 }

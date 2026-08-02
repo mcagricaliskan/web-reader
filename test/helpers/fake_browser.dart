@@ -57,7 +57,10 @@ class FakeBrowser extends BrowserController {
   }
 
   @override
-  Future<PageProbe> probe({bool withLinks = false}) async {
+  Future<PageProbe> probe({
+    bool withLinks = false,
+    bool withSignals = true,
+  }) async {
     final page = pages[normalizeUrl(_url)];
     if (page == null) {
       throw BridgeException('no fixture page for $_url');

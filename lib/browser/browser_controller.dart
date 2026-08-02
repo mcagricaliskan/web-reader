@@ -673,8 +673,25 @@ class BrowserController extends ChangeNotifier {
     return result.value;
   }
 
-  Future<PageProbe> probe({bool withLinks = false}) async {
-    final raw = await _call(withLinks ? kCallProbeWithLinks : kCallProbe);
+  /// Read the page.
+  ///
+  /// [withSignals] carries the content, media and access measurements. Pass
+  /// **false** for a probe whose caller only needs geometry and image state —
+  /// the scroll loop takes one of those per step, and the signal half is the
+  /// expensive half. A probe taken without them reports the defaults, which
+  /// every consumer already reads as "nothing detected"; asking a light probe
+  /// to classify a page would get a confidently wrong answer, so nothing does.
+  ///
+  /// [withLinks] implies signals: the only caller that wants links is the
+  /// settled probe that decides what the page becomes, and it needs both.
+  Future<PageProbe> probe({
+    bool withLinks = false,
+    bool withSignals = true,
+  }) async {
+    final body = withLinks
+        ? kCallProbeWithLinks
+        : (withSignals ? kCallProbe : kCallProbeLight);
+    final raw = await _call(body);
     if (raw is! Map) {
       throw BridgeException('probe returned ${raw.runtimeType}');
     }

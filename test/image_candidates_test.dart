@@ -255,4 +255,201 @@ void main() {
       expect(selection.accepted.first.url, 'https://x/lazy1.png');
     });
   });
+
+  /// The traversal predicate: the same rules, asked of a page that is still
+  /// loading. It decides which images are allowed to slow a save down, so it
+  /// has to be permissive about what has not been measured yet and firm about
+  /// what has been measured and is not content.
+  group('couldBeContent', () {
+    test('a full-size panel is content', () {
+      expect(couldBeContent(img(index: 0, src: 'https://x/p1.png')), isTrue);
+    });
+
+    test('a 300x250 advertisement slot is not content', () {
+      // The regression fixture. Its width alone clears any loosened floor;
+      // only its height gives it away, and a gate that looked at either edge
+      // let four of these hold a save at the careful pace for a whole entry.
+      expect(
+        couldBeContent(
+          img(
+            index: 0,
+            src: 'https://ads/slot.gif',
+            complete: false,
+            naturalWidth: 0,
+            naturalHeight: 0,
+            renderedWidth: 300,
+            renderedHeight: 250,
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test('an avatar is not content', () {
+      expect(
+        couldBeContent(
+          img(
+            index: 0,
+            src: 'https://x/avatar.webp',
+            complete: false,
+            naturalWidth: 0,
+            naturalHeight: 0,
+            renderedWidth: 40,
+            renderedHeight: 40,
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test('an unmeasured lazy panel is still content', () {
+      // Nothing about this image is known yet. Unknown is not small, and
+      // reading it as small is how a save walks past what it came for.
+      expect(
+        couldBeContent(
+          img(
+            index: 0,
+            dataSrc: 'https://x/lazy.png',
+            src: null,
+            complete: false,
+            naturalWidth: 0,
+            naturalHeight: 0,
+            renderedWidth: 0,
+            renderedHeight: 0,
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('a lazy panel with no reserved height is still content', () {
+      // The common shape: the column width is laid out, the height is not
+      // known until the image arrives.
+      expect(
+        couldBeContent(
+          img(
+            index: 0,
+            dataSrc: 'https://x/lazy.png',
+            src: null,
+            complete: false,
+            naturalWidth: 0,
+            naturalHeight: 0,
+            renderedWidth: 390,
+            renderedHeight: 0,
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('a broken panel is still content, so it can fail honestly', () {
+      expect(
+        couldBeContent(
+          img(
+            index: 0,
+            src: 'https://x/broken.png',
+            complete: true,
+            naturalWidth: 0,
+            naturalHeight: 0,
+            attrWidth: 800,
+            attrHeight: 1200,
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('hidden, chrome, url-less and banner images are not content', () {
+      expect(
+        couldBeContent(img(index: 0, src: 'https://x/p.png', hidden: true)),
+        isFalse,
+      );
+      expect(
+        couldBeContent(img(index: 0, src: 'https://x/p.png', chrome: true)),
+        isFalse,
+      );
+      expect(couldBeContent(img(index: 0, src: null)), isFalse);
+      expect(
+        couldBeContent(img(index: 0, src: 'data:image/gif;base64,x')),
+        isFalse,
+      );
+      expect(
+        couldBeContent(
+          img(
+            index: 0,
+            src: 'https://x/banner.png',
+            naturalWidth: 1600,
+            naturalHeight: 300,
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'every image final selection accepts, traversal treats as relevant',
+      () {
+        // The load-bearing direction. The traversal answer must be a SUPERSET
+        // of the settled one — the reverse would let the engine stop waiting
+        // for an image it then goes on to save.
+        final population = <PageImage>[
+          img(index: 0, src: 'https://x/p1.png'),
+          img(index: 1, src: 'https://x/p2.png'),
+          img(index: 2, src: 'https://x/p3.png'),
+          img(index: 3, src: 'https://x/p1.png'), // duplicate
+          img(
+            index: 4,
+            src: 'https://x/wide.png',
+            naturalWidth: 1600,
+            naturalHeight: 300,
+          ),
+          img(
+            index: 5,
+            src: 'https://x/icon.png',
+            naturalWidth: 32,
+            naturalHeight: 32,
+          ),
+          img(index: 6, src: 'https://x/hidden.png', hidden: true),
+          img(index: 7, src: 'https://x/nav.png', chrome: true),
+          img(index: 8, src: null),
+          img(
+            index: 9,
+            src: 'https://x/lazy.png',
+            complete: false,
+            naturalWidth: 0,
+            naturalHeight: 0,
+            renderedWidth: 390,
+            renderedHeight: 0,
+          ),
+          img(
+            index: 10,
+            src: 'https://ads/slot.gif',
+            complete: false,
+            naturalWidth: 0,
+            naturalHeight: 0,
+            renderedWidth: 300,
+            renderedHeight: 250,
+          ),
+        ];
+
+        final accepted = selectImageCandidates(
+          population,
+        ).accepted.map((c) => c.domIndex).toSet();
+        final relevant = population
+            .where(couldBeContent)
+            .map((i) => i.domIndex)
+            .toSet();
+
+        expect(
+          accepted.difference(relevant),
+          isEmpty,
+          reason: 'final selection accepted something traversal would skip',
+        );
+        // …and it really is a superset, not the same set: the unmeasured lazy
+        // panel is relevant while loading and only judged once it has settled.
+        expect(relevant, contains(9));
+        expect(relevant, isNot(contains(10)));
+      },
+    );
+  });
 }

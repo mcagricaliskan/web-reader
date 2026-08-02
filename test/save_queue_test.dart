@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/save/save_run.dart';
@@ -422,6 +423,178 @@ void main() {
         expect(row.entryLimit, 1);
       },
     );
+  });
+
+  /// Fetching what an update check discovered. The library holds up to 73,
+  /// the source has up to 91, and the 18 discovered entries must be fetched
+  /// 74 → 91 — the order they are read in — whatever order they were
+  /// discovered or displayed in.
+  group('newly discovered entries', () {
+    /// An entry an update check recorded: known on the source, no bytes.
+    Future<Entry> seedDiscovered(int n) async {
+      final src = url(n);
+      final id = 'r$n';
+      await db.upsertEntry(
+        Entry(
+          host: '',
+          contentKind: 'unknownWebContent',
+          contentKindConfidence: 'low',
+          contentKindIsUserSet: false,
+          id: id,
+          collectionId: 'collection-1',
+          title: 'Entry $n',
+          sourceUrl: src,
+          urlKey: src,
+          artifactFormat: 'imageSequence',
+          saveStatus: 'knownRemote',
+          detectedAssetCount: 0,
+          storedAssetCount: 0,
+          entryOrder: n,
+          byteSize: 0,
+          entryNumber: n.toDouble(),
+          sourceMarker: 'Entry $n',
+          readStatus: 'unread',
+          progressFraction: 0,
+          progressPageIndex: 0,
+          progressOffsetInPage: 0,
+          discoveredAt: DateTime(2026, 7, 27),
+          discoveryBasis: 'entryList',
+          discoveryConfidence: 'high',
+        ),
+      );
+      return (await db.entryById(id))!;
+    }
+
+    /// 74..91, in the order the caller asks for.
+    Future<List<Entry>> seedRange(Iterable<int> numbers) async {
+      final out = <Entry>[];
+      for (final n in numbers) {
+        out.add(await seedDiscovered(n));
+      }
+      return out;
+    }
+
+    Future<List<String?>> queuedStartUrls(TaskQueueController queue) async {
+      final rows = (await queue.queuedSaves())
+        ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+      return rows.map((t) => t.startUrl).toList();
+    }
+
+    List<String> expected(Iterable<int> numbers) => [
+      for (final n in numbers) url(n),
+    ];
+
+    test('74–91 queue oldest first, and end at the newest', () async {
+      await seedCollection();
+      await seedEntry(73, offline: true);
+      final queue = makeQueue();
+      final discovered = await seedRange([for (var n = 74; n <= 91; n++) n]);
+
+      final result = await queue.enqueueEntries(discovered);
+
+      expect(result.queued, 18);
+      final urls = await queuedStartUrls(queue);
+      expect(urls.first, url(74));
+      expect(urls.last, url(91));
+      expect(urls, expected([for (var n = 74; n <= 91; n++) n]));
+    });
+
+    test('a newest-first list still executes oldest first', () async {
+      await seedCollection();
+      await seedEntry(73, offline: true);
+      final queue = makeQueue();
+      // Exactly what the collection screen holds: the display order.
+      final displayed = await seedRange([for (var n = 91; n >= 74; n--) n]);
+
+      await queue.enqueueEntries(displayed);
+
+      expect(
+        await queuedStartUrls(queue),
+        expected([for (var n = 74; n <= 91; n++) n]),
+      );
+    });
+
+    test('a mixed discovery order is still deterministic', () async {
+      await seedCollection();
+      await seedEntry(73, offline: true);
+      final queue = makeQueue();
+      final jumbled = await seedRange([80, 74, 91, 77, 90, 75]);
+
+      await queue.enqueueEntries(jumbled);
+
+      expect(await queuedStartUrls(queue), expected([74, 75, 77, 80, 90, 91]));
+    });
+
+    test(
+      'entries already held are excluded without shifting the rest',
+      () async {
+        await seedCollection();
+        await seedEntry(73, offline: true);
+        final queue = makeQueue();
+        final discovered = await seedRange([for (var n = 74; n <= 79; n++) n]);
+        // 76 is already spoken for — the batch reports it and leaves it alone.
+        await queue.enqueueSave(startUrl: url(76), entryLimit: 1);
+
+        final result = await queue.enqueueEntries(discovered);
+
+        expect(result.alreadyQueued.map((c) => c.entryNumber), [76]);
+        expect(
+          await queuedStartUrls(queue),
+          // 76 keeps the place it already had; the others follow in order.
+          expected([76, 74, 75, 77, 78, 79]),
+        );
+      },
+    );
+
+    test('the worker takes the oldest first', () async {
+      await seedCollection();
+      await seedEntry(73, offline: true);
+      final queue = makeQueue();
+      await queue.enqueueEntries(
+        await seedRange([for (var n = 91; n >= 74; n--) n]),
+      );
+
+      await queue.startQueuedSaves();
+      await settle();
+
+      expect(executed.first, url(74));
+      expect(executed, expected([for (var n = 74; n <= 91; n++) n]));
+    });
+
+    test('the order survives a restart', () async {
+      await seedCollection();
+      await seedEntry(73, offline: true);
+      final first = makeQueue();
+      await first.enqueueEntries(
+        await seedRange([for (var n = 91; n >= 74; n--) n]),
+      );
+      // Killed mid-batch: one row is left claimed by the pump.
+      final claimed = (await first.queuedSaves())
+        ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+      await db.updateQueueTaskIfState(
+        id: claimed.first.id,
+        expected: [QueueTaskState.queued.name],
+        values: QueueTasksCompanion(
+          state: Value(QueueTaskState.running.name),
+          startedAt: Value(DateTime(2026, 7, 28)),
+        ),
+      );
+
+      final relaunched = makeQueue();
+      await relaunched.restore();
+
+      expect(relaunched.resumeOffered, isTrue);
+      expect(executed, isEmpty, reason: 'nothing resumes itself (Q24)');
+      expect(
+        await queuedStartUrls(relaunched),
+        expected([for (var n = 74; n <= 91; n++) n]),
+        reason: 'the demoted row goes back where it was, not to the end',
+      );
+
+      await relaunched.startQueuedSaves();
+      await settle();
+      expect(executed, expected([for (var n = 74; n <= 91; n++) n]));
+    });
   });
 
   group('queue management', () {
