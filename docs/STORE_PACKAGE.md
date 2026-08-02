@@ -11,30 +11,25 @@
 
 ## 1. Brand
 
-The working name is **Web Reader**. It is descriptive, almost certainly already
-in use, and probably not registrable — so it is fine for development and a poor
-choice for the store.
+The name is **Scrollary**. It replaced the development working name "Web Reader",
+which was descriptive, almost certainly already in use, and not a mark worth
+defending.
 
-**Recommendation: do not ship under "Web Reader", and do not pick a final name
-from this list without running the checks in §1.2.**
+### 1.1 Where each form of the name is used
 
-### 1.1 Shortlist
-
-Constraints applied: no fiction-specific word, no downloader word, pronounceable,
-≤ 12 characters, and meaningful for a read-later tool.
-
-| Candidate | Reading | Notes |
+| Surface | Value | Where it is set |
 |---|---|---|
-| **Keepread** | "keep" + "read" | Says the product in one word. Coined, so likely registrable. |
-| **Laterly** | read it later | Soft, coined, short. Check for existing SaaS use. |
-| **Pagevault** | a vault for pages | Strong "your own copy" connotation. "Vault" is crowded. |
-| **Readholt** | read + holt (a small wood / a refuge) | Distinctive and unusual; obscure second element. |
-| **Offreader** | offline reader | Very descriptive, weak as a mark. |
-| **Marginal** | margins, marginalia | Memorable; the everyday sense of "marginal" is a negative. |
+| Launcher / installed app, iOS | `Scrollary` | `CFBundleDisplayName` in `ios/Runner/Info.plist` |
+| Launcher / installed app, Android | `Scrollary` | `android:label` in `android/app/src/main/AndroidManifest.xml` |
+| Store listing, both stores | `Scrollary: Offline Web Reader` | entered in the consoles — 29 characters, inside both 30-character limits |
+| In-app wordmark | `Scrollary` | `lib/features/splash_screen.dart` |
+| Task-switcher / window title | `Scrollary` | `MaterialApp.title` in `lib/app.dart` |
 
-Recommended first choice: **Keepread**. Second: **Laterly**.
+The long store name is a listing title only. It is deliberately **not** the
+launcher label: the home screen truncates, and "Offline Web Reader" is a
+description of the product rather than part of the mark.
 
-### 1.2 Checks required before choosing (not done here)
+### 1.2 Checks still outstanding (not done in this repository)
 
 - [ ] App Store Connect name availability, all target territories
 - [ ] Google Play listing-title availability
@@ -45,16 +40,23 @@ Recommended first choice: **Keepread**. Second: **Laterly**.
 
 ### 1.3 Bundle identifier
 
-Currently `com.mcagricaliskan.webreader` on both platforms. Changing it after
-signing and provisioning exist is disruptive, so decide **before** the first
-upload. If the brand changes, change the identifier in the same pass or
-deliberately accept that it will not match the name.
+`com.mcagricaliskan.scrollary` on both platforms — the iOS
+`PRODUCT_BUNDLE_IDENTIFIER` and the Android `applicationId` and `namespace`. The
+iOS unit-test target is `com.mcagricaliskan.scrollary.RunnerTests`.
+
+It was changed from `com.mcagricaliskan.webreader` before any signing,
+provisioning or upload existed. Changing it again after the first upload is not
+possible on either store: the identifier is the app's identity, and a new one is
+a new listing. Both platforms treat a build with a new identifier as a different
+installed application, so a device carrying a pre-rename development build keeps
+that build's library in its own container; the two do not merge and neither is
+migrated.
 
 ---
 
 ## 2. Apple App Store
 
-**App name** (≤ 30 chars): `Keepread` *(placeholder — see §1)*
+**App name** (≤ 30 chars): `Scrollary: Offline Web Reader` *(29 characters.)*
 
 **Subtitle** (≤ 30 chars):
 
@@ -79,7 +81,7 @@ read later,offline reading,save article,reading list,web pages,library,reader,bo
 **Description:**
 
 ```
-Keepread is a personal reading tool. Save web pages you are allowed to keep,
+Scrollary is a personal reading tool. Save web pages you are allowed to keep,
 organise them in your own library, and read them offline — on a plane, on the
 underground, or anywhere the signal runs out.
 
@@ -87,7 +89,7 @@ BUILT FOR READING, NOT FOR HOARDING
 
 The ordinary action saves the page in front of you. Nothing else. When a page
 turns out to be part of something longer — a multi-page document, a dated series
-of posts, a set of related pages — Keepread tells you what it found and asks
+of posts, a set of related pages — Scrollary tells you what it found and asks
 before saving more. You see the source, how many items were detected, whether the
 sequence has a known end, which direction it runs, and where it will stop. You
 can review the list and pick items individually.
@@ -113,10 +115,10 @@ HONEST ABOUT WHAT IT DOES
 • Every save is something you started. There is no background saving.
 • Multi-page saves are bounded, visible in a queue, and cancellable.
 • If a site asks for a sign-in, shows a paywall, or presents a verification
-  check, saving stops and says so. Keepread does not work around paywalls,
+  check, saving stops and says so. Scrollary does not work around paywalls,
   logins, access controls, DRM or verification checks.
 • You choose what each save keeps: the page images, the readable text, or the
-  text with the pictures that sit inside it. Keepread suggests one and shows
+  text with the pictures that sit inside it. Scrollary suggests one and shows
   you the alternatives.
 • Audio and video are not saved. A saved page links back to the original.
 • Every saved page keeps its source address, and "Open original page" is one tap
@@ -126,13 +128,13 @@ PRIVACY
 
 No account. No analytics. No advertising. Your library, your reading position and
 your browsing history stay in the app's private storage on your device, and you
-can delete any of them at any time. Keepread has no server and receives nothing
+can delete any of them at any time. Scrollary has no server and receives nothing
 from you. The browser does contact the sites you choose to visit, as any browser
 does.
 
 YOU ARE RESPONSIBLE FOR WHAT YOU SAVE
 
-Keepread is a tool, not a licence. Save only content you created, own, have
+Scrollary is a tool, not a licence. Save only content you created, own, have
 permission to use, or are otherwise allowed to keep. Copyright rules, website
 terms and applicable law are yours to follow.
 ```
@@ -141,7 +143,7 @@ terms and applicable law are yours to follow.
 
 ## 3. Google Play
 
-**Title** (≤ 30 chars): `Keepread: Save & Read Offline`
+**Title** (≤ 30 chars): `Scrollary: Offline Web Reader` *(29 characters.)*
 
 **Short description** (≤ 80 chars):
 
@@ -157,7 +159,7 @@ removed.
 
 ## 4. Türkçe (Google Play / App Store)
 
-**Uygulama adı:** `Keepread`
+**Uygulama adı:** `Scrollary: Offline Web Reader`
 
 **Alt başlık / Kısa açıklama** (≤ 80 karakter):
 
@@ -168,7 +170,7 @@ Web sayfalarını kişisel kitaplığınıza kaydedin ve çevrimdışı okuyun.
 **Tam açıklama:**
 
 ```
-Keepread kişisel bir okuma aracıdır. Saklamaya hakkınız olan web sayfalarını
+Scrollary kişisel bir okuma aracıdır. Saklamaya hakkınız olan web sayfalarını
 kaydedin, kendi kitaplığınızda düzenleyin ve çevrimdışı okuyun — uçakta, metroda
 ya da bağlantının kesildiği her yerde.
 
@@ -176,7 +178,7 @@ OKUMAK İÇİN TASARLANDI
 
 Olağan işlem, önünüzdeki sayfayı kaydeder. Başka bir şey yapmaz. Bir sayfanın
 daha uzun bir bütünün parçası olduğu anlaşıldığında — çok sayfalı bir belge,
-tarihli bir gönderi dizisi, birbiriyle ilişkili sayfalar — Keepread ne bulduğunu
+tarihli bir gönderi dizisi, birbiriyle ilişkili sayfalar — Scrollary ne bulduğunu
 söyler ve devam etmeden önce sorar. Kaynağı, kaç öğe bulunduğunu, dizinin bilinen
 bir sonu olup olmadığını, hangi yönde ilerlediğini ve nerede duracağını görürsünüz.
 Listeyi inceleyip öğeleri tek tek seçebilirsiniz.
@@ -202,10 +204,10 @@ NE YAPTIĞI KONUSUNDA DÜRÜST
 • Her kayıt sizin başlattığınız bir işlemdir. Arka planda kayıt yapılmaz.
 • Çok sayfalı kayıtlar sınırlıdır, kuyrukta görünür ve iptal edilebilir.
 • Bir site oturum açma isterse, ödeme duvarı ya da doğrulama kontrolü gösterirse
-  kayıt durur ve nedenini söyler. Keepread ödeme duvarlarını, oturum açmayı,
+  kayıt durur ve nedenini söyler. Scrollary ödeme duvarlarını, oturum açmayı,
   erişim denetimlerini, DRM'i veya doğrulama kontrollerini aşmaya çalışmaz.
 • Her kaydın neyi tutacağına siz karar verirsiniz: sayfanın görselleri, okunabilir
-  metin ya da metin ile içindeki görseller. Keepread birini önerir, diğerlerini
+  metin ya da metin ile içindeki görseller. Scrollary birini önerir, diğerlerini
   de gösterir.
 • Ses ve video kaydedilmez. Kaydedilen sayfa özgün sayfaya bağlantı verir.
 • Her kaydedilen sayfa kaynak adresini korur; "Özgün sayfayı aç" okuyucudan tek
@@ -215,12 +217,12 @@ GİZLİLİK
 
 Hesap yok. Analitik yok. Reklam yok. Kitaplığınız, okuma konumunuz ve tarama
 geçmişiniz cihazınızdaki uygulamaya özel depolamada kalır ve dilediğiniz an
-silebilirsiniz. Keepread'in sunucusu yoktur ve sizden hiçbir veri almaz. Tarayıcı,
+silebilirsiniz. Scrollary'nin sunucusu yoktur ve sizden hiçbir veri almaz. Tarayıcı,
 her tarayıcı gibi, yalnızca sizin ziyaret etmeyi seçtiğiniz sitelere bağlanır.
 
 KAYDETTİKLERİNİZDEN SİZ SORUMLUSUNUZ
 
-Keepread bir araçtır, bir izin değil. Yalnızca kendi oluşturduğunuz, size ait
+Scrollary bir araçtır, bir izin değil. Yalnızca kendi oluşturduğunuz, size ait
 olan, kullanma izniniz bulunan veya saklamanıza başka bir şekilde izin verilen
 içerikleri kaydedin. Telif hakkı kurallarına, web sitesi koşullarına ve geçerli
 yasalara uymak sizin sorumluluğunuzdadır.
@@ -261,7 +263,7 @@ Shown once, immediately before the first save of an external page.
 
 > **Before you save**
 >
-> Keepread is a personal reading tool. Save only content you created, own, have
+> Scrollary is a personal reading tool. Save only content you created, own, have
 > permission to use, or are otherwise legally allowed to keep. You are
 > responsible for following copyright rules, website terms, and applicable law.
 >
@@ -401,7 +403,7 @@ or, when the file is gone rather than never fetched:
 ```
 WHAT THIS APP IS
 
-Keepread is a personal read-later and offline reading app: an embedded browser,
+Scrollary is a personal read-later and offline reading app: an embedded browser,
 a native library, and an offline reader. There is no account, no server, and no
 back end — nothing needs to be enabled for review, and no demo credentials are
 required.
