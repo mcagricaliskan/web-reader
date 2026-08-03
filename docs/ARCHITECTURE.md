@@ -16,6 +16,10 @@ It is **not** a bulk fetcher, an automated harvester, a site archiver, a client
 for particular websites, or a tool for getting past any access control. It ships no
 site list and no site-specific behaviour.
 
+It ships one list of hosts, and it is a list of hosts it **refuses** to save
+from: a conservative restricted-site capture policy covering commercial content
+services. Browsing them is untouched. See §7.1.
+
 ## 2. The model
 
 Library → Collection → Entry → Page/Section. See TERMINOLOGY.md §1.
@@ -188,6 +192,105 @@ A document's inline image that was not stored renders as an honest "this image
 was not saved" placeholder in its right position.
 
 **Not built, and out of scope:** any video capture or playback. See §11.
+
+### 7.1 The restricted-site capture policy
+
+`lib/save/capture_policy.dart`. A static, manually maintained list of commercial
+content services — subscription video, hosted commercial video, music,
+audiobooks, ebook stores and readers, licensed serialised-reading services and
+official publisher reading services — that the app **does not save from**.
+
+**Browsing them is untouched.** Back, forward, reload, the address bar, sign-in
+and ordinary navigation all work exactly as they do anywhere else. What is
+withheld is capture, and only capture. A user browsing a restricted site sees no
+warning and no explanation — the save control is simply not there.
+
+**Two rule kinds, and no third.**
+
+| Kind | Constant | Matches |
+|---|---|---|
+| Domain | `restrictedCaptureDomains` | the apex **and every subdomain**: `host == domain` or `host` ends with `.domain` |
+| Exact host | `restrictedCaptureHosts` | that normalised host and nothing else |
+
+Amazon's retail domains are on the **domain** list and are therefore blocked
+whole: its reading, video, music and audiobook services are served from paths and
+subdomains of the retail domains, and no static rule can separate a product page
+from a reader without inspecting the page. Apple and Google are on the
+**exact-host** list only — `tv.apple.com` and `play.google.com` are restricted;
+`apple.com`, `developer.apple.com`, `support.apple.com`, `google.com` and
+`developers.google.com` are not. Publisher reading services hosted beneath broad
+parent domains are named individually for the same reason.
+
+**Matching is on `Uri.host` alone.** Normalisation is: require `http`/`https`,
+lowercase, strip trailing dots; ports never appear in `Uri.host`, so a port
+changes nothing. There is no substring matching anywhere, which is what stops
+`notyoutube.com`, `fakeamazon.com` and `youtube.com.example.org` from matching,
+and why a restricted name sitting in a path or a query parameter is never seen at
+all. A malformed, hostless or non-web URL answers "not restricted" — it is not on
+the list, and every capture path already refuses it for its own reasons.
+
+**This is not a per-page judgement.** The app does not determine whether a given
+page is paid, licensed, protected or public, and does not try. Conservative
+overblocking is the deliberate trade: a marketing page, a store listing or a
+support article on one of these hosts is refused along with everything else.
+
+**Enforcement is below the UI, at every boundary independently:**
+
+| Boundary | Where |
+|---|---|
+| The Browser's save control (absent, not disabled) | `features/browser_save_state.dart`, `features/browser_screen.dart` |
+| The page-actions sheet's Save block | `features/browser_page_actions.dart` |
+| Direct start · resume · retry · enqueue · the pump · update-check scheduling | `queue/task_queue.dart` |
+| Run start, per-entry continuation, and the landed URL after a redirect | `save/save_run.dart` |
+| Before the page is probed, and again before anything is committed | `save/save_engine.dart` |
+| Update checking, every navigation it would make, and every discovered row | `library/update_checker.dart` |
+
+**And what it deliberately does not cover.** The policy asks "may this app
+capture this *page*". An asset is part of a page that has already been judged,
+so an asset's own host is never tested:
+
+| URL | Policy applies |
+|---|---|
+| The Browser's page · a task's source URL · an update-check source and every page that walk opens · a discovered entry's page · top-level navigation, redirects and the landed URL · the manifest's `sourceUrl` before commit | **yes** |
+| An image `src`, a responsive candidate, a CSS background, a document's inline image · the CDN or third-party host delivering any of them · an **asset request's** own redirects | **no** |
+
+That second row is load-bearing. Ordinary sites deliver their pictures through
+CDNs owned by large commercial platforms, and a host under `amazon.com`,
+`googlevideo.com` or `books.google.com` serving an image on an otherwise
+permitted page is completely normal. Testing it against the list refused those
+images and marked the entry `partial` — a false refusal on content the user was
+entitled to keep, produced by a rule aimed at something else entirely.
+
+A **top-level** redirect into a restricted site still ends the run (`save_run.dart`
+checks the landed URL). An **asset** redirect onto a restricted CDN does not: it
+is not a document navigation, and the page it belongs to was judged already.
+
+`AssetFetcher` therefore does not import the policy and is **not** the
+authoritative boundary. It cannot become one either: it accepts image bytes only
+(magic number, not `Content-Type`), writes into an already-open staging
+directory, and returns an `EntryAsset` — there is no path from it to a page, a
+document or a row. `SaveEngine` validates the page *before* `fileStore.beginEntry`,
+so a restricted page never opens a staging directory and never reaches the
+download loop at all; `test/asset_host_policy_test.dart` asserts that no request
+is made in that case. The audio/video refusal that lives in `AssetFetcher` is a
+separate rule (§7) and is untouched by any of this.
+
+A refused queue row becomes a terminal `failed` row carrying
+`StopReason.captureRestrictedForSite` (§6). It is kept rather than deleted,
+nothing re-runs it on its own, and `retryTask` refuses to clone it.
+
+**It never touches what is already held.** No collection, entry, file, reading
+position, read state or history is modified or removed by this policy — it
+prevents *new* capture, re-capture, retry, resume, continuation and update
+discovery, and nothing else.
+
+**Independent of the media rules.** §7 and §11 still apply everywhere: on a
+permitted site audio and video are still never saved, and unsupported media is
+never reclassified as image or text in order to continue.
+
+**This is risk reduction, not a compliance guarantee.** The list is incomplete by
+construction, and a host's absence from it says nothing about whether saving a
+given page is permitted. Reasoning is in STORE_POLICY_MAP.md §1.
 
 ## 8. Database — version 1, created whole
 
@@ -417,8 +520,34 @@ collection rather than joining a ghost.
 - **Only manual navigation enters browsing history.** Enforced twice: the source
   the automation sets, and `effectiveNavigationSource`, which cannot answer
   `manual` while `automationOwner` is held.
+- **An update check is a visible foreground operation, and a shallow one.**
+  Three parts, and dropping any of them makes the Browser move on its own with
+  nobody able to see or stop it. It **opens the page it is about to read**: the
+  queue asks `UpdateChecker.firstPageToInspect` and passes it to the shell's
+  `ensureBrowserVisible`, which routes it through `BrowserNavigator` — the same
+  mechanism every "open in Browser" uses, and the reason the page is *revealed*
+  rather than loaded behind Browser Home. It **shows `UpdateCheckPanel`** in the
+  same slot the save run gets, sharing `features/operation_panel.dart` so
+  neither panel is a copy of the other, and stopping goes through
+  `TaskQueueController.stopRunningCheck` so the Activity row and the panel agree.
+  And it **follows at most `kUpdateCheckForwardDepth` (2) next-entry links**:
+  the page a check starts on is depth 0, so two hops are two further pages, and
+  whatever is beyond is left for the next check, which resumes from the
+  `next_source_url` this one stored. The bound is on `UpdateCheckConfig` and is
+  check-only — save ranges come from `SaveLimits.forScope` and share nothing
+  with it.
 - **The app ships no page hints.** `user_page_hints` is empty on a clean install
   and nothing seeds it.
+- **The restricted-site policy lives in one file and is asked at every
+  boundary.** `lib/save/capture_policy.dart` is the only file in `lib/` that may
+  name a host, and it only ever *refuses*. Declaring
+  `restrictedCaptureDomains` or `restrictedCaptureHosts` anywhere else fails
+  `test/repository_cleanliness_test.dart` — a second copy is how the UI ends up
+  hiding a control the engine still honours, or the reverse. Every capture
+  boundary enforces the policy by importing it, never by keeping its own copy;
+  a hidden button is not enforcement. **It judges pages, never assets** — an
+  image's delivery host is not a capture source, and `AssetFetcher` must not
+  import it. See §7.1.
 - **`AppPalette` is the only source of colour.** `test/theme_palette_test.dart`
   scans `lib/` and fails on a literal `Color(0x…)`.
 - **drift trap:** `insertOnConflictUpdate` treats a null field as *absent*, so
@@ -447,6 +576,7 @@ yet reachable from a screen.
 | Bounded scopes, required `range`, no unbounded run | **Built**, tested |
 | Audio/video never fetched | **Built** (image-only MIME allow-list) |
 | Video-dominant pages classified and refused | **Built**, tested; **no video capture or playback exists** |
+| Restricted-site capture policy (§7.1) | **Built**, tested (`capture_policy_test.dart`, `capture_restriction_test.dart`, `asset_host_policy_test.dart`); the list is static and manually maintained, and applies to pages only |
 | Offline reader, reading position, queue, cleanup, archive, storage | **Built**, tested |
 | Permanent collection deletion (§8.2) | **Built**, tested (`collection_delete_test.dart`) |
 | Repository-cleanliness guard | **Built**, tested |

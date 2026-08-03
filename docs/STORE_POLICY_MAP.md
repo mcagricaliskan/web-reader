@@ -49,18 +49,93 @@ user can open. Nothing in it verifies whether that copy is permitted.
 
 | Mitigation | Where |
 |---|---|
-| **No provider catalogue.** No hostname, selector, site list or "supported sites" exists in the binary. `test/repository_cleanliness_test.dart` fails the build if one appears. | `test/repository_cleanliness_test.dart` |
+| **No provider catalogue.** No hostname, selector, site list or "supported sites" exists in the binary. `test/repository_cleanliness_test.dart` fails the build if one appears. The single allowance is the restricted-site list below, which only ever *refuses*: nothing on it makes a site work. | `test/repository_cleanliness_test.dart` |
 | **No site-specific behaviour.** Continuation detection uses only `rel=next`/`rel=prev`, semantic anchor text, pagination `aria-label`, `<article>`/`<time datetime>`, JSON-LD dates and measured layout. | `lib/save/content_detection.dart`, `lib/save/next_page.dart` |
 | **User-created hints are local preferences, not a catalogue.** `user_page_hints` starts empty, is written only when a person taps an element, and never syncs. Asserted in tests. | `lib/storage/database.dart`, `lib/save/page_hint.dart` |
 | **Every save is user-initiated.** There is no background save, no scheduler and no queue that starts itself; queued work waits for an explicit *Start*. | `lib/queue/task_queue.dart` |
 | **Content-rights disclosure before the first external save**, versioned, re-readable from Settings. **Not built yet** — wording fixed, surface deferred (§8). | §8 below |
-| **Store listing avoids inducement wording** — no "download", "downloader", "unlimited", "any website", "bulk". | `docs/STORE_PACKAGE.md` |
+| **Restricted-site capture policy.** A static list of commercial content services the app will not save from — subscription video, hosted commercial video, music, audiobooks, ebook stores and readers, licensed serialised reading, and official publisher reading services. Browsing them is untouched; only capture is withheld. See below. | `lib/save/capture_policy.dart` |
+| **Store listing avoids inducement wording** — no "download", "downloader", "unlimited", "any website", "bulk" — and says plainly that saving is not offered on some commercial services. | `docs/STORE_PACKAGE.md` |
 | **Store assets use only original content.** | `docs/STORE_PACKAGE.md` §demo |
 
 **Unresolved (legal, not engineering).** Whether a personal offline copy made
 through an embedded browser is permitted differs by jurisdiction and by each
 site's terms. The app cannot determine this and does not claim to. A lawyer
 should review the Terms and the content-rights wording before submission.
+
+#### The restricted-site capture policy
+
+The mitigations above are all about *how much* and *how deliberately* the app
+saves. This one is about *where it will not save at all*.
+
+`lib/save/capture_policy.dart` holds a static list of commercial content
+services. On a host it names, the save control is **absent** — not disabled, not
+explained, not preceded by a warning — and the address stays fully browsable:
+back, forward, reload, the address bar and sign-in all work normally. The user is
+not told off for visiting; they are simply not offered a save.
+
+- **Two rule kinds.** A *domain* rule covers the apex and every subdomain. An
+  *exact host* rule covers one host. Matching is on the parsed `Uri.host` only
+  — lowercased, trailing dots stripped, ports irrelevant, `http` and `https`
+  identical — with no substring matching anywhere, so `notyoutube.com`,
+  `fakeamazon.com` and `youtube.com.example.org` do not match, and a restricted
+  name inside a path or query parameter is never examined.
+- **Amazon's retail domains are blocked whole**, deliberately. Reading, video,
+  music and audiobook services are served from paths and subdomains of the retail
+  domains, and no static rule can separate a product page from a reader without
+  inspecting the page — which this policy does not do.
+- **Apple and Google are restricted only through selected content-service
+  hosts.** `tv.apple.com`, `music.apple.com`, `books.apple.com`,
+  `podcasts.apple.com`, `itunes.apple.com`, `play.google.com`,
+  `books.google.com`. The parent domains and their unrelated subdomains
+  (`developer.apple.com`, `support.apple.com`, `developers.google.com`) are
+  untouched. The same reasoning applies to publisher reading services hosted
+  under broad corporate parents, which are named individually.
+- **No per-page judgement.** The app does not detect DRM, read Terms of Service,
+  fetch remote configuration, or try to work out whether a page is paid or
+  public. **Conservative overblocking is accepted**: a marketing page, a store
+  listing or a support article on one of these hosts is refused with everything
+  else.
+- **Enforced below the UI.** Hiding a button is not a control. Direct start, Add
+  to Queue, the queue pump, resume, retry, multi-entry continuation, top-level
+  redirects mid-run, update checking, discovered-entry recording, and the save
+  engine before it probes *and* again before it commits each ask the policy
+  independently. A queued row from before a host joined the list is settled as a
+  terminal failure rather than run. `test/capture_restriction_test.dart` proves
+  each of these with the UI out of the picture.
+- **It governs pages, not the assets inside them.** The policy answers "may this
+  app capture this page". An image `src`, a responsive candidate, a CSS
+  background, a document's inline image, the CDN delivering any of them, and an
+  asset request's own redirects are **not** capture sources and are not tested
+  against the list. Ordinary sites deliver their pictures through CDNs owned by
+  large commercial platforms, and refusing those marked perfectly permitted
+  entries as incomplete for a reason unrelated to them. A **top-level** redirect
+  into a restricted site still ends the run; an **asset** redirect onto a
+  restricted CDN does not. The page is judged before a staging directory is
+  opened, so a restricted page never reaches a download at all
+  (`test/asset_host_policy_test.dart`).
+- **Independent of the media rules.** 5.2.3 above still applies everywhere and is
+  enforced separately, at the byte level: the asset fetcher accepts image bytes
+  only, verified by magic number, so audio and video are refused from **any**
+  host, restricted or not, and unsupported media is never reclassified in order
+  to continue. Narrowing the restricted-site policy to pages did not touch that
+  allow-list. This is an additional layer, not a replacement.
+- **Nothing already saved is affected.** The policy prevents new capture,
+  re-capture, retry, resume, continuation and update discovery. It never deletes
+  or modifies a collection, an entry, a downloaded file, reading progress,
+  read state or history.
+- **The user-facing sentence is neutral**: *"Saving isn't available on this
+  site."* It states what the app does. It never characterises what the user was
+  trying to do, and makes no accusation about copyright.
+
+**The list is static, incomplete by construction, and manually maintained.** It
+is a risk-reduction measure, **not a claim of copyright or legal compliance**,
+and a host's absence from it says nothing about whether saving a given page is
+permitted. There is no user override and no developer bypass in a release build.
+
+`test/repository_cleanliness_test.dart` allows this one file to name hosts, and
+fails the build if the constants are declared anywhere else — one authority, or
+the UI and the engine drift apart.
 
 ### Apple 5.2.3 (Audio/Video Downloading)
 
@@ -271,14 +346,19 @@ cookie manipulation and no waiting-out of a rate limit.
 | Layout changed | image-heavy → text, or content disappeared | `structureChanged` |
 | Unclear next page | confidence gate in the next-page chain | `lowConfidence` |
 | User's ceiling | `SaveLimits.maxEntries` / `maxBytes` | `userLimitReached` / `storageLimitReached` |
+| **This app's own restricted-site policy** | a static host list (§1) — not something the site did | `captureRestrictedForSite` |
 
-Two design points matter for review:
+Three design points matter for review:
 
 1. **Phrase hints never fire alone.** "Subscribe to continue" in a footer is not
    a paywall. A phrase counts only alongside a structural signal or a near-empty
    document — which is what a real interstitial looks like.
 2. **"Finished" and "the site stopped us" are different outcomes**, stored in a
    column (`save_runs.stop_reason`), not inferred from a log line.
+3. **`captureRestrictedForSite` is the app declining, not the site refusing.**
+   It is deliberately excluded from `StopReason.isAccessGate`: reporting it as
+   an access gate would claim something about the site that is not true, and the
+   sentence the user reads says only that saving is not available here.
 
 ---
 
@@ -331,3 +411,5 @@ external task tracked in the final report.
 | R6 | Age-rating questionnaires can only be answered in the consoles | Low | Checklist in `docs/STORE_PACKAGE.md` |
 | R7 | Demo site not hosted | Medium | External task |
 | R8 | The URL bar's default search provider is hardcoded to one third-party service | Low | Product — a search engine is not a content provider and is never saved from, but making it user-selectable would remove the only third-party name in the build |
+| R9 | The restricted-site list is static, hand-maintained and incomplete; a service not on it can still be saved from | Medium | Product — deliberate: dynamic remote configuration is out of scope (§1). Reduces risk, does not eliminate it, and is never described as compliance |
+| R10 | Conservative overblocking refuses ordinary pages (marketing, support, editorial) on restricted hosts | Low | Product — accepted trade. Browsing is unaffected; the alternative is per-page judgement the app cannot make |

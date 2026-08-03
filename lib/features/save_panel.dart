@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../save/save_run.dart';
 import '../save/save_state.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'operation_panel.dart';
 
 /// Status and controls for the running save run, docked under the WebView.
 ///
@@ -36,212 +36,114 @@ class SavePanel extends StatelessWidget {
         ? (p.storedImages / p.detectedImages).clamp(0.0, 1.0)
         : 0.0;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: palette.surface,
-        border: Border(top: BorderSide(color: palette.border)),
-      ),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              _PhaseChip(state: p.state),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  'entry ${p.entryIndex}/${p.requestedEntries}'
-                  ' · ${p.storedEntries} stored'
-                  '${p.skippedEntries > 0 ? ' · ${p.skippedEntries} skipped' : ''}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: monoStyle(size: 11.5, color: palette.inkMuted),
-                ),
-              ),
-              InkWell(
-                onTap: onToggle,
-                borderRadius: BorderRadius.circular(999),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 4,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        expanded ? 'Hide log' : 'Log',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontVariations: wght(500),
-                          fontWeight: FontWeight.w500,
-                          color: palette.primary,
-                        ),
-                      ),
-                      Icon(
-                        expanded ? Icons.expand_more : Icons.expand_less,
-                        size: 16,
-                        color: palette.primary,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (p.message.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              p.message,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: palette.inkStrong),
-            ),
-          ],
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: p.state == SaveState.scrolling ? null : pct,
-              minHeight: 5,
-              backgroundColor: palette.border,
-              color: run.isPaused ? palette.inkMuted : palette.primary,
-            ),
-          ),
-          const SizedBox(height: 7),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${p.storedImages} / ${p.detectedImages} images'
-                '${p.failedImages > 0 ? ' · ${p.failedImages} failed' : ''}',
-                style: monoStyle(
-                  color: p.failedImages > 0 ? palette.danger : palette.inkMuted,
-                ),
-              ),
-              Text(
-                'scroll ${(p.scrollPercent * 100).round()}%'
-                '${p.retryCount > 0 ? ' · retry ${p.retryCount}' : ''}',
-                style: monoStyle(color: palette.inkMuted),
-              ),
-            ],
-          ),
-          if (p.lastError != null) ...[
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-              decoration: BoxDecoration(
-                color: palette.dangerContainer,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: palette.dangerBorder),
-              ),
+    return OperationPanelFrame(
+      children: [
+        Row(
+          children: [
+            _PhaseChip(state: p.state),
+            const SizedBox(width: 9),
+            Expanded(
               child: Text(
-                p.lastError!,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  height: 1.45,
-                  color: palette.onDangerContainer,
-                ),
+                'entry ${p.entryIndex}/${p.requestedEntries}'
+                ' · ${p.storedEntries} stored'
+                '${p.skippedEntries > 0 ? ' · ${p.skippedEntries} skipped' : ''}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: monoStyle(size: 11.5, color: palette.inkMuted),
               ),
             ),
+            OperationLogToggle(expanded: expanded, onToggle: onToggle),
           ],
-          if (expanded && run.log.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(11, 10, 11, 8),
-              decoration: BoxDecoration(
-                color: palette.toastSurface,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 96),
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (final line in run.log.take(40))
-                            Text(
-                              line,
-                              style: TextStyle(
-                                fontFamily: 'IBM Plex Mono',
-                                fontSize: 10.5,
-                                height: 1.7,
-                                color: line.contains('fail')
-                                    ? AppPalette.dark.danger
-                                    : palette.toastInk,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  InkWell(
-                    onTap: () => _copyLog(context, run),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.content_copy,
-                          size: 14,
-                          color: palette.toastAccent,
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          'Copy log',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: palette.toastAccent,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          if (run.isRunning) ...[
-            const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  if (run.isPaused)
-                    _PrimaryCtl('Resume', Icons.play_arrow, run.resume)
-                  else
-                    _PrimaryCtl('Pause', Icons.pause, run.pause),
-                  const SizedBox(width: 7),
-                  _PillCtl('Stop', Icons.stop, run.stop),
-                  const SizedBox(width: 7),
-                  _PillCtl('Retry', Icons.refresh, run.retryCurrentEntry),
-                  const SizedBox(width: 7),
-                  _PillCtl('Skip', Icons.skip_next, run.skipCurrentEntry),
-                  const SizedBox(width: 7),
-                  _PillCtl(
-                    'Pick reader',
-                    Icons.ads_click,
-                    run.requestReaderAreaSelection,
-                  ),
-                  const SizedBox(width: 7),
-                  _PillCtl(
-                    'Pick next',
-                    Icons.low_priority,
-                    run.requestNextLinkSelection,
-                  ),
-                ],
-              ),
-            ),
-          ],
+        ),
+        if (p.message.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            p.message,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: palette.inkStrong),
+          ),
         ],
-      ),
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: LinearProgressIndicator(
+            value: p.state == SaveState.scrolling ? null : pct,
+            minHeight: 5,
+            backgroundColor: palette.border,
+            color: run.isPaused ? palette.inkMuted : palette.primary,
+          ),
+        ),
+        const SizedBox(height: 7),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${p.storedImages} / ${p.detectedImages} images'
+              '${p.failedImages > 0 ? ' · ${p.failedImages} failed' : ''}',
+              style: monoStyle(
+                color: p.failedImages > 0 ? palette.danger : palette.inkMuted,
+              ),
+            ),
+            Text(
+              'scroll ${(p.scrollPercent * 100).round()}%'
+              '${p.retryCount > 0 ? ' · retry ${p.retryCount}' : ''}',
+              style: monoStyle(color: palette.inkMuted),
+            ),
+          ],
+        ),
+        if (p.lastError != null) ...[
+          const SizedBox(height: 8),
+          OperationErrorNote(message: p.lastError!),
+        ],
+        if (expanded && run.log.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          OperationLogDrawer(
+            lines: run.log,
+            onCopy: () => _copyLog(context, run),
+          ),
+        ],
+        if (run.isRunning) ...[
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                if (run.isPaused)
+                  OperationPrimaryButton('Resume', Icons.play_arrow, run.resume)
+                else
+                  OperationPrimaryButton('Pause', Icons.pause, run.pause),
+                const SizedBox(width: 7),
+                OperationPillButton('Stop', Icons.stop, run.stop),
+                const SizedBox(width: 7),
+                OperationPillButton(
+                  'Retry',
+                  Icons.refresh,
+                  run.retryCurrentEntry,
+                ),
+                const SizedBox(width: 7),
+                OperationPillButton(
+                  'Skip',
+                  Icons.skip_next,
+                  run.skipCurrentEntry,
+                ),
+                const SizedBox(width: 7),
+                OperationPillButton(
+                  'Pick reader',
+                  Icons.ads_click,
+                  run.requestReaderAreaSelection,
+                ),
+                const SizedBox(width: 7),
+                OperationPillButton(
+                  'Pick next',
+                  Icons.low_priority,
+                  run.requestNextLinkSelection,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -369,19 +271,9 @@ Future<void> _copyLog(BuildContext context, SaveRunController run) async {
       'failed: ${p.failedImages}  retries: ${p.retryCount}',
     );
   if (p.lastError != null) buffer.writeln('error: ${p.lastError}');
-  buffer.writeln('---');
-  for (final line in run.log.reversed) {
-    buffer.writeln(line);
-  }
+  buffer.write('---');
 
-  await Clipboard.setData(ClipboardData(text: buffer.toString()));
-  if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text('Copied ${run.log.length} log lines'),
-      duration: const Duration(seconds: 2),
-    ),
-  );
+  await copyOperationLog(context, header: buffer.toString(), lines: run.log);
 }
 
 /// The run-phase chip: icon + uppercase mono label. Terminal states carry
@@ -448,68 +340,12 @@ class _PhaseChip extends StatelessWidget {
       _ => (Icons.downloading, accent.$1, accent.$2, accent.$3),
     };
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(8, 5, 10, 5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: bd),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: fg),
-          const SizedBox(width: 6),
-          Text(
-            state.label.toUpperCase(),
-            style: TextStyle(
-              fontFamily: 'IBM Plex Mono',
-              fontSize: 11.5,
-              letterSpacing: 0.35,
-              fontWeight: FontWeight.w500,
-              color: fg,
-            ),
-          ),
-        ],
-      ),
+    return OperationChip(
+      icon: icon,
+      label: state.label,
+      background: bg,
+      foreground: fg,
+      border: bd,
     );
   }
-}
-
-class _PrimaryCtl extends StatelessWidget {
-  const _PrimaryCtl(this.label, this.icon, this.onTap);
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => FilledButton.icon(
-    onPressed: onTap,
-    icon: Icon(icon, size: 17),
-    label: Text(label, style: const TextStyle(fontSize: 12.5)),
-    style: FilledButton.styleFrom(
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-    ),
-  );
-}
-
-class _PillCtl extends StatelessWidget {
-  const _PillCtl(this.label, this.icon, this.onTap);
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => OutlinedButton.icon(
-    onPressed: onTap,
-    icon: Icon(icon, size: 17),
-    label: Text(label, style: const TextStyle(fontSize: 12.5)),
-    style: OutlinedButton.styleFrom(
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      foregroundColor: AppPalette.of(context).inkStrong,
-      side: BorderSide(color: AppPalette.of(context).borderStrong),
-    ),
-  );
 }

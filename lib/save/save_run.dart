@@ -17,6 +17,7 @@ import '../storage/database.dart';
 import '../storage/file_store.dart';
 import 'asset_fetcher.dart';
 import 'capture_mode.dart';
+import 'capture_policy.dart';
 import 'save_engine.dart';
 import 'save_preflight.dart';
 import 'save_state.dart';
@@ -601,6 +602,28 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     // refuses to start is still a run, and it still has a result to report.
     _runId = _uuid.v4();
 
+    // The restricted-site policy, before the disk preflight and before the
+    // WebView is claimed. A run that cannot legitimately start must not take
+    // the Browser, write a `save_runs` row, or enable the wakelock — so this
+    // is the first thing asked, and it returns without touching any of them.
+    final beginTarget = startUrl ?? browser.currentUrl;
+    if (isCaptureRestricted(beginTarget)) {
+      _running = false;
+      _log.clear();
+      stopReason = StopReason.captureRestrictedForSite;
+      _addLog('refused to start: $kCaptureRestrictedMessage ($beginTarget)');
+      _setProgress(
+        (_) => const SaveProgress().copyWith(
+          state: SaveState.failed,
+          currentUrl: beginTarget,
+          lastError: StopReason.captureRestrictedForSite.name,
+          message: kCaptureRestrictedMessage,
+        ),
+      );
+      _publishRunRecord(beginTarget);
+      return;
+    }
+
     // Disk preflight: starting a save that cannot write is worse than
     // refusing one. Unknown free space is allowed through (the rolling
     // per-entry check will also try, and refusing to save because a
@@ -776,6 +799,18 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
         break;
       }
 
+      // The restricted-site policy, re-asked for every entry the chain reaches.
+      // A multi-entry run walks addresses nobody has seen, so the check that
+      // cleared entry 1 says nothing about entry 7. Nothing is probed,
+      // scrolled, inspected or downloaded for this address: the loop stops here
+      // and everything already committed stays exactly as it is.
+      final siteGate = checkCaptureSite(url);
+      if (siteGate.isBlocked) {
+        stopReason = siteGate.reason;
+        _addLog('stopped (${siteGate.reason!.name}): ${siteGate.evidence}');
+        break;
+      }
+
       // Rolling disk check: multi-entry and until-end runs must not write
       // the device into the ground. Estimated from this collection's own entries
       // when it has any; the conservative default otherwise.
@@ -844,6 +879,21 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
 
         // Where we landed after redirects is what matters, not where we aimed.
         final landed = browser.currentUrl;
+
+        // A redirect into a restricted service ends the run immediately, before
+        // the page is probed, before the duplicate decision, and before the
+        // engine is handed the page. Committed entries and reading progress are
+        // untouched; only this attempt stops.
+        final landedGate = checkCaptureSite(landed);
+        if (landedGate.isBlocked) {
+          stopReason = landedGate.reason;
+          _addLog(
+            'stopped (${landedGate.reason!.name}) after a redirect: '
+            '${landedGate.evidence}',
+          );
+          break;
+        }
+
         if (landed.isNotEmpty && normalizeUrl(landed) != normalizeUrl(url)) {
           final check = validateNextUrl(
             candidate: landed,

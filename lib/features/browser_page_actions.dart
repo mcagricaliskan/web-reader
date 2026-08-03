@@ -22,17 +22,27 @@ enum PageAction { save, addToSavedSites, findInPage, none }
 /// Actions that cannot apply are absent, not disabled-and-mysterious: on a
 /// blank Browser there is nothing to copy, share or save, so the sheet is
 /// only offered once a page is loaded.
+/// [canSave] is false when the restricted-site capture policy covers this page.
+/// The Save block is then **absent** — the sheet closes up around it, exactly
+/// as it does for any other action that cannot apply. Everything else on the
+/// sheet (saved sites, copy, share, open externally, find, site information) is
+/// ordinary browsing and stays.
 Future<PageAction> showPageActionsSheet({
   required BuildContext context,
   required WidgetRef ref,
   required String url,
   required String title,
+  bool canSave = true,
 }) async {
   final action = await showModalBottomSheet<PageAction>(
     context: context,
     showDragHandle: true,
-    builder: (sheetContext) =>
-        _PageActionsSheet(url: url, title: title, parentRef: ref),
+    builder: (sheetContext) => _PageActionsSheet(
+      url: url,
+      title: title,
+      parentRef: ref,
+      canSave: canSave,
+    ),
   );
   return action ?? PageAction.none;
 }
@@ -42,11 +52,13 @@ class _PageActionsSheet extends ConsumerWidget {
     required this.url,
     required this.title,
     required this.parentRef,
+    required this.canSave,
   });
 
   final String url;
   final String title;
   final WidgetRef parentRef;
+  final bool canSave;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -86,54 +98,59 @@ class _PageActionsSheet extends ConsumerWidget {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
-            child: Material(
-              color: palette.primary,
-              borderRadius: BorderRadius.circular(14),
-              child: InkWell(
-                key: const ValueKey('pageActionSave'),
-                onTap: () => Navigator.of(context).pop(PageAction.save),
+          if (canSave)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
+              child: Material(
+                color: palette.primary,
                 borderRadius: BorderRadius.circular(14),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-                  child: Row(
-                    children: [
-                      Icon(Icons.download, size: 21, color: palette.onPrimary),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Save',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontVariations: wght(600),
-                                fontWeight: FontWeight.w600,
-                                color: palette.onPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'This entry, or a number of entries from here',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: palette.onPrimary.withValues(
-                                  alpha: 0.78,
+                child: InkWell(
+                  key: const ValueKey('pageActionSave'),
+                  onTap: () => Navigator.of(context).pop(PageAction.save),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.download,
+                          size: 21,
+                          color: palette.onPrimary,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Save',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontVariations: wght(600),
+                                  fontWeight: FontWeight.w600,
+                                  color: palette.onPrimary,
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 2),
+                              Text(
+                                'This entry, or a number of entries from here',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: palette.onPrimary.withValues(
+                                    alpha: 0.78,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
           DecoratedBox(
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: palette.divider)),

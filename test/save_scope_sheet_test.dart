@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/core/config.dart';
 import 'package:web_reader/save/capture_mode.dart';
@@ -17,7 +18,13 @@ void main() {
     CaptureCapabilities capabilities = const CaptureCapabilities.unanalysed(),
     CaptureMode? preferredMode,
     bool canRemember = false,
+    TextScaler textScale = TextScaler.noScaling,
   }) => MaterialApp(
+    // Above the Navigator, so the sheet's own route inherits it too.
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: textScale),
+      child: child!,
+    ),
     home: Builder(
       builder: (context) => Center(
         child: ElevatedButton(
@@ -52,6 +59,47 @@ void main() {
     tester.view.physicalSize = const Size(320, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
+  }
+
+  /// A phone-sized surface. With the keypad open the sheet is taller than the
+  /// test default, and the launches live below it.
+  void phone(WidgetTester tester) {
+    tester.view.physicalSize = const Size(390, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+  }
+
+  /// The number as the sheet is showing it; '—' when nothing is entered.
+  String shownCount(WidgetTester tester) => tester
+      .widget<Text>(find.byKey(const ValueKey('saveCountValueText')))
+      .data!;
+
+  Future<void> tapKey(WidgetTester tester, String id) async {
+    final key = find.byKey(ValueKey(id));
+    await tester.ensureVisible(key);
+    await tester.pumpAndSettle();
+    await tester.tap(key);
+    await tester.pumpAndSettle();
+  }
+
+  /// Enters a number the only way the sheet allows: on its own keys. There is
+  /// no text input to type into, so an existing value is deleted digit by
+  /// digit exactly as a person would have to.
+  Future<void> typeCount(WidgetTester tester, String digits) async {
+    for (var i = 0; i < 12 && shownCount(tester) != '—'; i++) {
+      await tapKey(tester, 'keypadDelete');
+    }
+    for (final d in digits.split('')) {
+      await tapKey(tester, 'keypadKey_$d');
+    }
+  }
+
+  /// Chooses the typed-count range on an already-open sheet.
+  Future<void> chooseCount(WidgetTester tester) async {
+    await tester.ensureVisible(find.text('Number of entries'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Number of entries'));
+    await tester.pumpAndSettle();
   }
 
   testWidgets('exactly the two choices, no count presets', (tester) async {
@@ -132,16 +180,13 @@ void main() {
     testWidgets('Start Save returns the range with the direct intent', (
       tester,
     ) async {
+      phone(tester);
       SaveRangeChoice? result;
       await tester.pumpWidget(host(onResult: (r) => result = r));
       await open(tester);
 
-      await tester.ensureVisible(find.text('Number of entries'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Number of entries'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '150');
-      await tester.pumpAndSettle();
+      await chooseCount(tester);
+      await typeCount(tester, '150');
       await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('saveStartNow')));
@@ -210,22 +255,15 @@ void main() {
   });
 
   testWidgets('typed count is validated for both actions', (tester) async {
-    // A phone-sized surface: with the count field open the sheet is taller
-    // than the test default, and the actions live below it.
-    tester.view.physicalSize = const Size(390, 900);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.reset);
+    phone(tester);
 
     SaveRangeChoice? result;
     await tester.pumpWidget(host(onResult: (r) => result = r));
     await open(tester);
-    await tester.ensureVisible(find.text('Number of entries'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Number of entries'));
-    await tester.pumpAndSettle();
+    await chooseCount(tester);
 
     // Zero refuses — and the sheet stays open, error visible.
-    await tester.enterText(find.byType(TextField), '0');
+    await typeCount(tester, '0');
     await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('saveStartNow')));
@@ -242,7 +280,7 @@ void main() {
     expect(result, isNull);
 
     // Excessive refuses, naming the bound.
-    await tester.enterText(find.byType(TextField), '9999');
+    await typeCount(tester, '9999');
     await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('saveStartNow')));
@@ -253,16 +291,8 @@ void main() {
     );
     expect(result, isNull);
 
-    // Decimals cannot be typed at all (digits-only keyboard filter).
-    await tester.enterText(find.byType(TextField), '3.5');
-    expect(
-      tester.widget<TextField>(find.byType(TextField)).controller!.text,
-      '35',
-    );
-
     // A valid number shows the summary and returns with the chosen launch.
-    await tester.enterText(find.byType(TextField), '8');
-    await tester.pump();
+    await typeCount(tester, '8');
     expect(find.textContaining('Save 8 items'), findsOneWidget);
     expect(find.textContaining('Foo Entry 137'), findsWidgets);
     await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
@@ -274,150 +304,351 @@ void main() {
     expect(result?.action, SaveSheetAction.startNow);
   });
 
-  /// Confirming the number and authorising the save are separate acts. A
-  /// number pad has no return key on iOS, so the sheet has to offer the way
-  /// out itself — and that way out must not start anything.
-  group('confirming the typed count', () {
-    /// A phone-sized surface: with the count field open the sheet is taller
-    /// than the test default.
-    void phone(WidgetTester tester) {
-      tester.view.physicalSize = const Size(390, 900);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.reset);
-    }
-
-    /// Chooses the typed-count range on an already-open sheet.
-    Future<TextField> chooseCount(WidgetTester tester) async {
-      await tester.ensureVisible(find.text('Number of entries'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Number of entries'));
-      await tester.pumpAndSettle();
-      return tester.widget<TextField>(find.byType(TextField));
-    }
-
-    Future<TextField> openCount(WidgetTester tester) async {
-      phone(tester);
+  /// The sheet draws its own number keys.
+  ///
+  /// A platform keyboard cannot be asked for "digits and an OK": iOS renders a
+  /// number pad with no return key at all, Android renders whichever IME the
+  /// user installed, and neither is something this sheet can promise. So it
+  /// promises nothing and draws the keys itself — the same ten digits, the
+  /// same delete, the same OK, on both platforms.
+  group('the count keypad', () {
+    Future<void> openCount(WidgetTester tester) async {
       await open(tester);
-      return chooseCount(tester);
+      await chooseCount(tester);
     }
 
-    testWidgets('the Done action is on screen with the field', (tester) async {
-      // At 320pt: the field, its label and the action share one row on the
-      // narrowest phone the design supports.
-      narrow(tester);
+    testWidgets('choosing the range reveals the keypad, not a keyboard', (
+      tester,
+    ) async {
+      phone(tester);
       await tester.pumpWidget(host(onResult: (_) {}));
       await open(tester);
 
-      // Not before: with no count to confirm there is nothing to confirm.
-      expect(find.byKey(const ValueKey('saveCountDone')), findsNothing);
+      // Not before: with no number being typed there are no keys.
+      expect(find.byKey(const ValueKey('saveCountKeypad')), findsNothing);
 
       await chooseCount(tester);
-      final done = find.byKey(const ValueKey('saveCountDone'));
-      expect(done, findsOneWidget);
-      expect(find.text('Done'), findsOneWidget);
-      expect(tester.getRect(done).right, lessThanOrEqualTo(320));
+      expect(find.byKey(const ValueKey('saveCountKeypad')), findsOneWidget);
+      expect(find.byKey(const ValueKey('saveCountValue')), findsOneWidget);
+
+      // Nothing here can summon the platform's keyboard, because nothing here
+      // is a text input.
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byType(EditableText), findsNothing);
+      expect(tester.testTextInput.isVisible, isFalse);
+
+      // The suffix action the native keyboard needed is gone with it.
+      expect(find.byKey(const ValueKey('saveCountDone')), findsNothing);
+      expect(find.text('Done'), findsNothing);
+    });
+
+    testWidgets('the keys are plain digits and nothing else', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await openCount(tester);
+
+      for (final d in [for (var i = 0; i <= 9; i++) '$i']) {
+        final key = find.byKey(ValueKey('keypadKey_$d'));
+        expect(key, findsOneWidget, reason: d);
+        // Exactly one label on the key, and it is the digit — no phone-pad
+        // letters riding underneath it.
+        final labels = tester
+            .widgetList<Text>(
+              find.descendant(of: key, matching: find.byType(Text)),
+            )
+            .map((t) => t.data)
+            .toList();
+        expect(labels, [d], reason: 'key $d shows only its digit');
+      }
+      for (final letters in ['ABC', 'DEF', 'GHI', 'JKL', 'MNO', 'PQRS']) {
+        expect(find.textContaining(letters), findsNothing, reason: letters);
+      }
+      // No decimal, sign, or anything else that is not a number this sheet
+      // can act on.
+      for (final symbol in ['.', ',', '-', '+', '*', '#']) {
+        expect(find.text(symbol), findsNothing, reason: symbol);
+      }
+    });
+
+    testWidgets('digits build the value, leading zeroes normalise away', (
+      tester,
+    ) async {
+      phone(tester);
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await openCount(tester);
+
+      await typeCount(tester, '1');
+      expect(shownCount(tester), '1');
+      await tapKey(tester, 'keypadKey_2');
+      await tapKey(tester, 'keypadKey_0');
+      expect(shownCount(tester), '120');
+
+      // 004 is 4: the display never shows a number that reads as something
+      // other than what it means.
+      await typeCount(tester, '004');
+      expect(shownCount(tester), '4');
+      await typeCount(tester, '0');
+      expect(shownCount(tester), '0', reason: 'zero is a value, and invalid');
+    });
+
+    testWidgets('delete removes one digit, and is safe on an empty value', (
+      tester,
+    ) async {
+      phone(tester);
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await openCount(tester);
+
+      await typeCount(tester, '123');
+      await tapKey(tester, 'keypadDelete');
+      expect(shownCount(tester), '12');
+      await tapKey(tester, 'keypadDelete');
+      expect(shownCount(tester), '1');
+      await tapKey(tester, 'keypadDelete');
+      expect(shownCount(tester), '—', reason: 'nothing entered');
+
+      // Delete on nothing does nothing at all.
+      await tapKey(tester, 'keypadDelete');
+      await tapKey(tester, 'keypadDelete');
+      expect(shownCount(tester), '—');
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('Done keeps the value, drops focus, and starts nothing', (
+    testWidgets('OK keeps the value, hides the keypad, and starts nothing', (
       tester,
     ) async {
+      phone(tester);
       SaveRangeChoice? result;
       await tester.pumpWidget(host(onResult: (r) => result = r));
-      final field = await openCount(tester);
+      await openCount(tester);
 
-      await tester.enterText(find.byType(TextField), '12');
-      await tester.pumpAndSettle();
-      expect(field.focusNode!.hasFocus, isTrue, reason: 'typing focuses it');
+      await typeCount(tester, '12');
+      await tapKey(tester, 'keypadOk');
 
-      await tester.ensureVisible(find.byKey(const ValueKey('saveCountDone')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('saveCountDone')));
-      await tester.pumpAndSettle();
-
-      expect(field.controller!.text, '12', reason: 'the value is kept');
-      expect(field.focusNode!.hasFocus, isFalse);
-      expect(tester.testTextInput.isVisible, isFalse);
+      expect(shownCount(tester), '12', reason: 'the value is kept');
+      expect(find.byKey(const ValueKey('saveCountKeypad')), findsNothing);
       // Confirming a number is not authorising a save.
       expect(result, isNull);
       expect(find.byKey(const ValueKey('saveStartNow')), findsOneWidget);
       expect(find.byKey(const ValueKey('saveAddToQueue')), findsOneWidget);
-      // …and the launch that does authorise one still carries the number.
+    });
+
+    testWidgets('Start Save after OK carries the confirmed count', (
+      tester,
+    ) async {
+      phone(tester);
+      SaveRangeChoice? result;
+      await tester.pumpWidget(host(onResult: (r) => result = r));
+      await openCount(tester);
+
+      await typeCount(tester, '12');
+      await tapKey(tester, 'keypadOk');
       await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('saveStartNow')));
       await tester.pumpAndSettle();
+
       expect(result?.mode, SaveScope.fixedCount);
       expect(result?.count, 12);
       expect(result?.action, SaveSheetAction.startNow);
     });
 
-    testWidgets('the keyboard\'s own Done does the same thing', (tester) async {
+    testWidgets('Add to Queue after OK carries the confirmed count', (
+      tester,
+    ) async {
+      phone(tester);
       SaveRangeChoice? result;
       await tester.pumpWidget(host(onResult: (r) => result = r));
-      final field = await openCount(tester);
+      await openCount(tester);
 
-      await tester.enterText(find.byType(TextField), '7');
+      await typeCount(tester, '9');
+      await tapKey(tester, 'keypadOk');
+      await tester.ensureVisible(find.byKey(const ValueKey('saveAddToQueue')));
       await tester.pumpAndSettle();
-      expect(field.textInputAction, TextInputAction.done);
-
-      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.tap(find.byKey(const ValueKey('saveAddToQueue')));
       await tester.pumpAndSettle();
 
-      expect(field.controller!.text, '7');
-      expect(field.focusNode!.hasFocus, isFalse);
-      expect(result, isNull);
+      expect(result?.mode, SaveScope.fixedCount);
+      expect(result?.count, 9);
+      expect(result?.action, SaveSheetAction.addToQueue);
     });
 
-    testWidgets('Done answers a bad number where it was typed', (tester) async {
+    testWidgets('OK answers a bad number where it was typed', (tester) async {
+      phone(tester);
       SaveRangeChoice? result;
       await tester.pumpWidget(host(onResult: (r) => result = r));
-      final field = await openCount(tester);
+      await openCount(tester);
 
-      await tester.enterText(find.byType(TextField), '0');
-      await tester.ensureVisible(find.byKey(const ValueKey('saveCountDone')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('saveCountDone')));
-      await tester.pumpAndSettle();
+      // Nothing entered at all.
+      await typeCount(tester, '');
+      await tapKey(tester, 'keypadOk');
       expect(find.textContaining('1 or more'), findsOneWidget);
-      expect(field.controller!.text, '0', reason: 'nothing is typed for them');
       expect(result, isNull);
+      expect(
+        find.byKey(const ValueKey('saveCountKeypad')),
+        findsOneWidget,
+        reason: 'the keys to fix it stay under the thumb',
+      );
 
-      // The same bound the launches enforce, named the same way.
-      await tester.enterText(find.byType(TextField), '9999');
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('saveCountDone')));
-      await tester.pumpAndSettle();
+      // Zero, then over the ceiling — the same two rules the launches apply.
+      await typeCount(tester, '0');
+      await tapKey(tester, 'keypadOk');
+      expect(find.textContaining('1 or more'), findsOneWidget);
+
+      await typeCount(tester, '9999');
+      await tapKey(tester, 'keypadOk');
       expect(
         find.textContaining('At most ${const SaveConfig().maxEntriesPerRun}'),
         findsOneWidget,
       );
       expect(result, isNull);
 
-      // A number that is fine clears the answer and leaves the field alone.
-      await tester.enterText(find.byType(TextField), '4');
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('saveCountDone')));
-      await tester.pumpAndSettle();
+      // A number that is fine clears the stale complaint and closes the keys.
+      await typeCount(tester, '4');
       expect(find.textContaining('At most'), findsNothing);
-      expect(find.textContaining('1 or more'), findsNothing);
-      expect(field.controller!.text, '4');
+      await tapKey(tester, 'keypadOk');
+      expect(find.byKey(const ValueKey('saveCountError')), findsNothing);
+      expect(find.byKey(const ValueKey('saveCountKeypad')), findsNothing);
+      expect(shownCount(tester), '4');
     });
 
-    testWidgets('tapping the sheet elsewhere also puts the keyboard away', (
+    testWidgets('switching range hides the keypad and still switches', (
       tester,
     ) async {
+      phone(tester);
       await tester.pumpWidget(host(onResult: (_) {}));
-      final field = await openCount(tester);
-      expect(field.focusNode!.hasFocus, isTrue);
+      await openCount(tester);
 
-      // A tap on another control does its own job *and* ends the editing.
+      // Leave a complaint on screen, then walk away from the range it is about.
+      await typeCount(tester, '0');
+      await tapKey(tester, 'keypadOk');
+      expect(find.byKey(const ValueKey('saveCountError')), findsOneWidget);
+
       await tester.tap(find.text('Current entry'));
       await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('saveCountKeypad')), findsNothing);
+      expect(find.byKey(const ValueKey('saveCountValue')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('saveCountError')),
+        findsNothing,
+        reason: 'not about the range being used any more',
+      );
+      expect(find.text('Current entry'), findsOneWidget);
+    });
 
-      expect(field.focusNode!.hasFocus, isFalse);
-      expect(tester.testTextInput.isVisible, isFalse);
-      expect(find.byType(TextField), findsNothing, reason: 'range switched');
+    testWidgets('switching back keeps the number that was entered', (
+      tester,
+    ) async {
+      phone(tester);
+      SaveRangeChoice? result;
+      await tester.pumpWidget(host(onResult: (r) => result = r));
+      await openCount(tester);
+
+      await typeCount(tester, '37');
+      await tapKey(tester, 'keypadOk');
+
+      await tester.tap(find.text('Current entry'));
+      await tester.pumpAndSettle();
+      await chooseCount(tester);
+      expect(shownCount(tester), '37', reason: 'the sheet does not forget');
+
+      await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveStartNow')));
+      await tester.pumpAndSettle();
+      expect(result?.count, 37);
+    });
+
+    testWidgets('the current entry range still saves exactly one', (
+      tester,
+    ) async {
+      phone(tester);
+      SaveRangeChoice? result;
+      await tester.pumpWidget(host(onResult: (r) => result = r));
+      await openCount(tester);
+      await typeCount(tester, '37');
+      await tapKey(tester, 'keypadOk');
+
+      await tester.tap(find.text('Current entry'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const ValueKey('saveStartNow')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveStartNow')));
+      await tester.pumpAndSettle();
+
+      expect(result?.mode, SaveScope.currentPageOnly);
+      expect(result?.count, 1, reason: 'the typed number is not in play');
+    });
+
+    testWidgets('the grid fits the narrowest phone', (tester) async {
+      narrow(tester);
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await openCount(tester);
+
+      for (final id in ['keypadKey_1', 'keypadKey_9', 'keypadDelete']) {
+        final rect = tester.getRect(find.byKey(ValueKey(id)));
+        expect(rect.left, greaterThanOrEqualTo(0), reason: id);
+        expect(rect.right, lessThanOrEqualTo(320), reason: id);
+        // A key a thumb can actually hit.
+        expect(rect.height, greaterThanOrEqualTo(44), reason: id);
+      }
+      final ok = tester.getRect(find.byKey(const ValueKey('keypadOk')));
+      expect(ok.right, lessThanOrEqualTo(320));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('large text does not overflow the keys', (tester) async {
+      narrow(tester);
+      await tester.pumpWidget(
+        host(onResult: (_) {}, textScale: const TextScaler.linear(3.0)),
+      );
+      await openCount(tester);
+
+      expect(find.byKey(const ValueKey('keypadOk')), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: 'no overflow');
+
+      // The keys still work at that size.
+      await typeCount(tester, '5');
+      expect(shownCount(tester), '5');
+    });
+
+    testWidgets('the keys, delete, OK and the value carry semantics', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      phone(tester);
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await openCount(tester);
+      await typeCount(tester, '12');
+
+      // Every key names itself, and every key can be operated by the name —
+      // a glyph a screen reader cannot say is not a control.
+      const labels = {
+        'keypadKey_7': '7',
+        'keypadDelete': 'Delete digit',
+        'keypadOk': 'OK, use this number',
+      };
+      for (final entry in labels.entries) {
+        final node = tester.getSemantics(find.byKey(ValueKey(entry.key)));
+        expect(node.label, entry.value, reason: entry.key);
+        expect(
+          node.getSemanticsData().hasAction(SemanticsAction.tap),
+          isTrue,
+          reason: entry.key,
+        );
+      }
+
+      final value = tester.getSemantics(
+        find.byKey(const ValueKey('saveCountValue')),
+      );
+      expect(value.label, contains('How many new entries'));
+      expect(value.value, '12', reason: 'the number is announced');
+
+      await typeCount(tester, '');
+      final empty = tester.getSemantics(
+        find.byKey(const ValueKey('saveCountValue')),
+      );
+      expect(empty.value, 'No number entered', reason: 'never a bare dash');
+      semantics.dispose();
     });
   });
 

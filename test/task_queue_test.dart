@@ -67,8 +67,8 @@ void main() {
   test('tasks run in FIFO order, one at a time', () async {
     final queue = makeQueue();
 
-    final idA = await queue.enqueueCollectionCheck('collection-a');
-    final idB = await queue.enqueueCollectionCheck('collection-b');
+    final idA = (await queue.enqueueCollectionCheck('collection-a'))!;
+    final idB = (await queue.enqueueCollectionCheck('collection-b'))!;
     final save = await queue.enqueueSave(
       startUrl: 'https://x.example/guide/foo/1',
       entryLimit: 3,
@@ -115,7 +115,7 @@ void main() {
 
       queue.resumeQueue(); // starts the pump (returns immediately)
       await settle();
-      final idB = await queue.enqueueCollectionCheck('s2');
+      final idB = (await queue.enqueueCollectionCheck('s2'))!;
       await settle();
 
       expect(executed, ['held'], reason: 'B must not start while A holds');
@@ -192,7 +192,7 @@ void main() {
     );
     queue.resumeQueue();
     await settle();
-    final idB = await queue.enqueueCollectionCheck('s2');
+    final idB = (await queue.enqueueCollectionCheck('s2'))!;
     await settle();
 
     await queue.cancelTask(idB); // still queued behind the gate
@@ -313,7 +313,7 @@ void main() {
       // Cancel exactly inside the window the pump leaves open: it has read the
       // pending rows and is awaiting the Browser, but has not claimed yet.
       CancelResult? raced;
-      queue.ensureBrowserVisible = () async {
+      queue.ensureBrowserVisible = ({url}) async {
         raced ??= await queue.cancelTask('racy');
         return true;
       };
@@ -336,7 +336,7 @@ void main() {
 
     test('a failed task keeps Retry and can also be removed', () async {
       final queue = makeQueue();
-      final id = await queue.enqueueCollectionCheck('s1');
+      final id = (await queue.enqueueCollectionCheck('s1'))!;
       gates[id] = Completer<QueueOutcome>()
         ..complete(const QueueOutcome.failure('host unreachable'));
       await settle();
@@ -426,7 +426,7 @@ void main() {
 
     test('cancelling reports what actually happened', () async {
       final queue = makeQueue();
-      final done = await queue.enqueueCollectionCheck('s1');
+      final done = (await queue.enqueueCollectionCheck('s1'))!;
       await settle();
 
       expect(await queue.cancelTask(done), CancelResult.alreadyFinished);
@@ -467,7 +467,7 @@ void main() {
 
   test('retry clones a terminal task to the back of the queue', () async {
     final queue = makeQueue();
-    final id = await queue.enqueueCollectionCheck('s1');
+    final id = (await queue.enqueueCollectionCheck('s1'))!;
     await settle();
     expect((await db.queueTaskById(id))!.state, 'completed');
 
@@ -486,7 +486,7 @@ void main() {
   test('history is bounded', () async {
     final queue = makeQueue(historyLimit: 3);
     for (var i = 0; i < 6; i++) {
-      await queue.enqueueCollectionCheck('s$i');
+      (await queue.enqueueCollectionCheck('s$i'))!;
       await settle();
     }
 
@@ -545,7 +545,7 @@ void main() {
     file.writeAsBytesSync([1, 2, 3, 4]);
 
     final queue = makeQueue();
-    await queue.enqueueCollectionCheck('collection-1');
+    (await queue.enqueueCollectionCheck('collection-1'))!;
     await settle();
 
     await queue.clearHistory();
@@ -561,7 +561,7 @@ void main() {
     final queue = makeQueue();
     browser.automationOwner = 'a save run';
 
-    await queue.enqueueCollectionCheck('s1');
+    (await queue.enqueueCollectionCheck('s1'))!;
     await settle();
     expect(executed, isEmpty, reason: 'one WebView, one driver');
 
@@ -579,7 +579,7 @@ void main() {
     final queue = makeQueue();
     browser.automationOwner = 'a save run';
 
-    await queue.enqueueCollectionCheck('s1');
+    (await queue.enqueueCollectionCheck('s1'))!;
     await settle();
     expect(executed, isEmpty);
 
@@ -595,9 +595,9 @@ void main() {
     final queue = makeQueue();
     browser.automationOwner = 'blocked'; // hold everything queued
 
-    final first = await queue.enqueueCollectionCheck('s1');
-    final dup = await queue.enqueueCollectionCheck('s1');
-    final other = await queue.enqueueCollectionCheck('s2');
+    final first = (await queue.enqueueCollectionCheck('s1'))!;
+    final dup = (await queue.enqueueCollectionCheck('s1'))!;
+    final other = (await queue.enqueueCollectionCheck('s2'))!;
     await settle();
 
     expect(dup, first, reason: 'idempotent per collection while pending');

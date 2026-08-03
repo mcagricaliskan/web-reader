@@ -37,11 +37,49 @@ build.
 - No hostname, selector, site list, provider catalogue or "supported sites"
   anywhere in the binary, the tests, the fixtures or the docs. Use the reserved
   example domains.
+- **The one exception is `lib/save/capture_policy.dart`**, the restricted-site
+  capture policy: a static list of commercial content services this app refuses
+  to save from. A refusal is the opposite of a catalogue — nothing on it makes a
+  site work, and no page is detected, measured or handled differently because of
+  it. It is the **only** file in `lib/` that may name a host;
+  `test/repository_cleanliness_test.dart` allows it by name and fails the build
+  if `restrictedCaptureDomains` or `restrictedCaptureHosts` is declared anywhere
+  else. Never re-implement the matching, never copy the constants into a screen
+  or the queue, and never add a rule that *enables* anything.
 - `user_page_hints` holds only what a person taught by tapping an element. It is
   empty on a clean install; nothing seeds it, and nothing seeds `saved_sites`
   either.
 - Detection uses standard HTML semantics and measurements only —
   `lib/save/content_detection.dart` is the whole surface.
+
+### Some sites are never saved from
+
+- **Browsing is never restricted; only capture is.** On a restricted host the
+  save control is *absent* — not disabled, not a warning — and back, forward,
+  reload, the address bar and sign-in all behave normally.
+- **Enforcement is never UI-only.** Every boundary asks the policy for itself:
+  direct start, enqueue, the queue pump, resume, retry, multi-entry
+  continuation, top-level redirects, update checking, discovered-entry
+  recording, and the save engine before it probes and again before it commits.
+  A hidden button is not enforcement.
+- **The policy judges pages, never assets.** It applies to the page or document
+  being captured — the Browser's URL, a task's source URL, a landed URL after a
+  top-level redirect, the manifest's `sourceUrl`. It does **not** apply to an
+  image `src`, a responsive candidate, a CSS background, a document's inline
+  image, the CDN delivering any of them, or an asset request's own redirects.
+  Ordinary sites serve pictures from commercial-platform CDNs, and testing
+  those marked permitted entries `partial` for a reason unrelated to them.
+  `AssetFetcher` must never import `capture_policy.dart` and is never the
+  authoritative boundary; the page is judged before a staging directory exists,
+  so a refused page never reaches a download. The image-only MIME allow-list
+  there is a **separate** rule and stays.
+- A refused task becomes a terminal `failed` row carrying
+  `StopReason.captureRestrictedForSite`. It is never silently deleted, never
+  auto-retried, and never creates a partial entry. The policy prevents new
+  capture; it never deletes a collection, an entry, a file or a reading
+  position.
+- The user-facing sentence is `kCaptureRestrictedMessage` and nothing else. It
+  states what the app does — never what the user was trying to do.
 
 ### Saving is explicit and bounded
 

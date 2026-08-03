@@ -58,6 +58,12 @@ enum StopReason {
   /// The page shape changed enough that continuing would save the wrong thing.
   structureChanged,
 
+  // --- this app's own policy -----------------------------------------------
+  /// The address is on a commercial content service this app does not save
+  /// from. Not something the *site* did — the app withheld capture, from a
+  /// static host list it maintains itself. See `save/capture_policy.dart`.
+  captureRestrictedForSite,
+
   // --- device and user -----------------------------------------------------
   insufficientStorage,
   cancelledByUser,
@@ -114,6 +120,11 @@ enum StopReason {
     StopReason.structureChanged =>
       'Stopped: the page layout changed, so continuing might have saved the '
           'wrong thing.',
+    // Neutral and factual. It says what the app does; it never characterises
+    // what the user was trying to do.
+    StopReason.captureRestrictedForSite =>
+      'Saving isn’t available on this '
+          'site.',
     StopReason.insufficientStorage =>
       'Stopped: not enough space on the device. Nothing already saved was '
           'affected.',
@@ -138,6 +149,7 @@ enum StopReason {
     StopReason.unsupportedContent => 'Unsupported page',
     StopReason.lowConfidence => 'Unclear next page',
     StopReason.structureChanged => 'Layout changed',
+    StopReason.captureRestrictedForSite => 'Saving unavailable here',
     StopReason.insufficientStorage => 'Out of space',
     StopReason.cancelledByUser => 'Stopped',
     StopReason.interrupted => 'Interrupted',

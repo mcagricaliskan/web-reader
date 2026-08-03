@@ -15,6 +15,7 @@ import '../browser/page_data.dart';
 import '../core/url_utils.dart';
 import '../library/collection_identity.dart';
 import '../save/capture_mode.dart';
+import '../save/capture_policy.dart';
 import '../save/save_run.dart';
 import '../save/save_preflight.dart';
 import '../core/config.dart';
@@ -30,6 +31,7 @@ import 'browser_page_actions.dart';
 import 'browser_states.dart';
 import 'browser_toolbar.dart';
 import 'browser_url_editor.dart';
+import 'check_panel.dart';
 import 'save_panel.dart';
 import 'save_queue_ui.dart';
 import 'save_preflight_sheet.dart';
@@ -86,6 +88,13 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
   /// Null while unknown — which is also the honest answer for a page nobody
   /// has ever saved.
   EntryLocalState? _pageEntryState;
+
+  /// Whether the restricted-site capture policy covers the page on screen.
+  ///
+  /// Recomputed with the page session, which is what makes it follow every
+  /// navigation, redirect, reload and history move: the session moves whenever
+  /// the address does, and this is derived from the address alone.
+  bool _captureRestricted = false;
 
   @override
   void initState() {
@@ -162,6 +171,11 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     _pageKey = browser.pageSessionKey;
     _pageEnteredManually = browser.pageSessionIsManual;
     _pageEntryState = null;
+    // Both the session's canonical key and the live address: a page whose key
+    // could not be formed still has a host, and the policy is about the host.
+    _captureRestricted =
+        isCaptureRestricted(_pageKey) ||
+        isCaptureRestricted(browser.currentUrl);
     _panelOpen = false;
     // A result the user never dismissed belongs to the page they have now
     // left; it is in Activity, which is where history lives.
@@ -335,6 +349,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       ref: ref,
       url: url,
       title: browser.title,
+      canSave: !_captureRestricted,
     );
     if (!mounted) return;
     switch (action) {
@@ -443,6 +458,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                     pageEntryState: _pageEntryState,
                     pageIsQueued: pageIsQueued,
                     pageEnteredManually: _pageEnteredManually,
+                    captureRestricted: _captureRestricted,
                     waitingSaves: waitingSaves,
                     onSave: () => _showSaveSheet(context),
                     onPageActions: _openPageActions,
@@ -520,6 +536,23 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                     onToggle: () => setState(() => _panelOpen = !_panelOpen),
                   );
                 }
+                // A check drives the same WebView and gets the same slot: it
+                // is deliberately *not* page-scoped like the save panel, because
+                // a check walks between pages by design and the panel must not
+                // vanish under it mid-hop. It ends when the check does.
+                if (checker.isRunning) {
+                  return UpdateCheckPanel(
+                    checker: checker,
+                    // Open while it runs, exactly like the save panel: the log
+                    // is the only place the check says what it is reading, and
+                    // the page session resets `_panelOpen` on every hop.
+                    expanded: _panelOpen || checker.isRunning,
+                    onToggle: () => setState(() => _panelOpen = !_panelOpen),
+                    onStop: () => unawaited(
+                      ref.read(taskQueueProvider).stopRunningCheck(),
+                    ),
+                  );
+                }
                 final result = ui.result;
                 if (result != null) {
                   return SaveResultBanner(
@@ -559,10 +592,16 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       lastRun: run.lastRun,
       pageEntryState: _pageEntryState,
       pageIsQueued: pageIsQueued,
+      captureRestricted: _captureRestricted,
     );
   }
 
   Future<void> _showSaveSheet(BuildContext context) async {
+    // The control that leads here is absent on a restricted page, so this is
+    // the belt to that braces: the sheet cannot be opened by a stale callback,
+    // a race with a navigation, or any future caller that forgets to ask.
+    // Nothing is probed either — `_analysePage` below is a page measurement.
+    if (_captureRestricted) return;
     final queue = ref.read(taskQueueProvider);
     final run = ref.read(saveRunProvider);
     // Asked before the sheet opens, so it can offer what is actually possible
@@ -713,6 +752,8 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
         );
       case DirectStartResult.noPage:
         showDirectStartRefusal(context, 'There is no page to save.');
+      case DirectStartResult.restrictedSite:
+        showDirectStartRefusal(context, kCaptureRestrictedMessage);
     }
   }
 
@@ -888,6 +929,7 @@ class _SaveActions extends StatelessWidget {
     required this.pageEntryState,
     required this.pageIsQueued,
     required this.pageEnteredManually,
+    required this.captureRestricted,
     required this.waitingSaves,
     required this.onSave,
     required this.onPageActions,
@@ -901,6 +943,7 @@ class _SaveActions extends StatelessWidget {
   final EntryLocalState? pageEntryState;
   final bool pageIsQueued;
   final bool pageEnteredManually;
+  final bool captureRestricted;
   final int waitingSaves;
   final VoidCallback onSave;
   final VoidCallback onPageActions;
@@ -928,6 +971,7 @@ class _SaveActions extends StatelessWidget {
           lastRun: run.lastRun,
           pageEntryState: pageEntryState,
           pageIsQueued: pageIsQueued,
+          captureRestricted: captureRestricted,
         );
 
         // While the user is being asked something, the overlay owns the
@@ -938,6 +982,11 @@ class _SaveActions extends StatelessWidget {
 
         final waiting = waitingSaves;
         final running = ui.showsRunPanel;
+        // On a restricted page the save control is not drawn at all — and
+        // neither is the gap it would have left. Page actions keep their
+        // position on the right, so nothing else on screen moves or reserves
+        // space for something that is not there.
+        final offersCapture = ui.offersCapture;
 
         return Positioned(
           left: 14,
@@ -960,30 +1009,34 @@ class _SaveActions extends StatelessWidget {
                       tooltip: 'Page actions',
                       onPressed: onPageActions,
                     ),
-                    const SizedBox(width: 8),
+                    // The spacer belongs to the button beside it: with no save
+                    // control there is nothing to separate, and leaving it
+                    // would be the empty position this must not create.
+                    if (offersCapture) const SizedBox(width: 8),
                   ],
-                  FloatingActionButton.extended(
-                    key: const ValueKey('browserSaveAction'),
-                    heroTag: 'browserSave',
-                    onPressed: ui.opensSaveSheet ? onSave : onViewActivity,
-                    tooltip: ui.detail ?? 'Save entries',
-                    backgroundColor: running
-                        ? palette.surface
-                        : palette.primary,
-                    foregroundColor: running
-                        ? palette.inkStrong
-                        : palette.onPrimary,
-                    icon: Icon(switch (ui.status) {
-                      BrowserSaveStatus.queued => Icons.schedule,
-                      BrowserSaveStatus.saving => Icons.swipe_vertical,
-                      BrowserSaveStatus.downloading => Icons.downloading,
-                      BrowserSaveStatus.waitingForBrowser => Icons.public,
-                      BrowserSaveStatus.availableOffline =>
-                        Icons.download_for_offline,
-                      _ => Icons.download,
-                    }, size: 20),
-                    label: Text(ui.label),
-                  ),
+                  if (offersCapture)
+                    FloatingActionButton.extended(
+                      key: const ValueKey('browserSaveAction'),
+                      heroTag: 'browserSave',
+                      onPressed: ui.opensSaveSheet ? onSave : onViewActivity,
+                      tooltip: ui.detail ?? 'Save entries',
+                      backgroundColor: running
+                          ? palette.surface
+                          : palette.primary,
+                      foregroundColor: running
+                          ? palette.inkStrong
+                          : palette.onPrimary,
+                      icon: Icon(switch (ui.status) {
+                        BrowserSaveStatus.queued => Icons.schedule,
+                        BrowserSaveStatus.saving => Icons.swipe_vertical,
+                        BrowserSaveStatus.downloading => Icons.downloading,
+                        BrowserSaveStatus.waitingForBrowser => Icons.public,
+                        BrowserSaveStatus.availableOffline =>
+                          Icons.download_for_offline,
+                        _ => Icons.download,
+                      }, size: 20),
+                      label: Text(ui.label),
+                    ),
                 ],
               ),
             ],

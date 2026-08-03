@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
+import '../save/capture_policy.dart';
 import '../storage/database.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../library/entry_labels.dart';
+import 'open_in_browser.dart';
 
 /// Everything the "queue it now, start it later" flow needs on screen.
 ///
@@ -27,6 +29,21 @@ void showQueuedConfirmation(
 }) {
   final messenger = ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return;
+  // Refused by the restricted-site capture policy. Nothing was queued, so
+  // there is no Activity row to go and look at — the offer to do so would be
+  // a dead end.
+  if (result.restricted) {
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          key: ValueKey('queueRestricted'),
+          content: Text(kCaptureRestrictedMessage),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    return;
+  }
   final subject = what == null ? '' : ' · $what';
   messenger
     ..hideCurrentSnackBar()
@@ -78,6 +95,10 @@ void showBatchQueuedConfirmation(BuildContext context, BatchQueueResult r) {
     if (r.alreadyQueued.isNotEmpty) '${r.alreadyQueued.length} already queued',
     if (r.missingSource.isNotEmpty)
       '${r.missingSource.length} have no source page',
+    // Named rather than folded into a silent count: a batch that queued 6 of 8
+    // has to say what happened to the other two.
+    if (r.restricted.isNotEmpty)
+      '${r.restricted.length} on a site saving is not available for',
   ];
   messenger
     ..hideCurrentSnackBar()
@@ -308,9 +329,14 @@ Future<bool> confirmAndStartSaves(BuildContext context, WidgetRef ref) async {
     ),
   );
   if (start != true) return false;
+  if (!context.mounted) return false;
 
-  // Browser first, automation second — never the other way round (D47).
-  ref.read(shellTabRequestProvider).value = 1;
+  // Browser first, automation second — never the other way round (D47), and
+  // *visibly* first: this action is started from Activity, from the Library
+  // and from a row's own play button, and the first of those is a route above
+  // the shell. Setting the tab index without popping is what left the user
+  // watching a queue screen while the save ran in a Browser behind it.
+  showBrowserSurface(context, ref);
   await queue.startQueuedSaves();
   return true;
 }

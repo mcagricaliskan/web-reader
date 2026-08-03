@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../save/capture_policy.dart';
 import '../save/save_preflight.dart';
 import '../library/collection_identity.dart';
 import '../library/update_checker.dart';
@@ -1141,15 +1142,30 @@ class _UpdateCheckCard extends ConsumerWidget {
               const SizedBox(width: 8),
               checking
                   ? OutlinedButton(
-                      onPressed: checker.cancel,
+                      // Through the queue, not straight at the checker: a
+                      // queued check that is stopped must leave a `cancelled`
+                      // row, not a completed one whose summary says
+                      // "cancelled". Same stop the Browser panel offers.
+                      onPressed: () =>
+                          ref.read(taskQueueProvider).stopRunningCheck(),
                       child: const Text('Cancel'),
                     )
                   : FilledButton(
                       // Always tappable: the queue serializes on the shared
                       // WebView, so "busy" means "queued", not "refused".
-                      onPressed: () => ref
-                          .read(taskQueueProvider)
-                          .enqueueCollectionCheck(collection.id),
+                      onPressed: () async {
+                        final id = await ref
+                            .read(taskQueueProvider)
+                            .enqueueCollectionCheck(collection.id);
+                        if (id != null || !context.mounted) return;
+                        // Refused by the restricted-site capture policy: a
+                        // check discovers entries in order to save them.
+                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                          const SnackBar(
+                            content: Text(kCaptureRestrictedMessage),
+                          ),
+                        );
+                      },
                       child: Text(
                         collection.lastCheckSuccessAt == null
                             ? 'Check now'

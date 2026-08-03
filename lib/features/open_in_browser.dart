@@ -12,6 +12,32 @@ import 'entry_actions.dart' show connectivityProvider, hasUsableSourceUrl;
 /// The copy the product uses when a row has nowhere to go.
 const kNoSourcePageMessage = 'This entry does not have a source page.';
 
+/// Put the Browser in front of the user, from anywhere in the app.
+///
+/// Two steps, and dropping either one produces the same bug in a different
+/// disguise — something happens in the Browser and the user never sees it:
+///
+/// 1. **Pop back to the shell.** The Browser is a *tab inside the shell
+///    route*, not a route of its own. Activity, Collection Detail and the
+///    reader are pushed *above* the shell, so selecting the tab underneath
+///    them changes nothing the user can see.
+/// 2. **Select the Browser tab**, which the shell owns.
+///
+/// Popping rather than `go('/')`, and nothing is pushed: the shell route —
+/// and with it the one WebView, its page, its cookies and any running save —
+/// is left exactly as it was, so there can never be a second Browser.
+///
+/// Any modal still open is dismissed on the way, which is the honest
+/// outcome: a sheet or dialog over the shell hides the Browser just as
+/// effectively as a route does.
+void showBrowserSurface(BuildContext context, WidgetRef ref) {
+  final router = GoRouter.of(context);
+  while (router.canPop()) {
+    router.pop();
+  }
+  ref.read(shellTabRequestProvider).value = 1;
+}
+
 /// The one way anything in this app opens a page in the Browser.
 ///
 /// Every "Open on website" / "Open in Browser" action funnels through here,
@@ -81,19 +107,10 @@ Future<bool> openInBrowser(
   // 4. Store first, so nothing is lost across the pop and the tab switch.
   ref.read(browserNavigatorProvider).request(url);
 
-  // 5. Back to the shell. `popUntil`-style rather than `go('/')`: popping
-  //    leaves the shell route — and therefore the WebView, its cookies and
-  //    any running save — exactly as it was, where `go` would rebuild it.
-  //    Nothing is pushed, so there is no duplicate Browser, Library or
-  //    Collection Detail route.
-  final router = GoRouter.of(context);
-  while (router.canPop()) {
-    router.pop();
-  }
-
-  // 6. Select the Browser tab. The shell owns the index; the Browser screen
-  //    drains the pending request when it is mounted and attached.
-  ref.read(shellTabRequestProvider).value = 1;
+  // 5 and 6. Back to the shell, then the Browser tab — the one way anything
+  //    in this app makes the Browser visible. The Browser screen drains the
+  //    pending request when it is mounted and attached.
+  showBrowserSurface(context, ref);
   return true;
 }
 

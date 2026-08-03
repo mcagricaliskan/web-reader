@@ -63,7 +63,7 @@ void main() {
         return const QueueOutcome.success('checked');
       },
     );
-    queue.ensureBrowserVisible = () async {
+    queue.ensureBrowserVisible = ({url}) async {
       browserAsks.add('asked');
       return browserAvailable;
     };

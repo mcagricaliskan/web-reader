@@ -8,6 +8,7 @@ import 'package:drift/drift.dart' show Value;
 import '../browser/browser_controller.dart';
 import '../browser/history_repository.dart' show NavigationSource;
 import '../browser/page_data.dart';
+import '../save/capture_policy.dart';
 import '../save/next_page.dart';
 import '../save/page_hint_repository.dart';
 import '../save/selection_request.dart';
@@ -40,12 +41,27 @@ enum UpdateCheckState {
       this == cancelled;
 }
 
+/// How many *forward entry transitions* one check may make on its own.
+///
+/// Depth is counted from the page the check starts on, which is depth **0**:
+/// following one "next entry" link reaches depth 1, following a second reaches
+/// depth 2, and there is no third. Deliberately shallow — a check answers
+/// "has anything appeared since?", and two hops is enough to answer it while
+/// keeping the number of someone else's pages this app opens predictable and
+/// small. Whatever is beyond it is left for the next check, which resumes from
+/// the `next_source_url` this one stored.
+///
+/// Check-only. Save ranges are bounded by `SaveLimits.forScope` from a number
+/// the user typed and share nothing with this.
+const int kUpdateCheckForwardDepth = 2;
+
 /// Bounds for one check. Everything here exists to make an unbounded crawl
 /// structurally impossible.
 class UpdateCheckConfig {
   const UpdateCheckConfig({
     this.maxPagesInspected = 12,
     this.maxNewEntries = 20,
+    this.maxForwardDepth = kUpdateCheckForwardDepth,
     this.maxCheckDuration = const Duration(minutes: 3),
     this.navigationTimeout = const Duration(seconds: 25),
     this.cooldownBetweenPages = const Duration(milliseconds: 800),
@@ -53,6 +69,12 @@ class UpdateCheckConfig {
 
   final int maxPagesInspected;
   final int maxNewEntries;
+
+  /// Forward entry transitions allowed in one run — see
+  /// [kUpdateCheckForwardDepth]. The starting page is depth 0 and is not a
+  /// transition.
+  final int maxForwardDepth;
+
   final Duration maxCheckDuration;
   final Duration navigationTimeout;
   final Duration cooldownBetweenPages;
@@ -106,6 +128,25 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
   /// The collection being checked, while one is.
   String? _activeItemId;
   String? get activeItemId => _activeItemId;
+
+  /// That collection's title, so the running-operation panel can name what it
+  /// is checking without a database read of its own.
+  String _activeTitle = '';
+  String get activeTitle => _activeTitle;
+
+  /// Live counters for the running check. Both are what the outcome will
+  /// report; they exist as fields so the panel can show the same numbers while
+  /// the walk is still going rather than only after it ends.
+  int _pagesInspected = 0;
+  int get pagesInspected => _pagesInspected;
+
+  int _newEntries = 0;
+  int get newEntries => _newEntries;
+
+  /// How many forward entry transitions have been made, out of
+  /// [UpdateCheckConfig.maxForwardDepth]. The starting page is depth 0.
+  int _forwardDepth = 0;
+  int get forwardDepth => _forwardDepth;
 
   String _message = '';
   String get message => _message;
@@ -221,6 +262,61 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
 
   // --- the check -------------------------------------------------------------
 
+  /// The first page this check would open, or null when it would open none.
+  ///
+  /// Asked *before* the check starts, by whoever is bringing the Browser
+  /// forward, so the Browser can be showing the page the check is about to
+  /// work on rather than whatever it happened to be on (D47). It reads only —
+  /// nothing is claimed, navigated or written here, so a caller that then
+  /// decides not to start has changed nothing.
+  ///
+  /// The precedence deliberately mirrors [_run] step for step: the collection
+  /// page when there is a usable one, then the stored next link from the latest
+  /// known entry, then that entry's own page. Keep the two in step — the value
+  /// of this is that the Browser shows the page the walk actually opens first.
+  Future<String?> firstPageToInspect(String collectionId) async {
+    final item = await db.collectionById(collectionId);
+    if (item == null) return null;
+    if (isRestrictedCaptureHost(item.host) ||
+        isCaptureRestricted(item.sourceUrl) ||
+        isCaptureRestricted(item.collectionIndexUrl)) {
+      return null;
+    }
+
+    final collectionIndexUrl = item.collectionIndexUrl;
+    if (collectionIndexUrl != null &&
+        collectionIndexUrl.isNotEmpty &&
+        item.collectionKey != null) {
+      return isCaptureRestricted(collectionIndexUrl)
+          ? null
+          : collectionIndexUrl;
+    }
+
+    final entries = await db.entriesForCollection(collectionId);
+    if (entries.isEmpty) return null;
+    final ordered = [...entries]
+      ..sort(
+        (a, b) => compareEntriesForReading(
+          (number: a.entryNumber, entryOrder: a.entryOrder, savedAt: a.savedAt),
+          (number: b.entryNumber, entryOrder: b.entryOrder, savedAt: b.savedAt),
+        ),
+      );
+    final latest = ordered.last;
+
+    final storedNext = latest.nextSourceUrl;
+    if (storedNext != null) {
+      final check = validateNextUrl(
+        candidate: storedNext,
+        currentUrl: latest.sourceUrl,
+        visited: {for (final c in entries) c.urlKey},
+      );
+      if (check.isAccepted && !isCaptureRestricted(check.normalized)) {
+        return check.normalized;
+      }
+    }
+    return isCaptureRestricted(latest.sourceUrl) ? null : latest.sourceUrl;
+  }
+
   Future<UpdateCheckOutcome> check(String collectionId) async {
     if (isRunning) {
       return const UpdateCheckOutcome(
@@ -249,11 +345,28 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       );
     }
 
+    // The restricted-site policy. A check is discovery *for* capture: it opens
+    // the source's pages and writes rows the user is then invited to save. It
+    // is refused before the WebView is claimed, so nothing navigates and the
+    // collection's existing entries, files and reading state are untouched.
+    if (isRestrictedCaptureHost(item.host) ||
+        isCaptureRestricted(item.sourceUrl) ||
+        isCaptureRestricted(item.collectionIndexUrl)) {
+      return const UpdateCheckOutcome(
+        state: UpdateCheckState.failed,
+        error: kCaptureRestrictedMessage,
+      );
+    }
+
     final startedAt = DateTime.now();
     _activeItemId = collectionId;
+    _activeTitle = item.title;
     _cancelRequested = false;
     _visited.clear();
     _log.clear();
+    _pagesInspected = 0;
+    _newEntries = 0;
+    _forwardDepth = 0;
     _state = UpdateCheckState.checking;
     _addLog('checking "${item.title}" for new entries');
 
@@ -312,6 +425,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
 
     _state = outcome.state;
     _activeItemId = null;
+    _activeTitle = '';
     _addLog(switch (outcome.state) {
       UpdateCheckState.upToDate => 'up to date — nothing new on the source',
       UpdateCheckState.updatesAvailable =>
@@ -349,9 +463,8 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       if (c.entryOrder > maxEntryOrder) maxEntryOrder = c.entryOrder;
     }
 
-    var pages = 0;
-    var found = 0;
-
+    // Counted on the controller rather than in locals so the running panel
+    // shows the same numbers the outcome will report, while it is happening.
     // --- strategy 1: the collection page's entry list ------------------------
     final collectionIndexUrl = item.collectionIndexUrl;
     final collectionKey = item.collectionKey;
@@ -363,7 +476,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       }
       _addLog('inspecting collection page: $collectionIndexUrl');
       final probe = await _navigateAndProbe(collectionIndexUrl);
-      pages++;
+      _pagesInspected++;
       if (probe != null) {
         final discovery = discoverFromEntryList(
           probe,
@@ -392,8 +505,20 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
         if (discovery.listRecognised &&
             (discovery.newEntries.isNotEmpty || discovery.orderingConfident)) {
           for (final found_ in discovery.newEntries) {
+            // Asked per row, not once before the loop: a cancel that lands
+            // while these are being written stops the discovery here. What was
+            // already recorded stays — it is true, and rolling it back would
+            // be a deletion nobody asked for.
+            if (_cancelRequested) {
+              _addLog('cancelled — the rest of the entry list was not read');
+              return UpdateCheckOutcome(
+                state: UpdateCheckState.cancelled,
+                newEntries: _newEntries,
+                pagesInspected: _pagesInspected,
+              );
+            }
             maxEntryOrder++;
-            await _recordDiscovered(
+            final recorded = await _recordDiscovered(
               item: item,
               url: found_.url,
               title: found_.title,
@@ -402,15 +527,16 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
               basis: 'entryList',
               confidence: 'high',
             );
-            found++;
+            if (!recorded) continue;
+            _newEntries++;
             _addLog('found: ${found_.title}');
           }
           return UpdateCheckOutcome(
-            state: found > 0
+            state: _newEntries > 0
                 ? UpdateCheckState.updatesAvailable
                 : UpdateCheckState.upToDate,
-            newEntries: found,
-            pagesInspected: pages,
+            newEntries: _newEntries,
+            pagesInspected: _pagesInspected,
             detail: 'entry list on the collection page',
           );
         }
@@ -447,40 +573,47 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       next = check.isAccepted ? check.normalized : null;
     }
     if (next == null) {
-      // Only now open the latest entry's own page to read its next link.
+      // Only now open the latest entry's own page to read its next link. This
+      // is the check's *starting* page — depth 0 — and reading it is not a
+      // forward transition.
       if (_cancelRequested) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.cancelled,
-          newEntries: found,
+          newEntries: _newEntries,
         );
       }
       final probe = await _navigateAndProbe(latest.sourceUrl);
-      pages++;
+      _pagesInspected++;
       if (probe == null) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.failed,
           error: 'could not open the latest known entry',
-          pagesInspected: pages,
+          pagesInspected: _pagesInspected,
         );
       }
       final resolved = await _resolveNext(probe, latest.sourceUrl);
       if (resolved.cancelled) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.cancelled,
-          pagesInspected: pages,
+          pagesInspected: _pagesInspected,
         );
       }
       next = resolved.url;
     }
 
+    // Each turn of this loop *is* one forward entry transition: it opens the
+    // page `next` points at. The starting page above is depth 0, so the loop
+    // may run at most [UpdateCheckConfig.maxForwardDepth] times, whatever the
+    // page and new-entry bounds would otherwise allow.
     while (next != null &&
-        found < config.maxNewEntries &&
-        pages < config.maxPagesInspected) {
+        _forwardDepth < config.maxForwardDepth &&
+        _newEntries < config.maxNewEntries &&
+        _pagesInspected < config.maxPagesInspected) {
       if (_cancelRequested) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.cancelled,
-          newEntries: found,
-          pagesInspected: pages,
+          newEntries: _newEntries,
+          pagesInspected: _pagesInspected,
         );
       }
 
@@ -493,8 +626,9 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
         break;
       }
 
+      _forwardDepth++;
       final probe = await _navigateAndProbe(next);
-      pages++;
+      _pagesInspected++;
       if (probe == null) {
         _addLog('page unreachable, stopping: $next');
         break;
@@ -521,7 +655,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       final resolved = await _resolveNext(probe, landed);
 
       maxEntryOrder++;
-      await _recordDiscovered(
+      final recorded = await _recordDiscovered(
         item: item,
         url: landed,
         title: title,
@@ -531,14 +665,16 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
         confidence: resolved.confidence ?? 'high',
         nextSourceUrl: resolved.url,
       );
-      found++;
-      _addLog('found: $title');
+      if (recorded) {
+        _newEntries++;
+        _addLog('found: $title');
+      }
 
       if (resolved.cancelled) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.cancelled,
-          newEntries: found,
-          pagesInspected: pages,
+          newEntries: _newEntries,
+          pagesInspected: _pagesInspected,
         );
       }
       next = resolved.url;
@@ -546,19 +682,28 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       await Future<void>.delayed(config.cooldownBetweenPages);
     }
 
-    if (next != null && pages >= config.maxPagesInspected) {
+    if (next != null && _forwardDepth >= config.maxForwardDepth) {
+      // Not a failure and not "up to date": the walk stopped where it was
+      // told to. The row just written carries this page's own next link, so
+      // the next check picks the chain up here instead of starting over.
+      _addLog(
+        'forward depth bound reached (${config.maxForwardDepth} entries '
+        'ahead); check again to continue',
+      );
+    }
+    if (next != null && _pagesInspected >= config.maxPagesInspected) {
       _addLog('page bound reached with more entries possibly remaining');
     }
-    if (next != null && found >= config.maxNewEntries) {
+    if (next != null && _newEntries >= config.maxNewEntries) {
       _addLog('new-entry bound reached; check again to continue');
     }
 
     return UpdateCheckOutcome(
-      state: found > 0
+      state: _newEntries > 0
           ? UpdateCheckState.updatesAvailable
           : UpdateCheckState.upToDate,
-      newEntries: found,
-      pagesInspected: pages,
+      newEntries: _newEntries,
+      pagesInspected: _pagesInspected,
       detail: 'entry chain from the latest known entry',
     );
   }
@@ -641,6 +786,17 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
   }
 
   Future<PageProbe?> _navigateAndProbe(String url) async {
+    // A cancelled check does not open one more page. Asked here rather than
+    // only at the callers, because this is the single place the walk moves the
+    // Browser: whatever route reaches it, a cancel means no navigation.
+    if (_cancelRequested) return null;
+    // Every address the walk would open is asked about independently — the
+    // collection cleared at the start says nothing about where its chain leads.
+    // A restricted address is never navigated to and never probed.
+    if (isCaptureRestricted(url)) {
+      _addLog(kCaptureRestrictedMessage);
+      return null;
+    }
     try {
       browser.allowNextNavigation(url);
       await browser.loadAndWait(url, timeout: config.navigationTimeout);
@@ -670,7 +826,9 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     }
   }
 
-  Future<void> _recordDiscovered({
+  /// Write a discovered entry. False when nothing was written — the address is
+  /// restricted, or the entry is already known.
+  Future<bool> _recordDiscovered({
     required Collection item,
     required String url,
     required String title,
@@ -680,10 +838,17 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     required String confidence,
     String? nextSourceUrl,
   }) async {
+    // A discovered entry is a row the user is invited to save. One on a
+    // restricted service is not written at all, so it can never become queued
+    // work through the "save new entries" path.
+    if (isCaptureRestricted(url)) {
+      _addLog(kCaptureRestrictedMessage);
+      return false;
+    }
     final key = normalizeUrl(url);
     _visited.add(key);
     final existing = await db.findEntryByUrlKey(item.id, key);
-    if (existing != null) return; // already known — never a duplicate row
+    if (existing != null) return false; // already known — never a duplicate row
 
     await db.upsertEntry(
       Entry(
@@ -727,6 +892,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
         discoveryConfidence: confidence,
       ),
     );
+    return true;
   }
 }
 

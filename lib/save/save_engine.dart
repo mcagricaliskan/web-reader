@@ -11,12 +11,14 @@ import '../storage/file_store.dart';
 import '../storage/manifest.dart';
 import 'asset_fetcher.dart';
 import 'capture_mode.dart';
+import 'capture_policy.dart';
 import 'document_extraction.dart';
 import 'save_state.dart';
 import 'image_candidates.dart';
 import 'next_page.dart';
 import 'page_hint.dart';
 import 'page_stability.dart';
+import 'stop_conditions.dart';
 import '../library/collection_identity.dart';
 import '../library/collection_repository.dart';
 import '../library/content_shape.dart';
@@ -250,6 +252,20 @@ class SaveEngine {
     _peakPanelHeight = 0;
     StagingHandle? staging;
 
+    // The restricted-site policy, asked before anything is read from the page.
+    // Nothing has been probed, scrolled, measured or staged at this point, and
+    // nothing will be: this returns above the DOM-ready wait.
+    //
+    // This — with the landed-page check below and the pre-commit check further
+    // down — is where capture is decided, and it is decided about the **page**.
+    // Both run before `fileStore.beginEntry`, so a restricted page never reaches
+    // a staging directory and therefore never reaches a download at all. That
+    // ordering is what lets `AssetFetcher` stay out of the policy entirely: the
+    // question has already been answered by the time any asset URL exists, and
+    // an asset's own host is not a capture source (see `capture_policy.dart`).
+    final restrictedOnEntry = _restrictedRefusal(entryId, browser.currentUrl);
+    if (restrictedOnEntry != null) return restrictedOnEntry;
+
     try {
       // 1. Inspect ------------------------------------------------------
       _emit(
@@ -273,6 +289,12 @@ class SaveEngine {
           ? 'Untitled entry'
           : initial.title;
       final pageUrl = initial.url.isEmpty ? browser.currentUrl : initial.url;
+
+      // Where we actually are, which is not always where we aimed: a redirect
+      // between the navigation and DOM-ready lands here. Re-asked before a
+      // single scroll, image inspection or download.
+      final restrictedOnLanding = _restrictedRefusal(entryId, pageUrl);
+      if (restrictedOnLanding != null) return restrictedOnLanding;
 
       // Re-saving an entry (a retry after a partial, say) must replace the
       // existing row, not insert a second one.
@@ -575,6 +597,16 @@ class SaveEngine {
         publishedAt: probeWithLinks.content.publishedAt,
         assets: entries,
       );
+
+      // Last gate before anything is committed. The manifest names the URL this
+      // package claims to be a copy of, so that URL — not the one the run
+      // started from — is what the policy is asked about. A refusal here
+      // discards the staging tree and writes no row, no file and no manifest.
+      if (isCaptureRestricted(manifest.sourceUrl)) {
+        await fileStore.discard(staging);
+        staging = null;
+        return _restrictedRefusal(entryId, manifest.sourceUrl)!;
+      }
 
       // Replacing keeps the old copy until the new one is safely in place, so
       // a failed re-download leaves the readable entry untouched.
@@ -903,6 +935,15 @@ class SaveEngine {
         assets: assets,
       );
 
+      // Last gate before anything is committed — the document path's copy of
+      // the same rule. See the image path for why the manifest's URL is what is
+      // asked about.
+      if (isCaptureRestricted(manifest.sourceUrl)) {
+        await fileStore.discard(staging);
+        staging = null;
+        return _restrictedRefusal(entryId, manifest.sourceUrl)!;
+      }
+
       final tCommit = DateTime.now();
       final relativePath = replaceExisting || existing?.contentPath != null
           ? await fileStore.commitReplacing(staging, manifest)
@@ -1075,6 +1116,30 @@ class SaveEngine {
       );
     }
     return next;
+  }
+
+  /// A refusal for a restricted address, or null when [url] is not restricted.
+  ///
+  /// Deliberately shaped as `nothingToSave` rather than a retryable failure:
+  /// there is nothing to retry, nothing to assist with, and no amount of
+  /// re-running changes the answer.
+  EntrySaveResult? _restrictedRefusal(String entryId, String? url) {
+    if (!isCaptureRestricted(url)) return null;
+    _log(kCaptureRestrictedMessage);
+    _emit(
+      (p) => p.copyWith(
+        state: SaveState.failed,
+        lastError: StopReason.captureRestrictedForSite.name,
+        message: kCaptureRestrictedMessage,
+      ),
+    );
+    return EntrySaveResult(
+      status: SaveStatus.failed,
+      entryId: entryId,
+      nothingToSave: true,
+      error: kCaptureRestrictedMessage,
+      pageUrl: url ?? '',
+    );
   }
 
   EntrySaveResult _fail(String entryId, String reason) {

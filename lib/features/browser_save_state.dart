@@ -14,6 +14,11 @@ enum BrowserSaveStatus {
   /// Nothing here yet.
   save,
 
+  /// This page is on a commercial content service the app does not save from
+  /// (`save/capture_policy.dart`). The save control is **absent** — not
+  /// disabled, not explained, not a warning. Browsing is untouched.
+  restricted,
+
   /// This page is already saved locally.
   availableOffline,
 
@@ -88,6 +93,12 @@ class BrowserSaveState {
     BrowserSaveStatus.busyElsewhere => true,
     _ => false,
   };
+
+  /// Whether the Browser should draw a save control for this page at all.
+  ///
+  /// False means **nothing is rendered** — no button, no disabled button and no
+  /// reserved space. Everything else in the Browser stays exactly where it was.
+  bool get offersCapture => status != BrowserSaveStatus.restricted;
 }
 
 /// Resolve the save control for the page on screen.
@@ -136,7 +147,25 @@ BrowserSaveState resolveBrowserSaveState({
 
   /// True when a queued (not started) save task covers this page.
   required bool pageIsQueued,
+
+  /// True when the restricted-site capture policy covers the page on screen.
+  required bool captureRestricted,
 }) {
+  // First, and before every other question. A stale result, a queued row from
+  // before this host joined the list, or a run working elsewhere must not be
+  // able to put a save control back on a restricted page — so none of those
+  // branches is even reached. It is also why this is recomputed per page: the
+  // answer is a property of the address on screen and of nothing else, so it
+  // follows every navigation, redirect, reload and history move for free.
+  if (captureRestricted) {
+    return const BrowserSaveState(
+      status: BrowserSaveStatus.restricted,
+      label: 'Save',
+      canStartDirect: false,
+      canQueue: false,
+    );
+  }
+
   if (hasActiveRun) {
     // Three ways this page can be the run's page, and all three are needed:
     // the keys agree; the run is *between* pages, where they are supposed to

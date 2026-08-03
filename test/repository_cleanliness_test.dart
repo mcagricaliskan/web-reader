@@ -105,6 +105,20 @@ void main() {
     // shape must never be given it. Testing that rule means naming the word.
     'test/entry_sort_test.dart': 'exercises the Chapter display style',
     'test/collection_identity_test.dart': 'exercises the Chapter display style',
+    // The restricted-site capture policy. It names commercial content services
+    // in order to **refuse** them, which is the opposite of a supported-site
+    // catalogue: nothing here makes any site work, and no page is detected,
+    // measured or handled differently because of it. Two of the hosts on the
+    // list happen to contain a word this file forbids, and recognising a word
+    // in somebody else's hostname is not adopting it as this product's model —
+    // the same distinction that lets `collection_identity.dart` hold parser
+    // input. See `lib/save/capture_policy.dart` for the reasoning, and the
+    // duplication guard at the bottom of this file for what keeps it the only
+    // copy.
+    'lib/save/capture_policy.dart':
+        'the restricted-site refusal list; a refusal is not a catalogue',
+    'test/capture_policy_test.dart':
+        'exercises that list, including the lookalikes it must not match',
     // The store and policy documents have to name what the app is *not*, and
     // the rename inventory has to name what was renamed.
     'docs/TERMINOLOGY.md': 'the old → new rename inventory',
@@ -267,10 +281,25 @@ void main() {
       caseSensitive: false,
     );
 
+    // Files that name restricted hosts in order to refuse them. The policy
+    // itself holds bare domains with no scheme, so it never matches the
+    // pattern below; its test writes whole addresses, because matching has to
+    // be exercised against the shape a real URL takes.
+    const restrictionPolicyFiles = [
+      'test/repository_cleanliness_test.dart',
+      'lib/save/capture_policy.dart',
+      'test/capture_policy_test.dart',
+      'test/capture_restriction_test.dart',
+      // Proves the policy stops at the page boundary: an asset served from a
+      // restricted host is still fetched. Naming such a host is the only way to
+      // assert that, and every request in it is answered by a fake adapter.
+      'test/asset_host_policy_test.dart',
+    ];
+
     final offences = <String>[];
     for (final file in files) {
       final path = file.path.replaceFirst('${Directory.current.path}/', '');
-      if (path == 'test/repository_cleanliness_test.dart') continue;
+      if (restrictionPolicyFiles.contains(path)) continue;
       final lines = file.readAsStringSync().split('\n');
       for (var i = 0; i < lines.length; i++) {
         for (final m in hostPattern.allMatches(lines[i])) {
@@ -319,5 +348,35 @@ void main() {
       }
     }
     expect(offences, isEmpty, reason: offences.join('\n'));
+  });
+
+  test('the restricted-site policy exists in exactly one place', () {
+    // The one allowance above is worth exactly as much as this guard. A second
+    // copy of the list — in the Browser, the queue, a screen or a document —
+    // is how the two drift apart until the UI hides a control the engine still
+    // honours, or the reverse. Every capture boundary must import the policy
+    // and ask it; none may hold its own.
+    const home = 'lib/save/capture_policy.dart';
+    const constants = ['restrictedCaptureDomains', 'restrictedCaptureHosts'];
+
+    for (final name in constants) {
+      final declaring = <String>[];
+      for (final file in files) {
+        final path = file.path.replaceFirst('${Directory.current.path}/', '');
+        if (!path.startsWith('lib/')) continue;
+        // The declaration, not a use: `const <name> = <String>{`.
+        if (RegExp('const\\s+$name\\s*=').hasMatch(file.readAsStringSync())) {
+          declaring.add(path);
+        }
+      }
+      expect(
+        declaring,
+        [home],
+        reason:
+            '`$name` must be declared in $home and nowhere else. A capture '
+            'boundary enforces the policy by importing it, never by keeping '
+            'its own copy.',
+      );
+    }
   });
 }

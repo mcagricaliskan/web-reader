@@ -61,6 +61,7 @@ void main() {
     SaveRunRecord? lastRun,
     EntryLocalState? pageEntryState,
     bool pageIsQueued = false,
+    bool captureRestricted = false,
   }) => resolveBrowserSaveState(
     pageKey: pageKey,
     pageSession: pageSession,
@@ -75,6 +76,7 @@ void main() {
     lastRun: lastRun,
     pageEntryState: pageEntryState,
     pageIsQueued: pageIsQueued,
+    captureRestricted: captureRestricted,
   );
 
   group('page session identity', () {

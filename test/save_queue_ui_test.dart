@@ -47,7 +47,7 @@ void main() {
         return const QueueOutcome.success('saved');
       },
     );
-    queue.ensureBrowserVisible = () async => true;
+    queue.ensureBrowserVisible = ({url}) async => true;
   });
 
   tearDown(() async {

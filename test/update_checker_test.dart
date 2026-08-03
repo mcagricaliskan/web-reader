@@ -176,6 +176,10 @@ void main() {
         config: const UpdateCheckConfig(
           maxNewEntries: 3,
           maxPagesInspected: 5,
+          // Lifted so this test still measures the two bounds it is named
+          // after. With the shipped depth of 2 the walk stops before either
+          // of them is reached — which is the point of the depth group below.
+          maxForwardDepth: 10,
           cooldownBetweenPages: Duration.zero,
         ),
       );
@@ -280,6 +284,312 @@ void main() {
         EntryLocalState.none,
         reason: 'saving it must neither prompt nor look like a retry',
       );
+    });
+  });
+
+  group('forward depth', () {
+    /// The product rule: **the page a check starts on is depth 0**, and the
+    /// check may follow at most [kUpdateCheckForwardDepth] "next entry" links
+    /// from there. Everything in this group exists to pin that sentence down,
+    /// because "two entries" and "two hops" are not the same number and the
+    /// difference is one extra request to someone else's site.
+    test('the shipped bound is two forward transitions', () {
+      expect(kUpdateCheckForwardDepth, 2);
+      expect(kDefaultUpdateCheckConfig.maxForwardDepth, 2);
+    });
+
+    test('follows no more than two entry transitions', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
+      serveChain(2, 40); // far more available than the bound allows
+
+      final outcome = await checker.check('collection-1');
+
+      expect(outcome.state, UpdateCheckState.updatesAvailable);
+      expect(outcome.newEntries, 2);
+      final discovered = (await db.allEntries())
+          .where((c) => c.saveStatus == 'knownRemote')
+          .toList();
+      expect(
+        discovered.map((c) => c.entryNumber).toSet(),
+        {3.0, 4.0},
+        reason: 'entry 5 is one hop too far and is left for the next check',
+      );
+      expect(checker.forwardDepth, 2);
+    });
+
+    test(
+      'the starting page is depth 0 — reading it is not a transition',
+      () async {
+        // No stored next link, so the check must open the latest known entry's
+        // own page to find one. That page is where the check *starts*: three
+        // pages are read, and only two of them were reached by following a
+        // next link.
+        await seedCollection();
+        await seedSaved(1, nextUrl: entryUrl(2));
+        await seedSaved(2);
+        serveChain(2, 40);
+
+        final outcome = await checker.check('collection-1');
+
+        expect(outcome.pagesInspected, 3, reason: 'entry 2, then 3, then 4');
+        expect(
+          checker.forwardDepth,
+          2,
+          reason: 'the entry-2 page was the origin, not a hop',
+        );
+        expect(outcome.newEntries, 2);
+      },
+    );
+
+    test(
+      'depth counts hops, not pages, when the next link is stored',
+      () async {
+        // Same collection, but the latest known entry already carries its next
+        // link, so the check never opens it. Two pages are read instead of
+        // three — and the same two entries are found, because the bound is on
+        // transitions either way.
+        await seedCollection();
+        await seedSaved(1, nextUrl: entryUrl(2));
+        await seedSaved(2, nextUrl: entryUrl(3));
+        serveChain(2, 40);
+
+        final outcome = await checker.check('collection-1');
+
+        expect(outcome.pagesInspected, 2, reason: 'entry 3, then entry 4');
+        expect(checker.forwardDepth, 2);
+        expect(
+          (await db.allEntries())
+              .where((c) => c.saveStatus == 'knownRemote')
+              .map((c) => c.entryNumber)
+              .toSet(),
+          {3.0, 4.0},
+        );
+      },
+    );
+
+    test('the walk stops on the bound and says so, without failing', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
+      serveChain(2, 40);
+
+      final outcome = await checker.check('collection-1');
+
+      expect(
+        outcome.state,
+        UpdateCheckState.updatesAvailable,
+        reason: 'a bound reached is not an error and not "up to date"',
+      );
+      expect(
+        checker.log.any((l) => l.contains('forward depth bound reached')),
+        isTrue,
+      );
+      // The last discovered row carries its own next link, so the next check
+      // resumes from here rather than walking this stretch again.
+      final last = (await db.allEntries()).firstWhere(
+        (c) => c.entryNumber == 4.0,
+      );
+      expect(last.nextSourceUrl, entryUrl(5));
+    });
+
+    test('a second check continues from where the first stopped', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
+      serveChain(2, 40);
+
+      await checker.check('collection-1');
+      await checker.check('collection-1');
+
+      expect(
+        (await db.allEntries())
+            .where((c) => c.saveStatus == 'knownRemote')
+            .map((c) => c.entryNumber)
+            .toSet(),
+        {3.0, 4.0, 5.0, 6.0},
+        reason: 'shallow per run, not a ceiling on what can ever be found',
+      );
+    });
+
+    test('the bound is configuration, not a magic number', () async {
+      final shallow = UpdateChecker(
+        browser: browser,
+        db: db,
+        config: const UpdateCheckConfig(
+          maxForwardDepth: 1,
+          cooldownBetweenPages: Duration.zero,
+        ),
+      );
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
+      serveChain(2, 40);
+
+      final outcome = await shallow.check('collection-1');
+
+      expect(outcome.newEntries, 1);
+      expect(shallow.forwardDepth, 1);
+    });
+
+    test('reading one entry list is not a traversal', () async {
+      // The depth bound is about *following links between entries*. A
+      // collection page is a single page read, so it may still report every
+      // new entry it lists — that is what keeps a check useful on sites that
+      // have an index.
+      await seedCollection(withCollectionUrl: collectionIndexUrl);
+      await seedSaved(1);
+      await seedSaved(2);
+      browser.addPage(
+        collectionIndexUrl,
+        PageProbe(
+          url: collectionIndexUrl,
+          title: 'Foo — all entries',
+          readyState: 'complete',
+          documentHeight: 2000,
+          viewportHeight: 800,
+          links: [
+            for (var n = 9; n >= 1; n--)
+              PageLink(href: '/guide/foo/$n', text: 'Entry $n'),
+          ],
+        ),
+      );
+
+      final outcome = await checker.check('collection-1');
+
+      expect(outcome.newEntries, 7, reason: 'entries 3 through 9');
+      expect(
+        checker.forwardDepth,
+        0,
+        reason: 'nothing was followed — one page was read',
+      );
+      expect(outcome.pagesInspected, 1);
+    });
+  });
+
+  group('stopping a check', () {
+    test('a cancel stops entry-list discovery where it stands', () async {
+      await seedCollection(withCollectionUrl: collectionIndexUrl);
+      await seedSaved(1);
+      await seedSaved(2);
+      browser.addPage(
+        collectionIndexUrl,
+        PageProbe(
+          url: collectionIndexUrl,
+          title: 'Foo — all entries',
+          readyState: 'complete',
+          documentHeight: 2000,
+          viewportHeight: 800,
+          links: [
+            for (var n = 6; n >= 1; n--)
+              PageLink(href: '/guide/foo/$n', text: 'Entry $n'),
+          ],
+        ),
+      );
+      // Stop the moment the first discovery lands — the panel's Stop button,
+      // pressed while the list is being written.
+      checker.addListener(() {
+        if (checker.log.any((l) => l.contains('found:'))) checker.cancel();
+      });
+
+      final outcome = await checker.check('collection-1');
+
+      expect(outcome.state, UpdateCheckState.cancelled);
+      expect(
+        (await db.allEntries())
+            .where((c) => c.saveStatus == 'knownRemote')
+            .length,
+        1,
+        reason: 'the remaining three were never written',
+      );
+    });
+
+    test('a cancelled check opens no further pages', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
+      serveChain(2, 40);
+      checker.addListener(() {
+        if (checker.log.any((l) => l.contains('found:'))) checker.cancel();
+      });
+
+      await checker.check('collection-1');
+
+      expect(
+        browser.navigations,
+        isNot(contains(entryUrl(4))),
+        reason: 'navigation stops with the check, not after it',
+      );
+    });
+
+    test('cancelling keeps every saved entry and its files', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
+      serveChain(2, 40);
+      checker.addListener(() {
+        if (checker.log.any((l) => l.contains('found:'))) checker.cancel();
+      });
+
+      await checker.check('collection-1');
+
+      final saved = (await db.allEntries())
+          .where((c) => c.saveStatus == 'complete')
+          .toList();
+      expect(saved, hasLength(2));
+      for (final entry in saved) {
+        expect(entry.contentPath, isNotNull);
+        expect(entry.byteSize, 128);
+        expect(entry.storedAssetCount, 3);
+      }
+      expect(await db.collectionById('collection-1'), isNotNull);
+    });
+  });
+
+  group('the page a check starts on', () {
+    test('is the collection page when there is one', () async {
+      await seedCollection(withCollectionUrl: collectionIndexUrl);
+      await seedSaved(1);
+
+      expect(
+        await checker.firstPageToInspect('collection-1'),
+        collectionIndexUrl,
+      );
+    });
+
+    test('is the stored next link when there is no collection page', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2, nextUrl: entryUrl(3));
+
+      expect(await checker.firstPageToInspect('collection-1'), entryUrl(3));
+    });
+
+    test('is the latest known entry when there is no stored link', () async {
+      await seedCollection();
+      await seedSaved(1, nextUrl: entryUrl(2));
+      await seedSaved(2);
+
+      expect(await checker.firstPageToInspect('collection-1'), entryUrl(2));
+    });
+
+    test('is nothing when there is nothing to start from', () async {
+      await seedCollection();
+
+      expect(await checker.firstPageToInspect('collection-1'), isNull);
+      expect(await checker.firstPageToInspect('no-such-collection'), isNull);
+    });
+
+    test('opens no page and writes nothing', () async {
+      await seedCollection(withCollectionUrl: collectionIndexUrl);
+      await seedSaved(1);
+
+      await checker.firstPageToInspect('collection-1');
+
+      expect(browser.navigations, isEmpty);
+      expect(checker.isRunning, isFalse);
+      expect(browser.automationOwner, isNull);
     });
   });
 

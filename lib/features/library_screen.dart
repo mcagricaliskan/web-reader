@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../save/capture_policy.dart';
 import '../save/save_state.dart';
 import '../library/library_sort.dart';
 import '../library/content_shape.dart';
@@ -14,6 +15,7 @@ import '../reading/reading_position.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'open_in_browser.dart';
 import 'save_queue_ui.dart';
 import 'resume_point.dart';
 import 'collection_detail_screen.dart' show sortEntriesForReading;
@@ -314,7 +316,7 @@ class _ActivityStrip extends ConsumerWidget {
               ),
               const SizedBox(width: 8),
               FilledButton(
-                onPressed: () => ref.read(shellTabRequestProvider).value = 1,
+                onPressed: () => showBrowserSurface(context, ref),
                 child: const Text('Open Browser'),
               ),
             ],
@@ -849,12 +851,17 @@ Future<void> showCollectionMenu(
             leading: const Icon(Icons.sync),
             title: const Text('Check for updates'),
             subtitle: const Text('Metadata only'),
-            onTap: () {
+            onTap: () async {
               Navigator.of(sheetContext).pop();
               // The M8 per-collection check, on the queue (M14): runs now if the
               // browser is free, waits its turn otherwise. State lands on the
-              // row chip either way.
-              queue.enqueueCollectionCheck(group.id);
+              // row chip either way. Null means the restricted-site capture
+              // policy refused it — a check is discovery for capture.
+              final id = await queue.enqueueCollectionCheck(group.id);
+              if (id != null || !context.mounted) return;
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                const SnackBar(content: Text(kCaptureRestrictedMessage)),
+              );
             },
           ),
           ListTile(

@@ -8,6 +8,7 @@ import '../storage/database.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'open_in_browser.dart';
 import 'save_queue_ui.dart';
 import 'library_screen.dart' show formatRelative;
 import '../library/entry_labels.dart';
@@ -272,10 +273,8 @@ class _DirectSaveRow extends ConsumerWidget {
             children: [
               FilledButton.icon(
                 key: const ValueKey('directSaveOpenBrowser'),
-                onPressed: () {
-                  ref.read(shellTabRequestProvider).value = 1;
-                  Navigator.of(context).maybePop();
-                },
+                // One pop is not enough: Activity can be two routes deep.
+                onPressed: () => showBrowserSurface(context, ref),
                 icon: const Icon(Icons.open_in_browser, size: 18),
                 label: const Text('Open Browser'),
               ),
@@ -448,10 +447,7 @@ class _TaskRow extends ConsumerWidget {
                 ],
                 const SizedBox(height: 8),
                 FilledButton.icon(
-                  onPressed: () {
-                    ref.read(shellTabRequestProvider).value = 1;
-                    Navigator.of(context).maybePop();
-                  },
+                  onPressed: () => showBrowserSurface(context, ref),
                   icon: const Icon(Icons.open_in_browser, size: 18),
                   label: const Text('Open Browser to resume'),
                 ),

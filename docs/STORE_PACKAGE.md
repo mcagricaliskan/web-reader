@@ -121,6 +121,10 @@ HONEST ABOUT WHAT IT DOES
   text with the pictures that sit inside it. Scrollary suggests one and shows
   you the alternatives.
 • Audio and video are not saved. A saved page links back to the original.
+• Saving is not offered on major commercial content services — streaming video,
+  music, audiobooks, ebook and comics stores, and subscription reading services.
+  You can browse them in Scrollary as you would in any browser; the Save action
+  simply is not there.
 • Every saved page keeps its source address, and "Open original page" is one tap
   from the reader.
 
@@ -210,6 +214,10 @@ NE YAPTIĞI KONUSUNDA DÜRÜST
   metin ya da metin ile içindeki görseller. Scrollary birini önerir, diğerlerini
   de gösterir.
 • Ses ve video kaydedilmez. Kaydedilen sayfa özgün sayfaya bağlantı verir.
+• Büyük ticari içerik hizmetlerinde kaydetme sunulmaz — video ve müzik yayını,
+  sesli kitap, e-kitap ve çizgi roman mağazaları, abonelikli okuma servisleri.
+  Bu siteleri Scrollary içinde her tarayıcıdaki gibi gezebilirsiniz; yalnızca
+  Kaydet eylemi görünmez.
 • Her kaydedilen sayfa kaynak adresini korur; "Özgün sayfayı aç" okuyucudan tek
   dokunuş uzaktadır.
 
@@ -355,6 +363,28 @@ Verbatim from `StopReason.message`:
 | Layout changed | Stopped: the page layout changed, so continuing might have saved the wrong thing. |
 | Unclear next | Stopped: it was not clear which link continues the sequence. |
 | Limit | Reached the limit you set. |
+| Saving unavailable here | Saving isn't available on this site. |
+
+The last row is the app's **own** policy, not something the site did — see
+§6.8. Every other row in this table is a condition the app detected and stopped
+at.
+
+### 6.5.1 Sites Scrollary does not save from
+
+Verbatim, and the only sentence used anywhere for this:
+
+> Saving isn't available on this site.
+
+Where it appears: when a queued save is refused, when a batch names how many of
+its entries could not be queued, and on a task in Activity that was refused.
+
+Where it does **not** appear: while the user is simply browsing one of these
+sites. There is no banner, no warning and no interstitial — the Save control is
+absent, and everything else about the Browser is unchanged.
+
+The wording is deliberately about the app, not the user. It never mentions
+copyright, never says the content is protected, and never suggests the user was
+attempting anything.
 
 ### 6.6 Video pages
 
@@ -414,6 +444,39 @@ The app ships with no list of websites, no site-specific rules, no selectors and
 no content catalogue. The saved-sites list and the library both start empty. A
 build-time test (test/repository_cleanliness_test.dart) fails if a third-party
 hostname or a site rule is added.
+
+The single exception is a RESTRICTED-SITE list, and it works the other way: it
+names commercial content services the app REFUSES to save from — subscription
+video, hosted commercial video, music, audiobooks, ebook stores and readers,
+licensed serialised reading, and official publisher reading services. Nothing on
+that list makes any site work. On those hosts the Save control is simply not
+shown, while browsing them stays completely normal.
+
+Amazon's retail domains are restricted in full, deliberately: their reading,
+video, music and audiobook services share those domains, and no static rule can
+separate a product page from a reader without inspecting the page. Apple and
+Google are restricted only through selected content-service hosts (tv.apple.com,
+music.apple.com, books.apple.com, podcasts.apple.com, itunes.apple.com,
+play.google.com, books.google.com); their parent domains and unrelated
+subdomains are untouched.
+
+The rule is enforced below the interface, not by hiding a button: the direct
+start, the queue, resume, retry, multi-page continuation, top-level redirects
+mid-save and update checking each check it independently
+(lib/save/capture_policy.dart; test/capture_restriction_test.dart).
+
+The rule applies to the PAGE being saved, not to the individual images inside
+it. Ordinary websites deliver their pictures through CDNs run by large
+commercial platforms, so an image's delivery host is never tested against the
+list — otherwise perfectly ordinary articles would save incompletely for a
+reason unrelated to them. The audio/video restriction is separate and stricter:
+the fetcher accepts image bytes only, verified by magic number rather than by
+the server's declared content type, so audio and video are refused from every
+host (test/asset_host_policy_test.dart). The list is
+static and manually maintained — there is no remote configuration, no DRM
+detection, no Terms-of-Service fetching, no user override and no developer
+bypass. It reduces risk; it is not offered as a claim of legal compliance.
+Nothing already downloaded is ever removed by it.
 
 HOW SAVING WORKS
 

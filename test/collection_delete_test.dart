@@ -527,7 +527,7 @@ void main() {
         startUrl: 'https://x.example/guide/s1/2',
         entryLimit: 1,
       );
-      final theirs = await queue.enqueueCollectionCheck('s2');
+      final theirs = (await queue.enqueueCollectionCheck('s2'))!;
       expect(await queue.pendingTasksForCollection('s1'), hasLength(1));
 
       final result = await service(queue: queue).delete('s1');

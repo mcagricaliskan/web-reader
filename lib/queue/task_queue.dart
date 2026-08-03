@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../browser/browser_controller.dart';
 import '../save/capture_mode.dart';
+import '../save/capture_policy.dart';
 import '../save/save_run.dart';
 import '../core/config.dart';
 import '../core/url_utils.dart';
@@ -86,6 +87,13 @@ bool taskNeedsBrowser(QueueTaskType type) => switch (type) {
   QueueTaskType.removeOfflineFiles => false,
 };
 
+/// Update-check work, of either granularity. One predicate rather than the
+/// same two-armed `||` repeated wherever checks have to be told apart from
+/// saves and cleanup.
+bool isCheckTask(QueueTaskType type) =>
+    type == QueueTaskType.collectionCheck ||
+    type == QueueTaskType.checkAllCollections;
+
 /// Save is the only work that waits for an explicit start.
 ///
 /// Update checks and cleanup are cheap, bounded, and already user-initiated
@@ -109,6 +117,10 @@ enum DirectStartResult {
 
   /// No page to save.
   noPage,
+
+  /// The address is on a commercial content service this app does not save
+  /// from (`save/capture_policy.dart`). Browsing it is unaffected.
+  restrictedSite,
 }
 
 /// What [TaskQueueController.cancelTask] did (D64).
@@ -156,10 +168,24 @@ class BrowserOwnerState {
 /// what the user wanted. It exists so the caller can say "already in the
 /// queue" instead of a second "added".
 class QueueEnqueueResult {
-  const QueueEnqueueResult({required this.id, required this.alreadyQueued});
+  const QueueEnqueueResult({
+    required this.id,
+    required this.alreadyQueued,
+    this.restricted = false,
+  });
+
+  /// Nothing was queued: the address is on a restricted service. No row is
+  /// written, so there is nothing to start, retry or clean up later.
+  const QueueEnqueueResult.restricted()
+    : id = '',
+      alreadyQueued = false,
+      restricted = true;
 
   final String id;
   final bool alreadyQueued;
+
+  /// True when the request was refused by the restricted-site capture policy.
+  final bool restricted;
 }
 
 /// The counts the Activity screen and the Library strip both quote.
@@ -356,7 +382,14 @@ class TaskQueueController extends ChangeNotifier {
   /// in tests and headless contexts, where it degrades to "assume visible" —
   /// the save engine's own render guard is the real safety net, this is
   /// the *navigation*.
-  Future<bool> Function()? ensureBrowserVisible;
+  ///
+  /// [url], when given, is the page the work is about to open. Passing it is
+  /// what makes the Browser show *that* page: selecting the tab alone leaves
+  /// whatever was there on screen — including Browser Home or the address
+  /// editor, which cover the WebView entirely — so the user watches the wrong
+  /// thing while automation drives the right one. The shell routes it through
+  /// the same `BrowserNavigator` every "open in Browser" action uses.
+  Future<bool> Function({String? url})? ensureBrowserVisible;
 
   /// Queued save work the user has not started yet.
   Future<List<QueueTask>> queuedSaves() async {
@@ -386,6 +419,9 @@ class TaskQueueController extends ChangeNotifier {
   Future<bool> startQueuedTask(String id) async {
     final task = await db.queueTaskById(id);
     if (task == null || task.state != QueueTaskState.queued.name) return false;
+    // A row queued before this host joined the policy does not get to jump the
+    // queue into a run. It is settled here instead, exactly as the pump would.
+    if (await _settleIfRestricted(task)) return false;
     await moveQueuedToFront(id);
     _saveStartAuthorised = true;
     _resumeOffered = false;
@@ -454,6 +490,9 @@ class TaskQueueController extends ChangeNotifier {
     bool rememberForCollection = false,
   }) async {
     if (startUrl.trim().isEmpty) return DirectStartResult.noPage;
+    // Asked before the WebView is claimed, so a refusal leaves the Browser
+    // exactly as the user left it.
+    if (isCaptureRestricted(startUrl)) return DirectStartResult.restrictedSite;
     if (_directSaveClaimed || browserOwner != null) {
       return DirectStartResult.browserBusy;
     }
@@ -495,6 +534,13 @@ class TaskQueueController extends ChangeNotifier {
   /// Resume an interrupted run. A direct save resumes **directly**; it is
   /// never converted into a pending queue task (D58).
   Future<DirectStartResult> resumeInterruptedSave(SaveRun run) async {
+    // A run interrupted before the policy existed — or before this host joined
+    // it — must not come back through the resume door. Both ends are checked:
+    // where it would continue from, and where it originally began.
+    if (isCaptureRestricted(run.currentUrl) ||
+        isCaptureRestricted(run.startUrl)) {
+      return DirectStartResult.restrictedSite;
+    }
     if (_directSaveClaimed || browserOwner != null) {
       return DirectStartResult.browserBusy;
     }
@@ -667,6 +713,12 @@ class TaskQueueController extends ChangeNotifier {
     CaptureMode? captureMode,
     bool captureModeIsUserSet = false,
   }) async {
+    // No row is written for a restricted address. Queueing one and failing it
+    // later would leave a permanently-failing record the user has to tidy up,
+    // for a request that was never going to run.
+    if (isCaptureRestricted(startUrl)) {
+      return const QueueEnqueueResult.restricted();
+    }
     final existing = await pendingSaveFor(startUrl);
     if (existing != null) {
       return QueueEnqueueResult(id: existing.id, alreadyQueued: true);
@@ -712,6 +764,7 @@ class TaskQueueController extends ChangeNotifier {
     final queued = <String>[];
     final already = <Entry>[];
     final noSource = <Entry>[];
+    final restricted = <Entry>[];
 
     for (final entry in ordered) {
       if (!entryHasCapturableUrl(entry)) {
@@ -725,7 +778,11 @@ class TaskQueueController extends ChangeNotifier {
         policy: policy,
         range: SaveScope.currentPageOnly,
       );
-      if (result.alreadyQueued) {
+      if (result.restricted) {
+        // Counted and reported, never silently dropped — and the entry itself,
+        // its files and its reading state are untouched.
+        restricted.add(entry);
+      } else if (result.alreadyQueued) {
         already.add(entry);
       } else {
         queued.add(result.id);
@@ -735,13 +792,18 @@ class TaskQueueController extends ChangeNotifier {
       queuedIds: queued,
       alreadyQueued: already,
       missingSource: noSource,
+      restricted: restricted,
     );
   }
 
   /// Idempotent per collection: a check is a metadata read, so a second tap while
   /// one is already queued or running for the same collection returns the
   /// existing task instead of stacking a duplicate behind it.
-  Future<String> enqueueCollectionCheck(String collectionId) async {
+  /// Returns the task id, or **null** when the collection's source is on a
+  /// restricted service: an update check discovers entries in order to save
+  /// them, so it is capture work and is refused with everything else.
+  Future<String?> enqueueCollectionCheck(String collectionId) async {
+    if (await _collectionIsRestricted(collectionId)) return null;
     final pending = await db.pendingQueueTasks();
     final existing = pending
         .where(
@@ -785,7 +847,10 @@ class TaskQueueController extends ChangeNotifier {
     for (final item in items) {
       // Archived collection are asleep: no checks until restored (M16).
       if (item.lifecycle == 'archived') continue;
-      ids.add(await enqueueCollectionCheck(item.id));
+      // A restricted collection contributes nothing rather than a row that
+      // would only fail.
+      final id = await enqueueCollectionCheck(item.id);
+      if (id != null) ids.add(id);
     }
     return ids;
   }
@@ -1060,11 +1125,17 @@ class TaskQueueController extends ChangeNotifier {
   void resumeRunning() => saveRun.resume();
 
   /// Re-enqueue a terminal task as a fresh entry at the back of the queue.
+  ///
+  /// Returns null when the retry is refused — including by the restricted-site
+  /// policy, which is what stops a history row on a restricted service from
+  /// being turned back into work that runs.
   Future<String?> retryTask(String id) async {
     final task = await db.queueTaskById(id);
     if (task == null) return null;
     final terminal = const ['completed', 'failed', 'cancelled'];
     if (!terminal.contains(task.state)) return null;
+    if (isCaptureRestricted(task.startUrl)) return null;
+    if (await _collectionIsRestricted(task.collectionId)) return null;
     return _enqueue(
       task.copyWith(
         id: _uuid.v4(),
@@ -1113,6 +1184,15 @@ class TaskQueueController extends ChangeNotifier {
             .firstOrNull;
         if (next == null) break;
 
+        // The restricted-site policy, asked before the row is claimed and
+        // before the Browser is brought forward. This is where a *stale* task
+        // is stopped: a row queued when its host was permitted, or one that
+        // survived a restart, reaches the pump like any other and is settled
+        // here as a terminal failure with the policy's own reason. The row is
+        // kept (never silently deleted), nothing re-runs it on its own, and no
+        // entry, file or reading position is touched.
+        if (await _settleIfRestricted(next)) continue;
+
         // One driver on the shared WebView. Someone else (a directly-started
         // save, a manual check) owning it is not an error — wait our turn
         // by stopping the pump; the next enqueue or resume pumps again.
@@ -1122,7 +1202,11 @@ class TaskQueueController extends ChangeNotifier {
         // a side effect of it (D47). A queue task must not begin scrolling
         // while the user is still looking at the Library.
         if (taskNeedsBrowser(queueTaskTypeFromName(next.taskType))) {
-          final ready = await ensureBrowserVisible?.call() ?? true;
+          final ready =
+              await ensureBrowserVisible?.call(
+                url: await _browserTargetFor(next),
+              ) ??
+              true;
           if (!ready) {
             // Not an error and not a cancellation: the Browser could not be
             // brought up, so the work stays queued for the next attempt.
@@ -1189,7 +1273,109 @@ class TaskQueueController extends ChangeNotifier {
     }
   }
 
+  /// The page the Browser should be showing when [task] starts, or null when
+  /// there is nothing specific to show.
+  ///
+  /// Only checks answer this today. A check names a *collection*, not an
+  /// address, so without asking the checker where its walk begins the Browser
+  /// has nothing to open and the user is left looking at the page they were on
+  /// — the bug this exists to close. A save already names its own start URL and
+  /// its engine drives the page from the first frame, so it is deliberately
+  /// left alone here rather than given a second navigation path.
+  Future<String?> _browserTargetFor(QueueTask task) async {
+    if (!isCheckTask(queueTaskTypeFromName(task.taskType))) return null;
+    final collectionId = task.collectionId;
+    if (collectionId == null) return null;
+    try {
+      return await checker.firstPageToInspect(collectionId);
+    } catch (_) {
+      // Never a reason not to start: the check does its own navigation, and
+      // this is only about what the user sees first.
+      return null;
+    }
+  }
+
+  /// Stop the update check that is running now, from wherever it was started.
+  ///
+  /// Goes through the queue when the check is queue work so the row lands in
+  /// `cancelled` rather than being written up as a completed check that
+  /// happens to say "cancelled" — [cancelTask] is what makes the outcome and
+  /// the row agree. Falls back to the checker for a check with no row.
+  ///
+  /// Nothing is deleted either way: discovered entries, saved packages and
+  /// reading positions are untouched by a stopped check.
+  Future<void> stopRunningCheck() async {
+    if (!checker.isRunning) return;
+    final id = _runningTaskId;
+    if (id != null) {
+      final task = await db.queueTaskById(id);
+      if (task != null && isCheckTask(queueTaskTypeFromName(task.taskType))) {
+        await cancelTask(id);
+        return;
+      }
+    }
+    checker.cancel();
+  }
+
+  // --- the restricted-site policy, at the queue's boundary ------------------
+
+  /// Is this task's target on a restricted service?
+  ///
+  /// Both halves are asked because the two task families carry their target
+  /// differently: a save names an address, a check names a collection. Cleanup
+  /// names neither and never captures anything, so it is never restricted.
+  Future<bool> _taskIsRestricted(QueueTask task) async {
+    if (isCaptureRestricted(task.startUrl)) return true;
+    return _collectionIsRestricted(task.collectionId);
+  }
+
+  /// A collection whose source is on a restricted service.
+  ///
+  /// `host` is the identity column the collection was created with; the two
+  /// URLs are checked as well so a row written before this column was reliable
+  /// is still caught.
+  Future<bool> _collectionIsRestricted(String? collectionId) async {
+    if (collectionId == null) return false;
+    final item = await db.collectionById(collectionId);
+    if (item == null) return false;
+    return isRestrictedCaptureHost(item.host) ||
+        isCaptureRestricted(item.sourceUrl) ||
+        isCaptureRestricted(item.collectionIndexUrl);
+  }
+
+  /// Turn a queued row whose target is restricted into a terminal failure, in
+  /// place. True when it did.
+  ///
+  /// Deliberately a `failed` row rather than a deletion: the user queued
+  /// something and is owed a record of what became of it. Nothing re-runs it —
+  /// the pump settles it again if it ever returns to `queued`, and [retryTask]
+  /// refuses to clone it.
+  Future<bool> _settleIfRestricted(QueueTask task) async {
+    if (!await _taskIsRestricted(task)) return false;
+    final settled = await db.updateQueueTaskIfState(
+      id: task.id,
+      expected: [QueueTaskState.queued.name],
+      values: QueueTasksCompanion(
+        state: Value(QueueTaskState.failed.name),
+        outcome: const Value(kCaptureRestrictedMessage),
+        lastError: const Value(kCaptureRestrictedMessage),
+        stopReason: Value(StopReason.captureRestrictedForSite.name),
+        finishedAt: Value(DateTime.now()),
+      ),
+    );
+    if (settled) {
+      await db.pruneQueueHistory(keep: historyLimit);
+      notifyListeners();
+    }
+    return true;
+  }
+
   Future<QueueOutcome> _run(QueueTask task) async {
+    // Independently of the pump's own check: a runner reached by any other
+    // route must still not begin work on a restricted target.
+    if (await _taskIsRestricted(task)) {
+      return const QueueOutcome.failure(kCaptureRestrictedMessage);
+    }
     switch (queueTaskTypeFromName(task.taskType)) {
       case QueueTaskType.entrySave:
       case QueueTaskType.sequenceSave:
@@ -1361,14 +1547,20 @@ class BatchQueueResult {
     required this.queuedIds,
     required this.alreadyQueued,
     required this.missingSource,
+    this.restricted = const [],
   });
 
   final List<String> queuedIds;
   final List<Entry> alreadyQueued;
   final List<Entry> missingSource;
 
+  /// Entries whose source is on a restricted service. Nothing was queued for
+  /// them and nothing about them was changed.
+  final List<Entry> restricted;
+
   int get queued => queuedIds.length;
-  int get skipped => alreadyQueued.length + missingSource.length;
+  int get skipped =>
+      alreadyQueued.length + missingSource.length + restricted.length;
   bool get didNothing => queuedIds.isEmpty;
 }
 

@@ -12,6 +12,7 @@ import 'features/browser_history_screen.dart';
 import 'features/browser_screen.dart';
 import 'features/developer_screen.dart';
 import 'features/library_screen.dart';
+import 'features/open_in_browser.dart';
 import 'features/reader_screen.dart';
 import 'features/page_hints_screen.dart';
 import 'features/collection_detail_screen.dart';
@@ -152,15 +153,34 @@ class _ShellState extends ConsumerState<_Shell> {
     _queue.ensureBrowserVisible = _ensureBrowserVisible;
   }
 
-  /// Show the Browser tab and wait for its WebView to attach.
+  /// Show the Browser — on [url] when the caller named one — and wait for its
+  /// WebView to attach.
+  ///
+  /// *Show*, not "select the tab": queued work is started from Activity, from
+  /// Collection Detail and from the reader, all of which are routes pushed
+  /// **above** this shell. Moving the index underneath one of them left the
+  /// user watching a passive screen while the save drove a Browser they could
+  /// not see — so the pop is as load-bearing as the tab, and
+  /// [showBrowserSurface] owns both.
+  ///
+  /// Showing the *tab* is still not showing the *page*: Browser Home and the
+  /// address editor are layers over the WebView, so work could drive a page
+  /// that was covered the whole time. A named [url] therefore goes through
+  /// [BrowserNavigator] — the one mechanism the whole app opens pages with —
+  /// which reveals the website surface and loads it once the WebView is live.
   ///
   /// Attachment is not the same as *rendered*: the save engine still runs
   /// its own zero-viewport guard (D32). This only guarantees the user is
   /// looking at the Browser before anything starts, so automation is never a
   /// surprise happening behind another screen.
-  Future<bool> _ensureBrowserVisible() async {
+  Future<bool> _ensureBrowserVisible({String? url}) async {
     if (!mounted) return false;
-    if (_index != 1) setState(() => _index = 1);
+    // Stored before the tab switch, exactly as "open in Browser" does: the
+    // Browser drains it when it is mounted with an attached WebView, so
+    // nothing is lost to the pop or to a WebView that is not there yet.
+    final target = url?.trim() ?? '';
+    if (target.isNotEmpty) ref.read(browserNavigatorProvider).request(target);
+    showBrowserSurface(context, ref);
     final browser = ref.read(browserProvider);
     for (var i = 0; i < 100; i++) {
       if (!mounted) return false;

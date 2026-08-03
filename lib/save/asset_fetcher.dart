@@ -92,6 +92,24 @@ String _magicPreview(Uint8List b) {
 /// CORS headers is unreadable. A site that is both Referer-gated *and*
 /// cross-origin *and* CORS-closed has no working path — such a site is
 /// recorded as unsupported.
+///
+/// **The restricted-site capture policy is deliberately not applied here**, and
+/// this is a boundary worth stating rather than leaving implicit. That policy
+/// answers "may this app capture this *page*"; an image `src` is not a page and
+/// its delivery host is not a capture source. Ordinary sites serve their
+/// pictures from CDNs owned by large commercial platforms, so testing an asset
+/// host against the list marked perfectly permitted entries `partial` and put
+/// "this image was not saved" placeholders through them — a false refusal on
+/// content the user was entitled to keep, from a rule aimed at something else.
+///
+/// The page this entry *is* was established and validated upstream: `SaveEngine`
+/// asks the policy about `browser.currentUrl` before it probes, about the landed
+/// page URL before it scrolls, and about the manifest's `sourceUrl` before it
+/// commits — all of which happen before any staging directory exists, let alone
+/// a download. This class is not, and must not become, the authoritative
+/// enforcement boundary: it verifies *bytes*, and it is the audio/video refusal
+/// (an image-only allow-list, checked by magic number in [_verify]) that lives
+/// here, independently and unchanged.
 class AssetFetcher {
   AssetFetcher({required this.browser, required this.config, Dio? dio})
     : _dio =
