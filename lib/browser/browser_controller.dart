@@ -698,6 +698,22 @@ class BrowserController extends ChangeNotifier {
     return PageProbe.fromJson(Map<String, dynamic>.from(raw));
   }
 
+  /// The image slice starting at [imageOffset], with no signals and no links.
+  ///
+  /// The bridge holds no state between calls: the slice carries `imageCount`
+  /// and each image's absolute `index`, which is what lets a caller reassemble
+  /// a population larger than one call returns.
+  Future<PageProbe> probeImageSlice(int imageOffset) async {
+    final raw = await _call(
+      kCallProbeImageSlice,
+      args: {'imageOffset': imageOffset},
+    );
+    if (raw is! Map) {
+      throw BridgeException('image slice returned ${raw.runtimeType}');
+    }
+    return PageProbe.fromJson(Map<String, dynamic>.from(raw));
+  }
+
   Future<Map<String, dynamic>> scrollStep(int dy) async {
     final raw = await _call(kCallScrollStep, args: {'dy': dy});
     return raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};

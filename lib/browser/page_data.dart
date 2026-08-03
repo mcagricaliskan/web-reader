@@ -12,6 +12,11 @@ class PageImage {
     this.currentSrc,
     this.dataSrc,
     this.complete = false,
+    // True by default, matching [PageImage.fromJson]'s treatment of a probe
+    // that predates the flag: "this element has an address" is the ordinary
+    // case, and the alternative default would quietly turn every fixture that
+    // does not mention it into an image the engine waits forever for.
+    this.hasSource = true,
     this.naturalWidth = 0,
     this.naturalHeight = 0,
     this.renderedWidth = 0,
@@ -31,6 +36,11 @@ class PageImage {
     currentSrc: _str(json['currentSrc']),
     dataSrc: _str(json['dataSrc']),
     complete: json['complete'] == true,
+    // Absent on a probe from an older bridge. Defaulting to **true** keeps
+    // that case on the previous behaviour (complete + no pixels reads as
+    // broken) rather than silently reclassifying every failed image as
+    // "not tried yet", which would make the engine wait for the dead.
+    hasSource: json['hasSource'] == null || json['hasSource'] == true,
     naturalWidth: _int(json['naturalWidth']),
     naturalHeight: _int(json['naturalHeight']),
     renderedWidth: _int(json['renderedWidth']),
@@ -49,6 +59,17 @@ class PageImage {
   final String? currentSrc;
   final String? dataSrc;
   final bool complete;
+
+  /// The element has an address to load: a non-empty `src`, a `srcset`, or a
+  /// `currentSrc` the browser has already selected (which is how `<picture>`
+  /// carries one).
+  ///
+  /// Needed because `complete` cannot stand alone. HTML §img.complete is true
+  /// when **both** `src` and `srcset` are omitted, exactly as it is true for a
+  /// finished load and for a failed one — and `naturalWidth` is 0 for the
+  /// failed case *and* the never-tried case. Without this flag a lazy image
+  /// waiting for its loader is indistinguishable from a dead one.
+  final bool hasSource;
   final int naturalWidth;
   final int naturalHeight;
   final int renderedWidth;
@@ -101,10 +122,28 @@ class PageImage {
   /// Loaded and decodable.
   bool get isResolved => complete && naturalWidth > 0 && naturalHeight > 0;
 
-  /// Finished loading, but with an error: `complete` is true for a failed
-  /// image too, so this is how a permanent failure is told apart from one that
-  /// is still in flight.
-  bool get isBroken => complete && naturalWidth == 0;
+  /// Nothing has been asked for yet: a lazy image whose real address is still
+  /// parked in an attribute, or one waiting for script to set `src`.
+  ///
+  /// **Not** a terminal state, and that is the whole point. Treating it as one
+  /// let the adaptive lookahead — which ignores broken images — jump straight
+  /// over a region whose panels had never been switched on, so the loader that
+  /// would have produced them never fired.
+  bool get isUnrequested => !hasSource;
+
+  /// Asked for, finished, and produced no pixels — a genuine failure.
+  ///
+  /// [hasSource] is what makes this terminal rather than merely "no pixels
+  /// yet". A broken image stays a candidate so its download fails out loud and
+  /// the entry is marked partial; waiting for it would only spend the timeout.
+  bool get isBroken => hasSource && complete && naturalWidth == 0;
+
+  /// Asked for and still arriving.
+  bool get isPending => hasSource && !complete;
+
+  /// Not yet content: still coming, or never started. Either way the page has
+  /// more to give here, so traversal must not treat this position as settled.
+  bool get isUnsettled => !isResolved && !isBroken;
 }
 
 class PageLink {
@@ -353,6 +392,8 @@ class PageProbe {
     this.headNextHref,
     this.atBottom = false,
     this.imagesTruncated = false,
+    this.imageCount = 0,
+    this.imageOffset = 0,
     this.pageHints = const PageHints(),
     this.content = const PageContentSignals(),
     this.media = const PageMediaSignals(),
@@ -377,6 +418,8 @@ class PageProbe {
     headNextHref: _str(json['headNextHref']),
     atBottom: json['atBottom'] == true,
     imagesTruncated: json['imagesTruncated'] == true,
+    imageCount: _int(json['imageCount']),
+    imageOffset: _int(json['imageOffset']),
     pageHints: json['pageHints'] is Map
         ? PageHints.fromJson(
             Map<String, dynamic>.from(json['pageHints'] as Map),
@@ -423,9 +466,17 @@ class PageProbe {
   final String? headNextHref;
   final bool atBottom;
 
-  /// The page carried more images than the probe returns. Reported so a
-  /// truncated save is never mistaken for a complete one.
+  /// This probe's image list stops short of the end of the page's collection.
+  /// Reported so a truncated save is never mistaken for a complete one.
   final bool imagesTruncated;
+
+  /// How many `<img>` elements the page holds **in total**, independent of how
+  /// many this probe returned. Without it Dart could not tell how much of the
+  /// page it was looking at.
+  final int imageCount;
+
+  /// Where this probe's slice starts in that collection.
+  final int imageOffset;
 
   /// What the page says about the collection this entry belongs to. Only
   /// populated when the probe was asked for links.
@@ -443,17 +494,22 @@ class PageProbe {
   /// Images still in flight. A **broken** image is not pending — it has
   /// finished, badly. Counting it as pending made the scroll loop wait for
   /// something that would never arrive, until it hit the iteration bound.
+  ///
+  /// An **unrequested** image is not pending either: nothing is on the wire,
+  /// so no amount of waiting produces it. Only scrolling to it does, which is
+  /// why it is the *lookahead* that has to see it and not this count.
   int get pendingImageCount => images
-      .where(
-        (i) =>
-            i.effectiveUrl != null && !i.hidden && !i.complete && !i.isResolved,
-      )
+      .where((i) => i.effectiveUrl != null && !i.hidden && i.isPending)
       .length;
 
   /// Images that finished loading with an error.
   int get brokenImageCount => images
       .where((i) => i.effectiveUrl != null && !i.hidden && i.isBroken)
       .length;
+
+  /// Images whose real address has not been switched on yet.
+  int get unrequestedImageCount =>
+      images.where((i) => !i.hidden && i.isUnrequested).length;
 
   int get resolvedImageCount => images.where((i) => i.isResolved).length;
 

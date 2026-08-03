@@ -146,6 +146,47 @@ void main() {
     });
   });
 
+  group('a lazy loader firing is progress', () {
+    test('untriggered becoming in-flight changes the signature', () {
+      // Neither the resolved count nor the URL moves at this moment, so this
+      // transition is only visible through the unrequested count. Without it
+      // the page would look settled exactly as it started fetching a panel.
+      final before = measureStability(
+        page([
+          panel(0),
+          PageImage(
+            domIndex: 1,
+            dataSrc: 'https://cdn.example/p/1.png',
+            hasSource: false,
+            complete: true,
+            attrWidth: 800,
+            attrHeight: 1200,
+            renderedWidth: 390,
+            renderedHeight: 585,
+          ),
+        ]),
+      );
+      final after = measureStability(
+        page([
+          panel(0),
+          PageImage(
+            domIndex: 1,
+            src: 'https://cdn.example/p/1.png',
+            currentSrc: 'https://cdn.example/p/1.png',
+            hasSource: true,
+            complete: false,
+            attrWidth: 800,
+            attrHeight: 1200,
+            renderedWidth: 390,
+            renderedHeight: 585,
+          ),
+        ]),
+      );
+
+      expect(after, isNot(before));
+    });
+  });
+
   group('structural change counts unconditionally', () {
     test('document height growing with no new images changes it', () {
       // Infinite loading routinely inserts empty containers first. A signal

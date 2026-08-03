@@ -56,16 +56,69 @@ class FakeBrowser extends BrowserController {
     notifyListeners();
   }
 
-  @override
-  Future<PageProbe> probe({
-    bool withLinks = false,
-    bool withSignals = true,
-  }) async {
+  /// How many image records one probe returns, mirroring the bridge's own
+  /// per-call cap. Null means "the whole list", which is what almost every
+  /// fixture wants; set it to exercise enumeration across slices.
+  int? imageSliceCap;
+
+  /// Called before each slice is built, with the offset being asked for — a
+  /// seam for scripting DOM mutation part-way through an enumeration.
+  void Function(int offset)? onImageSlice;
+
+  /// Every offset [probeImageSlice] was asked for, in order.
+  final List<int> sliceOffsets = [];
+
+  PageProbe _page() {
     final page = pages[normalizeUrl(_url)];
     if (page == null) {
       throw BridgeException('no fixture page for $_url');
     }
     return page;
+  }
+
+  /// The bridge's contract: a window into `document.images`, carrying the
+  /// whole population's size and each image's absolute index.
+  PageProbe _slice(PageProbe page, int offset) {
+    final cap = imageSliceCap;
+    if (cap == null) return page;
+    final all = page.images;
+    final from = offset.clamp(0, all.length);
+    final to = (from + cap).clamp(0, all.length);
+    final window = all.sublist(from, to);
+    return PageProbe(
+      url: page.url,
+      title: page.title,
+      canonicalUrl: page.canonicalUrl,
+      readyState: page.readyState,
+      documentHeight: page.documentHeight,
+      viewportHeight: page.viewportHeight,
+      viewportWidth: page.viewportWidth,
+      scrollY: page.scrollY,
+      images: window,
+      links: page.links,
+      headNextHref: page.headNextHref,
+      atBottom: page.atBottom,
+      imagesTruncated: to < all.length,
+      imageCount: all.length,
+      imageOffset: from,
+      pageHints: page.pageHints,
+      content: page.content,
+      media: page.media,
+      access: page.access,
+    );
+  }
+
+  @override
+  Future<PageProbe> probe({
+    bool withLinks = false,
+    bool withSignals = true,
+  }) async => _slice(_page(), 0);
+
+  @override
+  Future<PageProbe> probeImageSlice(int imageOffset) async {
+    sliceOffsets.add(imageOffset);
+    onImageSlice?.call(imageOffset);
+    return _slice(_page(), imageOffset);
   }
 
   /// What [extractDocument] returns, keyed by normalised URL. Absent means

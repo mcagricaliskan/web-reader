@@ -31,6 +31,7 @@ class PageStability {
     required this.contentCount,
     required this.resolvedContentCount,
     required this.brokenContentCount,
+    required this.unrequestedContentCount,
     required this.contentFingerprint,
   });
 
@@ -53,6 +54,14 @@ class PageStability {
   final int resolvedContentCount;
   final int brokenContentCount;
 
+  /// …and how many have not been asked for at all.
+  ///
+  /// Counted separately so a lazy loader firing registers as progress. That
+  /// transition — untriggered to in-flight — changes neither the resolved
+  /// count nor, usually, the URL, so without this term the page could look
+  /// settled at the exact moment it started fetching a panel.
+  final int unrequestedContentCount;
+
   /// Order-independent digest of every qualifying image's URL **and** its
   /// measured size.
   ///
@@ -74,6 +83,7 @@ class PageStability {
       other.contentCount == contentCount &&
       other.resolvedContentCount == resolvedContentCount &&
       other.brokenContentCount == brokenContentCount &&
+      other.unrequestedContentCount == unrequestedContentCount &&
       other.contentFingerprint == contentFingerprint;
 
   @override
@@ -83,6 +93,7 @@ class PageStability {
     contentCount,
     resolvedContentCount,
     brokenContentCount,
+    unrequestedContentCount,
     contentFingerprint,
   );
 
@@ -90,7 +101,8 @@ class PageStability {
   String toString() =>
       'height $documentHeight, $imageCount image(s), '
       '$contentCount content ($resolvedContentCount loaded, '
-      '$brokenContentCount broken)';
+      '$brokenContentCount broken, $unrequestedContentCount not yet asked '
+      'for)';
 }
 
 /// Measure [probe]'s traversal state.
@@ -101,6 +113,7 @@ PageStability measureStability(
   var contentCount = 0;
   var resolved = 0;
   var broken = 0;
+  var unrequested = 0;
   // Hashed per image, then sorted, so the digest cannot depend on the order
   // the page happened to report its images in.
   final tokens = <int>[];
@@ -110,6 +123,7 @@ PageStability measureStability(
     contentCount++;
     if (image.isResolved) resolved++;
     if (image.isBroken) broken++;
+    if (image.isUnrequested) unrequested++;
     tokens.add(
       Object.hash(
         image.effectiveUrl,
@@ -126,6 +140,7 @@ PageStability measureStability(
     contentCount: contentCount,
     resolvedContentCount: resolved,
     brokenContentCount: broken,
+    unrequestedContentCount: unrequested,
     contentFingerprint: Object.hashAll(tokens),
   );
 }

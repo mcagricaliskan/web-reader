@@ -95,7 +95,31 @@ window.__wr = window.__wr || (function () {
     return null;
   }
 
-  function imgInfo(img, i) {
+  /// Has this element actually asked the network for anything yet?
+  ///
+  /// A measurement, not a judgement — but the one the broken/never-tried
+  /// distinction hangs on. Per HTML §img.complete, `complete` is true when
+  /// BOTH `src` and `srcset` are omitted (and when `src` is the empty string
+  /// with no `srcset`), exactly as it is true for an image that loaded and for
+  /// one that failed. `naturalWidth` is 0 in the failed case *and* in the
+  /// never-tried case, so `complete && naturalWidth === 0` cannot tell a dead
+  /// image from a lazy one that has not been switched on yet.
+  ///
+  /// `currentSrc` covers <picture>, where the address comes from a <source>
+  /// sibling rather than from this element's own attributes.
+  function hasSource(img) {
+    if (img.currentSrc) return true;
+    var s = img.getAttribute('src');
+    if (s !== null && s !== '') return true;
+    var ss = img.getAttribute('srcset');
+    return ss !== null && ss !== '';
+  }
+
+  /// [originY] is the viewport-space y of the active scroller's content
+  /// origin — see [metrics]. Subtracting it puts every image in the SAME
+  /// coordinate system as `scrollY`, `viewportHeight` and `documentHeight`,
+  /// whether the page scrolls the document or an inner element.
+  function imgInfo(img, i, originY) {
     var r = img.getBoundingClientRect();
     return {
       index: i,
@@ -103,13 +127,14 @@ window.__wr = window.__wr || (function () {
       currentSrc: img.currentSrc || null,
       dataSrc: abs(lazyAttr(img)),
       complete: !!img.complete,
+      hasSource: hasSource(img),
       naturalWidth: img.naturalWidth || 0,
       naturalHeight: img.naturalHeight || 0,
       renderedWidth: Math.round(r.width),
       renderedHeight: Math.round(r.height),
       attrWidth: parseInt(img.getAttribute('width') || '0', 10) || 0,
       attrHeight: parseInt(img.getAttribute('height') || '0', 10) || 0,
-      top: Math.round(r.top + (window.scrollY || 0)),
+      top: Math.round(r.top - originY),
       hidden: isHidden(img, r),
       chrome: inChrome(img),
       className: (typeof img.className === 'string' ? img.className : ''),
@@ -117,7 +142,7 @@ window.__wr = window.__wr || (function () {
     };
   }
 
-  function linkInfo(a) {
+  function linkInfo(a, originY) {
     var r = a.getBoundingClientRect();
     var p = a.parentElement, depth = 0, inNav = false;
     while (p && depth < 10) {
@@ -141,7 +166,7 @@ window.__wr = window.__wr || (function () {
         return im ? (im.alt || '') : '';
       })(),
       inNav: inNav,
-      top: Math.round(r.top + (window.scrollY || 0))
+      top: Math.round(r.top - originY)
     };
   }
 
@@ -163,6 +188,27 @@ window.__wr = window.__wr || (function () {
     return best || de;
   }
 
+  /// One snapshot of the active scroller. Everything positional in a probe is
+  /// derived from a SINGLE call to this, so a probe cannot mix two scrollers
+  /// or two coordinate systems.
+  ///
+  /// `originY` is the viewport-space y of the scroller's content origin — the
+  /// point an element sits at when it is exactly at the top of the scrolled
+  /// content. `getBoundingClientRect` is viewport-relative (CSSOM-View), and
+  /// it already accounts for ancestor scrolling, so `rect.top - originY` is
+  /// the element's offset within the scrolled content in both cases:
+  ///
+  ///  * document scroller — `originY = -scrollY`, so this reduces to the
+  ///    documented `rect.top + window.scrollY`. Identical to the old formula.
+  ///  * element scroller — the content origin is the top of the scroller's
+  ///    padding box, pushed up by however far it has been scrolled:
+  ///    `rect.top + borderTop + paddingTop - scrollTop`. Border and padding
+  ///    are read here, once per probe, rather than per image.
+  ///
+  /// The old code used the document formula unconditionally, so on an inner
+  /// scroller image positions were viewport-relative while `y` was
+  /// `scrollTop` — two different origins compared against each other by the
+  /// adaptive lookahead.
   function metrics() {
     var s = scroller();
     var isDoc = (s === document.scrollingElement || s === document.documentElement);
@@ -171,7 +217,17 @@ window.__wr = window.__wr || (function () {
       : s.scrollHeight;
     var vpH = isDoc ? window.innerHeight : s.clientHeight;
     var y = isDoc ? (window.scrollY || document.documentElement.scrollTop || 0) : s.scrollTop;
-    return { el: s, isDoc: isDoc, docH: docH, vpH: vpH, y: y };
+    var originY;
+    if (isDoc) {
+      originY = -y;
+    } else {
+      var sr = s.getBoundingClientRect();
+      var cs = window.getComputedStyle(s);
+      var bt = parseFloat(cs.borderTopWidth) || 0;
+      var pt = parseFloat(cs.paddingTop) || 0;
+      originY = sr.top + bt + pt - y;
+    }
+    return { el: s, isDoc: isDoc, docH: docH, vpH: vpH, y: y, originY: originY };
   }
 
   function headNext() {
@@ -657,12 +713,21 @@ window.__wr = window.__wr || (function () {
 
     extractDocument: function (opts) { return extractDocument(opts); },
 
+    /// Read the page.
+    ///
+    /// Images are returned as a **slice** of `document.images`:
+    /// `[imageOffset, imageOffset + imageCap)`. `imageCount` is always the
+    /// whole population and `index` is always the position in it, so a caller
+    /// that needs every image can ask for successive slices and reassemble
+    /// them by index without the bridge holding any state between calls.
+    /// `imagesTruncated` reports that this slice does not reach the end.
     probe: function (opts) {
       opts = opts || {};
       var m = metrics();
       var allImgs = Array.prototype.slice.call(document.images || []);
       var IMG_CAP = (opts.imageCap || 800);
-      var imgs = allImgs.slice(0, IMG_CAP);
+      var offset = Math.max(0, opts.imageOffset || 0);
+      var imgs = allImgs.slice(offset, offset + IMG_CAP);
       var out = {
         url: location.href,
         title: document.title || '',
@@ -677,8 +742,11 @@ window.__wr = window.__wr || (function () {
         atBottom: (m.y + m.vpH) >= (m.docH - 8),
         headNextHref: headNext(),
         imageCount: allImgs.length,
-        imagesTruncated: allImgs.length > IMG_CAP,
-        images: imgs.map(imgInfo)
+        imageOffset: offset,
+        imagesTruncated: (offset + imgs.length) < allImgs.length,
+        images: imgs.map(function (im, k) {
+          return imgInfo(im, offset + k, m.originY);
+        })
       };
       if (opts.withSignals !== false) {
         out.content = contentSignals();
@@ -687,7 +755,9 @@ window.__wr = window.__wr || (function () {
       }
       if (opts.withLinks) {
         var as = Array.prototype.slice.call(document.querySelectorAll('a[href]'));
-        out.links = as.slice(0, 500).map(linkInfo);
+        out.links = as.slice(0, 500).map(function (a) {
+          return linkInfo(a, m.originY);
+        });
         out.pageHints = pageHints();
       }
       return out;
@@ -959,6 +1029,7 @@ window.__wr = window.__wr || (function () {
       var excludes = rule.excludeSelectors || [];
       var minEdge = rule.minImageEdge || 0;
 
+      var rm = metrics();
       var out = [];
       for (var i = 0; i < imgs.length; i++) {
         var img = imgs[i];
@@ -967,7 +1038,7 @@ window.__wr = window.__wr || (function () {
           try { if (img.matches(excludes[j]) || img.closest(excludes[j])) { skip = true; break; } } catch (e) {}
         }
         if (skip) continue;
-        var info = imgInfo(img, i);
+        var info = imgInfo(img, i, rm.originY);
         var w = info.naturalWidth || info.attrWidth || info.renderedWidth;
         var h = info.naturalHeight || info.attrHeight || info.renderedHeight;
         if (minEdge && (w < minEdge || h < minEdge)) continue;
@@ -1019,6 +1090,15 @@ const String kCallProbeWithLinks =
 /// until the settled probe, which still asks for all of it.
 const String kCallProbeLight =
     'return window.__wr.probe({withLinks: false, withSignals: false});';
+
+/// One slice of the image population, and nothing else.
+///
+/// Used to finish an enumeration the per-call cap cut short. Signals and links
+/// are already in hand from the probe that discovered the truncation, and
+/// re-measuring them per slice would repeat the expensive half for no reason.
+const String kCallProbeImageSlice =
+    'return window.__wr.probe({withLinks: false, withSignals: false, '
+    'imageOffset: imageOffset});';
 const String kCallScrollStep = 'return window.__wr.scrollStep(dy);';
 const String kCallScrollTo = 'return window.__wr.scrollTo(y);';
 const String kCallFetchBase64 = 'return await window.__wr.fetchAsBase64(url);';
