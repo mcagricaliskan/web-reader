@@ -82,6 +82,32 @@ Future<bool> handleFixtureRequest(
     return true;
   }
 
+  // An entry whose panel count exceeds what one probe call returns, so the
+  // save has to enumerate the page across several slices to see all of it.
+  //   /wide/<count>
+  final wideMatch = RegExp(r'^/wide/(\d+)$').firstMatch(path);
+  if (wideMatch != null) {
+    await _html(res, wideEntryPage(int.parse(wideMatch.group(1)!)));
+    return true;
+  }
+
+  // An app-shell layout: the document does not scroll, an inner element does.
+  //   /innerscroll
+  if (path == '/innerscroll') {
+    await _html(res, innerScrollPage());
+    return true;
+  }
+
+  // One of every lazy/broken/loaded image shape.
+  //   /lazyshapes
+  if (path == '/lazyshapes') {
+    await _html(res, lazyShapesPage());
+    return true;
+  }
+
+  // Never answered: an image that stays genuinely in flight.
+  if (path.startsWith('/hang/')) return true;
+
   if (path == '/ambiguous') {
     await _html(res, ambiguousPage());
     return true;
@@ -250,6 +276,124 @@ $buf
 </script>
 </body></html>''';
 }
+
+/// An entry of [count] qualifying panels, for exercising enumeration beyond
+/// what a single probe call returns.
+///
+/// The panels declare their size and never load: enumeration is the thing
+/// under test, and `width`/`height` are enough to qualify them as content.
+///
+/// Each panel carries a **distinct** address, because candidate selection
+/// de-duplicates by URL — a page of identical images would collapse to one
+/// candidate and prove nothing about enumeration.
+String wideEntryPage(int count) {
+  final buf = StringBuffer();
+  for (var i = 0; i < count; i++) {
+    buf.writeln(
+      '<img class="panel" data-src="/img/1/$i.png" width="800" height="1200" '
+      'alt="panel $i">',
+    );
+  }
+  return '''
+<!doctype html><html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wide entry — $count panels</title>
+<style>img.panel{display:block;width:100%;height:auto;min-height:12px}</style>
+</head><body><div class="reader">$buf</div></body></html>''';
+}
+
+/// The app-shell layout: `<body>` does not scroll, an inner element does.
+///
+/// Deliberately awkward, so a coordinate formula that ignores any part of it
+/// is caught — the scroller sits [headerHeight] px down the page and has both
+/// a border and padding, and the panels are tall enough for several screens.
+///
+/// The page publishes its own truth for the test to compare against: each
+/// panel's `alt` carries that panel's real offset inside the scrolled content,
+/// and `document.title` carries the scroller's metrics. Both travel in fields
+/// the probe already returns, so nothing in the app has to be opened up to
+/// observe them.
+String innerScrollPage({
+  int panels = 12,
+  int panelHeight = 1200,
+  int headerHeight = 180,
+  int pendingFrom = 6,
+}) {
+  final buf = StringBuffer();
+  for (var i = 0; i < panels; i++) {
+    // `/hang/` is never answered, so these stay genuinely in flight rather
+    // than reading as broken.
+    final src = i >= pendingFrom ? '/hang/$i.png' : '/img/1/1.png';
+    buf.writeln(
+      '<img class="panel" src="$src" width="800" height="$panelHeight" alt="">',
+    );
+  }
+  return '''
+<!doctype html><html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>boot</title>
+<style>
+  html,body{height:100%;margin:0;overflow:hidden;background:#111;color:#eee}
+  #header{height:${headerHeight}px;background:#222}
+  #scroller{
+    height:600px; overflow-y:auto;
+    border-top:8px solid #444; border-bottom:8px solid #444;
+    padding-top:12px; padding-bottom:12px;
+    box-sizing:border-box;
+  }
+  img.panel{display:block;width:100%;height:${panelHeight}px;background:#333}
+</style></head>
+<body>
+  <div id="header">header</div>
+  <div id="scroller">$buf</div>
+<script>
+  var sc = document.getElementById('scroller');
+  function publish() {
+    var sr = sc.getBoundingClientRect();
+    var cs = getComputedStyle(sc);
+    var bt = parseFloat(cs.borderTopWidth) || 0;
+    var pt = parseFloat(cs.paddingTop) || 0;
+    document.title = JSON.stringify({
+      win: Math.round(window.scrollY || 0),
+      top: Math.round(sc.scrollTop),
+      ch: Math.round(sc.clientHeight),
+      sh: Math.round(sc.scrollHeight),
+      rectTop: Math.round(sr.top),
+      bt: Math.round(bt), pt: Math.round(pt)
+    });
+    var imgs = document.querySelectorAll('img.panel');
+    for (var i = 0; i < imgs.length; i++) {
+      var r = imgs[i].getBoundingClientRect();
+      imgs[i].alt = String(Math.round(r.top - sr.top + sc.scrollTop - bt - pt));
+    }
+  }
+  publish();
+  setInterval(publish, 30);
+  sc.addEventListener('scroll', publish);
+</script>
+</body></html>''';
+}
+
+/// One of every image shape whose load state the engine has to classify.
+///
+/// `alt` names the shape so a test can address them without depending on
+/// document order.
+String lazyShapesPage() => '''
+<!doctype html><html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lazy shapes</title>
+<style>img{display:block;width:100%;height:auto;min-height:20px;background:#333}</style>
+</head><body>
+<img alt="loaded" src="/img/1/1.png" width="800" height="1200">
+<img alt="in-flight" src="/hang/a.png" width="800" height="1200">
+<img alt="failed" src="/nothing-here.png" width="800" height="1200">
+<img alt="untriggered" data-src="/img/1/1.png" width="800" height="1200">
+<img alt="empty-src" src="" data-src="/img/1/1.png" width="800" height="1200">
+<img alt="srcset" srcset="/img/1/1.png 800w" sizes="100vw" width="800" height="1200">
+<picture><source srcset="/img/1/1.png"><img alt="picture" width="800" height="1200"></picture>
+<img alt="native-lazy-far" src="/img/1/2.png" loading="lazy" width="800" height="1200">
+<div style="height:30000px">spacer, so the native-lazy image stays out of range</div>
+</body></html>''';
 
 // ---------------------------------------------------------------------------
 // Minimal PNG encoder — keeps the fixture dependency-free.

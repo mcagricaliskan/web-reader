@@ -100,6 +100,31 @@ class EntrySaveResult {
 
 class SaveCancelled implements Exception {}
 
+extension _EmptyToNull on String {
+  /// Null for an empty reason, so "nothing to report" stays one value rather
+  /// than becoming an empty string some readers would print.
+  String? ifEmptyNull() => isEmpty ? null : this;
+}
+
+/// The page's image population as the save managed to read it.
+class _ImageEnumeration {
+  const _ImageEnumeration({
+    required this.images,
+    required this.total,
+    required this.isComplete,
+  });
+
+  /// In document order, which is reading order.
+  final List<PageImage> images;
+
+  /// How many the page said it had.
+  final int total;
+
+  /// False when the save could not see every image the page holds. An entry
+  /// built from an incomplete enumeration can never honestly be `complete`.
+  final bool isComplete;
+}
+
 /// Reading state carried across a re-save.
 ///
 /// Saving an entry must never move the user's place or un-finish something
@@ -420,17 +445,28 @@ class SaveEngine {
         }
       }
 
+      // Every image on the page, not just the first sliceful. Only for the
+      // generic path: a taught reader-area rule already returned its own
+      // complete list from inside the container the user pointed at.
+      final enumeration = readerHint != null
+          ? _ImageEnumeration(images: const [], total: 0, isComplete: true)
+          : await _enumerateImages(probeWithLinks);
+      await _checkpoint();
+
       final chosen =
           selection ??
-          selectImageCandidates(probeWithLinks.images, config: config);
+          selectImageCandidates(enumeration.images, config: config);
       final rejectionCounts = <RejectReason, int>{};
       for (final r in chosen.rejected) {
         rejectionCounts.update(r.reason, (v) => v + 1, ifAbsent: () => 1);
       }
+      // The denominator is whatever list the candidates were drawn from: the
+      // enumerated page, or the container a taught rule handed back.
+      final consideredCount = chosen.acceptedCount + chosen.rejected.length;
       _log(
         'candidates: ${chosen.acceptedCount} accepted, '
         '${chosen.rejected.length} rejected '
-        '(of ${probeWithLinks.images.length} images) '
+        '(of $consideredCount images) '
         '${rejectionCounts.entries.map((e) => '${e.key.name}=${e.value}').join(' ')}',
       );
 
@@ -550,7 +586,50 @@ class SaveEngine {
       // 9. Save: manifest -> atomic move -> database --------------------
       _emit((p) => p.copyWith(state: SaveState.saving, message: 'Saving'));
 
-      final status = failed == 0 ? SaveStatus.complete : SaveStatus.partial;
+      // An entry built from an image list the save could not finish reading is
+      // **never** complete, however well the downloads went. Those images were
+      // not skipped by a filter and not failed by a server; they were never
+      // looked at, and reporting that as a finished offline copy is the exact
+      // failure this guards.
+      final truncatedReason = enumeration.isComplete
+          ? null
+          : 'imagesTruncated:${enumeration.images.length}/${enumeration.total}';
+      final status = (failed == 0 && truncatedReason == null)
+          ? SaveStatus.complete
+          : SaveStatus.partial;
+
+      // …and it must not overwrite a copy that holds more. Replacement exists
+      // to repair an entry, not to trade a good one for a shorter one; the
+      // staged tree is discarded and the readable copy stays exactly as it is.
+      if (truncatedReason != null &&
+          existing != null &&
+          existing.storedAssetCount > stored) {
+        await fileStore.discard(staging);
+        staging = null;
+        _log(
+          'refusing to replace "${existing.title}": it holds '
+          '${existing.storedAssetCount} image(s) and this capture could only '
+          'read $stored of ${enumeration.total} — keeping the saved copy',
+        );
+        return EntrySaveResult(
+          status: SaveStatus.failed,
+          entryId: entryId,
+          error:
+              'This page has ${enumeration.total} images, more than one pass '
+              'can read. The existing save (${existing.storedAssetCount} '
+              'images) was kept.',
+          pageUrl: pageUrl,
+          detectedImages: entries.length,
+          storedImages: stored,
+        );
+      }
+
+      if (truncatedReason != null) {
+        _log(
+          'saving as partial: read ${enumeration.images.length} of '
+          '${enumeration.total} images on the page ($truncatedReason)',
+        );
+      }
       final imageShape = detectContentKind(probeWithLinks);
       final manifest = EntryManifest(
         schemaVersion: EntryManifest.currentSchemaVersion,
@@ -564,7 +643,10 @@ class SaveEngine {
         title: pageTitle,
         savedAt: DateTime.now(),
         status: status,
-        statusReason: failed == 0 ? null : 'assetsFailed:$failed',
+        statusReason: [
+          if (failed > 0) 'assetsFailed:$failed',
+          ?truncatedReason,
+        ].join(' ').ifEmptyNull(),
         detectedAssetCount: entries.length,
         storedAssetCount: stored,
         nextUrl: next.chosen?.href,
@@ -642,7 +724,12 @@ class SaveEngine {
           entryOrder: existing != null && existing.entryOrder > 0
               ? existing.entryOrder
               : entryOrder,
-          saveError: failed == 0 ? null : '$failed image(s) failed',
+          saveError: [
+            if (failed > 0) '$failed image(s) failed',
+            if (truncatedReason != null)
+              'only ${enumeration.images.length} of ${enumeration.total} '
+                  'images on the page could be read',
+          ].join('; ').ifEmptyNull(),
           byteSize: byteSize,
           entryNumber: entryNumber,
           sourceMarker: sourceMarkerFrom(
@@ -1178,11 +1265,12 @@ class SaveEngine {
   /// A **broken** image is not pending. It has finished, badly, and it stays a
   /// candidate so its download fails explicitly and the entry is marked
   /// partial — waiting for it would only spend the timeout.
+  /// An image whose lazy source has not been switched on is deliberately NOT
+  /// counted: nothing is on the wire, so waiting cannot produce it. Only
+  /// scrolling to it can, which is why it is the fast-mode lookahead that has
+  /// to see it and this count that must not.
   int _relevantPendingCount(PageProbe probe) => probe.images
-      .where(
-        (i) =>
-            couldBeContent(i, config: config) && !i.complete && !i.isResolved,
-      )
+      .where((i) => couldBeContent(i, config: config) && i.isPending)
       .length;
 
   /// Track the best candidate set seen while traversing, for the collapse
@@ -1299,11 +1387,16 @@ class SaveEngine {
       // keep. An image with no measurable size still qualifies: unknown is not
       // the same as small, and the careful pace is the right answer when the
       // page has not told us yet.
+      //
+      // "Unsettled" covers both an image still arriving and one whose lazy
+      // source has not been switched on at all. The second used to read as
+      // broken — nothing coming, nothing to wait for — which let a fast jump
+      // clear a region whose panels had never been asked for, so the loader
+      // that would have produced them never fired.
       final unresolvedNear = probe.images.any(
         (i) =>
             couldBeContent(i, config: config) &&
-            !i.isResolved &&
-            !i.isBroken &&
+            i.isUnsettled &&
             i.documentTop < lookahead,
       );
       final heightMoved = probe.documentHeight != lastDocHeight;
@@ -1405,6 +1498,91 @@ class SaveEngine {
       );
     }
     return probe;
+  }
+
+  /// Every `<img>` on the settled page, not just the first sliceful.
+  ///
+  /// The bridge caps how many image records one call returns, because a
+  /// probe's cost scales with the records it serialises and the scroll loop
+  /// takes one per step. That cap is right for traversal and wrong for the
+  /// one probe that decides what gets saved: stopping there produced an entry
+  /// holding the page's first N images and calling it complete.
+  ///
+  /// So this walks the remaining slices. Termination is guaranteed three ways
+  /// over — the offset strictly increases, a slice that returns nothing ends
+  /// the loop, and the total is bounded by
+  /// [SaveConfig.maxEnumeratedImages] — and every turn checkpoints for
+  /// cancellation and honours the entry deadline.
+  ///
+  /// Images are keyed by their index in the page's own collection, so a repeat
+  /// or an overlap cannot double-count and the reassembled list is in document
+  /// order, which is reading order.
+  Future<_ImageEnumeration> _enumerateImages(PageProbe settled) async {
+    if (!settled.imagesTruncated) {
+      return _ImageEnumeration(
+        images: settled.images,
+        total: settled.imageCount == 0
+            ? settled.images.length
+            : settled.imageCount,
+        isComplete: true,
+      );
+    }
+
+    final byIndex = <int, PageImage>{
+      for (final image in settled.images) image.domIndex: image,
+    };
+    var total = settled.imageCount;
+    var offset = settled.imageOffset + settled.images.length;
+    var truncated = true;
+    var mutated = false;
+
+    _log(
+      'the page holds $total image(s), more than one probe returns — '
+      'reading the rest',
+    );
+
+    while (truncated && byIndex.length < config.maxEnumeratedImages) {
+      await _checkpoint();
+      if (DateTime.now().isAfter(_deadline)) {
+        _log('image enumeration hit the save deadline at ${byIndex.length}');
+        break;
+      }
+
+      final PageProbe slice;
+      try {
+        slice = await browser.probeImageSlice(offset);
+      } catch (e) {
+        _log('image enumeration failed at offset $offset: $e');
+        break;
+      }
+      if (slice.images.isEmpty) break; // no progress: stop rather than spin
+
+      // The page grew or shrank between slices. Recorded, not fought: the
+      // count below decides honestly whether everything was seen.
+      if (slice.imageCount != total) {
+        mutated = true;
+        total = slice.imageCount;
+      }
+      for (final image in slice.images) {
+        byIndex[image.domIndex] = image;
+      }
+      offset = slice.imageOffset + slice.images.length;
+      truncated = slice.imagesTruncated;
+    }
+
+    final ordered = byIndex.keys.toList()..sort();
+    final images = [for (final i in ordered) byIndex[i]!];
+    final complete = !truncated && images.length >= total;
+    _log(
+      'enumerated ${images.length}/$total image(s)'
+      '${complete ? '' : ' — INCOMPLETE'}'
+      '${mutated ? ' (the page changed while reading)' : ''}',
+    );
+    return _ImageEnumeration(
+      images: images,
+      total: total,
+      isComplete: complete,
+    );
   }
 
   Future<PageProbe> _waitForPendingAssets() async {

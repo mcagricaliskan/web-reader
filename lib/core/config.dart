@@ -25,6 +25,7 @@ class SaveConfig {
     this.minCandidates = 3,
     this.minClusterSize = 3,
     this.widthClusterTolerance = 0.12,
+    this.maxEnumeratedImages = 6000,
     this.minAssetBytes = 512,
     this.cooldownBetweenEntries = const Duration(milliseconds: 1200),
     this.maxEntriesPerRun = 500,
@@ -93,6 +94,20 @@ class SaveConfig {
 
   /// Relative width tolerance when grouping images into the content column.
   final double widthClusterTolerance;
+
+  /// Ceiling on how many images one entry's **final** enumeration may collect.
+  ///
+  /// The bridge returns images a slice at a time, because a probe's cost is
+  /// linear in the number of records it serialises — measured at ~24µs each on
+  /// an iPhone 17 simulator, so 800 images cost ~24ms and the scroll loop takes
+  /// one such probe per step. That per-call cap is a traversal concern and
+  /// stays. Completeness is a *save* concern, so the settled probe walks the
+  /// remaining slices instead of stopping at the first one.
+  ///
+  /// This bounds that walk. It is not a target: a page holding more `<img>`
+  /// elements than this is not a readable entry, and the save says so rather
+  /// than quietly keeping the first [maxEnumeratedImages] of them.
+  final int maxEnumeratedImages;
 
   final int minAssetBytes;
   final Duration cooldownBetweenEntries;
