@@ -5,6 +5,7 @@ import '../app.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../save/capture_policy.dart';
+import '../save/size_estimate.dart';
 import '../storage/database.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
@@ -120,17 +121,17 @@ class BatchQueuePlan {
     required this.collectionName,
     required this.capturable,
     required this.missingSource,
-    required this.estimatedBytes,
+    required this.estimate,
   });
 
   final String collectionName;
   final List<Entry> capturable;
   final List<Entry> missingSource;
 
-  /// Best effort: the average of whatever sizes we have already seen for this
-  /// collection, times the number of entries. Null when nothing has ever been
-  /// saved here, because a made-up number is worse than no number.
-  final int? estimatedBytes;
+  /// What this batch is likely to need on disk, and what that figure rests on.
+  /// Built by `estimateSaveSize` from the collection's own finished saves, so
+  /// it is the same number the save sheet would show for the same entries.
+  final SaveSizeEstimate estimate;
 
   int get selected => capturable.length + missingSource.length;
 
@@ -201,11 +202,14 @@ Future<bool> showBatchQueueConfirm({
                     'automatically',
                 warn: true,
               ),
-            if (plan.estimatedBytes != null)
-              _PlanFact(
-                'Estimated',
-                '≈ ${formatBytesForQueue(plan.estimatedBytes!)}',
-              ),
+            _PlanFact('Estimated size', switch (plan.estimate.basis) {
+              SizeEstimateBasis.collectionHistory => plan.estimate.sizeLabel!,
+              // Said in the value rather than left to the label: "Estimated"
+              // alone reads as a figure somebody measured.
+              SizeEstimateBasis.typicalRange =>
+                '${plan.estimate.sizeLabel!} · rough',
+              SizeEstimateBasis.unknown => kSizeUnknownMessage,
+            }),
             const SizedBox(height: 18),
             FilledButton(
               onPressed: plan.capturable.isEmpty
@@ -442,12 +446,4 @@ Future<void> removeQueuedTaskWithUndo(
         ),
       ),
     );
-}
-
-String formatBytesForQueue(int bytes) {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-  }
-  if (bytes >= 1024 * 1024) return '${(bytes / (1024 * 1024)).round()} MB';
-  return '${(bytes / 1024).round()} KB';
 }

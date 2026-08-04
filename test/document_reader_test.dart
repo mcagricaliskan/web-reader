@@ -445,13 +445,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 60));
     expect(scrollPosition(tester).pixels, greaterThan(0));
 
+    // The end-of-entry button, not the bottom chrome's own "Next entry"
+    // control: only the in-page one names its destination after a separator.
+    final endOfEntryNext = find.textContaining('Next entry ·');
     await tester.scrollUntilVisible(
-      find.textContaining('Next entry'),
+      endOfEntryNext,
       400,
       scrollable: find.byType(Scrollable).first,
       maxScrolls: 80,
     );
-    await tester.tap(find.textContaining('Next entry'));
+    await tester.tap(endOfEntryNext);
 
     // The move reloads from disk, so let the event loop turn.
     for (var i = 0; i < 120; i++) {
@@ -459,7 +462,7 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
       await tester.pump();
-      if (find.textContaining('Next entry').evaluate().isEmpty &&
+      if (endOfEntryNext.evaluate().isEmpty &&
           find.byType(DocumentBody).evaluate().isNotEmpty) {
         break;
       }

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../save/capture_policy.dart';
 import '../save/save_preflight.dart';
+import '../save/size_estimate.dart';
 import '../library/collection_identity.dart';
 import '../library/update_checker.dart';
 import '../providers.dart';
@@ -184,12 +185,13 @@ class _CollectionDetailState extends ConsumerState<_CollectionDetail> {
     final missing = chosen.where((c) => !entryHasCapturableUrl(c)).toList();
 
     // Estimate from what this collection has actually cost so far, not from a
-    // constant. Null when nothing has been saved yet.
-    final known = all.where((c) => c.byteSize > 0).toList();
-    final estimate = known.isEmpty
-        ? null
-        : (known.fold<int>(0, (sum, c) => sum + c.byteSize) ~/ known.length) *
-              capturable.length;
+    // constant — and from finished saves only, so a failed or half-written row
+    // cannot drag the number around. The entries in this batch contribute
+    // nothing by construction: they are the ones with no files.
+    final estimate = estimateSaveSize(
+      entryCount: capturable.length,
+      historyBytes: CollectionSizeHistory.fromEntries(all).forArtifact(null),
+    );
 
     final ok = await showBatchQueueConfirm(
       context: context,
@@ -197,7 +199,7 @@ class _CollectionDetailState extends ConsumerState<_CollectionDetail> {
         collectionName: widget.group.displayName,
         capturable: capturable,
         missingSource: missing,
-        estimatedBytes: estimate,
+        estimate: estimate,
       ),
     );
     if (!ok || !mounted) return;
@@ -1037,8 +1039,15 @@ class _ArchivedBanner extends ConsumerWidget {
   }
 }
 
-/// "Check for new entries" plus the state of the last check. Never checked is
+/// "Check this collection" plus the state of its last check. Never checked is
 /// its own sentence — it is not the same as "no new entries".
+///
+/// Two things the previous version left to inference. The button said "Check
+/// now" beside a sync glyph, which is the vocabulary of refreshing a screen;
+/// and nothing said whether it would touch this collection or all of them. The
+/// label now names the scope, and the footnote points at the Library screen
+/// for the many-collection version of the same operation — one vocabulary, two
+/// granularities.
 class _UpdateCheckCard extends ConsumerWidget {
   const _UpdateCheckCard({required this.group, required this.checker});
 
@@ -1060,9 +1069,9 @@ class _UpdateCheckCard extends ConsumerWidget {
 
         final (icon, iconColor, title, body) = switch (null) {
           _ when checking => (
-            Icons.sync,
+            Icons.manage_search,
             palette.primary,
-            'Checking the source…',
+            'Checking this collection…',
             checker.state == UpdateCheckState.needsUserInput
                 ? 'Waiting for you: select the next-entry control in the '
                       'Browser tab.'
@@ -1072,9 +1081,9 @@ class _UpdateCheckCard extends ConsumerWidget {
                       : checker.message),
           ),
           _ when collection.lastCheckError != null => (
-            Icons.sync_problem,
+            Icons.error_outline,
             palette.danger,
-            'Check failed',
+            'Last check needs attention',
             '${collection.lastCheckError}'
                 '${collection.lastCheckSuccessAt != null ? ' · last success ${formatRelative(collection.lastCheckSuccessAt)}' : ''}',
           ),
@@ -1109,69 +1118,98 @@ class _UpdateCheckCard extends ConsumerWidget {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: palette.border),
           ),
-          child: Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, size: 21, color: iconColor),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontVariations: wght(600),
-                        fontWeight: FontWeight.w600,
-                        color: palette.ink,
-                      ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(icon, size: 21, color: iconColor),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontVariations: wght(600),
+                            fontWeight: FontWeight.w600,
+                            color: palette.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          body,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.45,
+                            color: palette.inkMuted,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      body,
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.45,
-                        color: palette.inkMuted,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Full width and on its own row: "Check this collection" does
+              // not fit beside the status text at 320pt, and the label is what
+              // carries the meaning here — the glyph only supports it.
+              SizedBox(
+                width: double.infinity,
+                child: checking
+                    ? OutlinedButton(
+                        // Through the queue, not straight at the checker: a
+                        // queued check that is stopped must leave a `cancelled`
+                        // row, not a completed one whose summary says
+                        // "cancelled". Same stop the Browser panel offers.
+                        onPressed: () =>
+                            ref.read(taskQueueProvider).stopRunningCheck(),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text('Stop this check'),
+                      )
+                    : FilledButton.icon(
+                        key: const ValueKey('checkThisCollectionButton'),
+                        // Always tappable: the queue serializes on the shared
+                        // WebView, so "busy" means "queued", not "refused".
+                        onPressed: () async {
+                          final id = await ref
+                              .read(taskQueueProvider)
+                              .enqueueCollectionCheck(collection.id);
+                          if (id != null || !context.mounted) return;
+                          // Refused by the restricted-site capture policy: a
+                          // check discovers entries in order to save them.
+                          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                            const SnackBar(
+                              content: Text(kCaptureRestrictedMessage),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.manage_search, size: 19),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('Check this collection'),
+                        ),
                       ),
-                    ),
-                  ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Checks this collection only — nothing is downloaded. To check '
+                'every collection at once, use Library updates on the Library '
+                'screen.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  height: 1.4,
+                  color: palette.inkFaint,
                 ),
               ),
-              const SizedBox(width: 8),
-              checking
-                  ? OutlinedButton(
-                      // Through the queue, not straight at the checker: a
-                      // queued check that is stopped must leave a `cancelled`
-                      // row, not a completed one whose summary says
-                      // "cancelled". Same stop the Browser panel offers.
-                      onPressed: () =>
-                          ref.read(taskQueueProvider).stopRunningCheck(),
-                      child: const Text('Cancel'),
-                    )
-                  : FilledButton(
-                      // Always tappable: the queue serializes on the shared
-                      // WebView, so "busy" means "queued", not "refused".
-                      onPressed: () async {
-                        final id = await ref
-                            .read(taskQueueProvider)
-                            .enqueueCollectionCheck(collection.id);
-                        if (id != null || !context.mounted) return;
-                        // Refused by the restricted-site capture policy: a
-                        // check discovers entries in order to save them.
-                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                          const SnackBar(
-                            content: Text(kCaptureRestrictedMessage),
-                          ),
-                        );
-                      },
-                      child: Text(
-                        collection.lastCheckSuccessAt == null
-                            ? 'Check now'
-                            : 'Check again',
-                      ),
-                    ),
             ],
           ),
         );

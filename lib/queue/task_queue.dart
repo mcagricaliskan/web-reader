@@ -15,6 +15,7 @@ import '../save/save_preflight.dart';
 import '../save/save_state.dart';
 import '../save/stop_conditions.dart';
 import '../library/collection_identity.dart';
+import '../library/library_check.dart';
 import '../library/update_checker.dart';
 import '../storage/cleanup.dart';
 import '../storage/database.dart';
@@ -22,9 +23,14 @@ import '../storage/file_store.dart';
 
 const _uuid = Uuid();
 
-/// What a queue entry does. `checkAllCollections` is scheduled here but expands
-/// into per-collection checks when M15 lands; the scheduler does not special-case
-/// it beyond the type name.
+/// What a queue entry does.
+///
+/// Nothing writes `checkAllCollections`: a library-wide check expands into one
+/// `collectionCheck` row per collection ([enqueueLibraryCheck]) rather than one
+/// opaque mega-task, so progress, failure and cancellation are the queue's own
+/// per-collection semantics. The value is kept because rows written by older
+/// builds may still carry it, and it is handled exactly like `collectionCheck`
+/// wherever it appears.
 enum QueueTaskType {
   entrySave,
   sequenceSave,
@@ -833,6 +839,27 @@ class TaskQueueController extends ChangeNotifier {
     );
   }
 
+  /// The collections a Library-wide check would visit, in library order.
+  ///
+  /// Asked by the queue before it schedules anything **and** by the Library
+  /// screen before it offers to start, through the one predicate in
+  /// `library/library_check.dart` — so the number the user is shown and the
+  /// number that actually runs cannot drift apart. Archived collections are
+  /// asleep (M16), restricted sources are refused, and a collection with no
+  /// page to start from is left out rather than given a row that could only
+  /// fail.
+  Future<List<Collection>> checkableCollections() async {
+    final items = await db.allCollections();
+    final out = <Collection>[];
+    for (final item in items) {
+      final entries = await db.entriesForCollection(item.id);
+      if (collectionCheckBlock(collection: item, entries: entries) == null) {
+        out.add(item);
+      }
+    }
+    return out;
+  }
+
   /// M15: "check everything" expands into one [QueueTaskType.collectionCheck] row
   /// per collection rather than one opaque mega-task. That choice does the heavy
   /// lifting for free: a kill mid-run leaves the remainder as queued rows the
@@ -840,20 +867,24 @@ class TaskQueueController extends ChangeNotifier {
   /// its own reason, and progress is just the queue's own counts.
   ///
   /// Idempotent via [enqueueCollectionCheck]'s per-collection dedupe: collection already
-  /// pending are not stacked again. Returns the task ids, existing or new.
-  Future<List<String>> enqueueCheckAll() async {
-    final items = await db.allCollections();
-    final ids = <String>[];
-    for (final item in items) {
-      // Archived collection are asleep: no checks until restored (M16).
-      if (item.lifecycle == 'archived') continue;
-      // A restricted collection contributes nothing rather than a row that
-      // would only fail.
+  /// pending are not stacked again.
+  ///
+  /// Returns the pairing, so a Library-wide run can follow its own rows without
+  /// re-deriving which collection a task belongs to.
+  Future<List<({String collectionId, String taskId})>>
+  enqueueLibraryCheck() async {
+    final scheduled = <({String collectionId, String taskId})>[];
+    for (final item in await checkableCollections()) {
       final id = await enqueueCollectionCheck(item.id);
-      if (id != null) ids.add(id);
+      if (id != null) scheduled.add((collectionId: item.id, taskId: id));
     }
-    return ids;
+    return scheduled;
   }
+
+  /// The task ids [enqueueLibraryCheck] scheduled, existing or new.
+  Future<List<String>> enqueueCheckAll() async => [
+    for (final t in await enqueueLibraryCheck()) t.taskId,
+  ];
 
   /// Everything still pending for one collection — the number the archive dialog
   /// quotes before it cancels them.
@@ -873,14 +904,23 @@ class TaskQueueController extends ChangeNotifier {
     return affected.length;
   }
 
-  /// Cancel every *queued* check, leaving the in-flight one to finish — the
-  /// M15 cancel semantic: "stop after the current collection".
-  Future<int> cancelQueuedChecks() async {
+  /// Cancel *queued* checks, leaving the in-flight one to finish — the M15
+  /// cancel semantic: "stop after the current collection".
+  ///
+  /// [onlyTaskIds] narrows it to one run's own rows. A library-wide run passes
+  /// its plan's ids, because stopping *that* run must not also drop a
+  /// single-collection check the user queued separately from a collection
+  /// screen — it was never part of what they asked to stop. Activity's bulk
+  /// "cancel queued checks" passes nothing and keeps the wider meaning it
+  /// advertises.
+  Future<int> cancelQueuedChecks({Iterable<String>? onlyTaskIds}) async {
+    final scope = onlyTaskIds?.toSet();
     final pending = await db.pendingQueueTasks();
     final queuedChecks = pending
         .where(
           (t) =>
               t.state == QueueTaskState.queued.name &&
+              (scope == null || scope.contains(t.id)) &&
               (t.taskType == QueueTaskType.collectionCheck.name ||
                   t.taskType == QueueTaskType.checkAllCollections.name),
         )
@@ -1329,18 +1369,14 @@ class TaskQueueController extends ChangeNotifier {
     return _collectionIsRestricted(task.collectionId);
   }
 
-  /// A collection whose source is on a restricted service.
-  ///
-  /// `host` is the identity column the collection was created with; the two
-  /// URLs are checked as well so a row written before this column was reliable
-  /// is still caught.
+  /// A collection whose source is on a restricted service — asked through
+  /// [collectionSourceIsRestricted], which is the one place the three columns a
+  /// collection carries its source in are tested together.
   Future<bool> _collectionIsRestricted(String? collectionId) async {
     if (collectionId == null) return false;
     final item = await db.collectionById(collectionId);
     if (item == null) return false;
-    return isRestrictedCaptureHost(item.host) ||
-        isCaptureRestricted(item.sourceUrl) ||
-        isCaptureRestricted(item.collectionIndexUrl);
+    return collectionSourceIsRestricted(item);
   }
 
   /// Turn a queued row whose target is restricted into a terminal failure, in

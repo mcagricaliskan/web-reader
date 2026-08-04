@@ -4,6 +4,7 @@ import '../core/config.dart';
 import '../core/device_storage.dart';
 import '../library/content_shape.dart';
 import '../save/capture_mode.dart';
+import '../save/size_estimate.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
@@ -108,6 +109,11 @@ Future<SaveRangeChoice?> showSaveRangeSheet({
   /// Whether "remember for this collection" is worth offering — false for a
   /// page with no collection to remember anything on.
   bool canRemember = false,
+
+  /// What entries already saved in this page's collection actually cost. The
+  /// sheet's size estimate is built from this; empty is the honest state for a
+  /// collection nothing has been saved from, and for a page in none.
+  CollectionSizeHistory sizeHistory = const CollectionSizeHistory.empty(),
 }) async {
   final free = await deviceStorage.freeBytes();
   if (!context.mounted) return null;
@@ -150,6 +156,7 @@ Future<SaveRangeChoice?> showSaveRangeSheet({
       capabilities: capabilities,
       preferredMode: preferredMode,
       canRemember: canRemember,
+      sizeHistory: sizeHistory,
     ),
   );
 }
@@ -163,6 +170,7 @@ class _RangeSheet extends StatefulWidget {
     required this.capabilities,
     required this.preferredMode,
     required this.canRemember,
+    required this.sizeHistory,
   });
 
   final SaveConfig config;
@@ -172,6 +180,7 @@ class _RangeSheet extends StatefulWidget {
   final CaptureCapabilities capabilities;
   final CaptureMode? preferredMode;
   final bool canRemember;
+  final CollectionSizeHistory sizeHistory;
 
   @override
   State<_RangeSheet> createState() => _RangeSheetState();
@@ -253,6 +262,33 @@ class _RangeSheetState extends State<_RangeSheet> {
     return n;
   }
 
+  /// How many entries the estimate should be for, or null when there is no
+  /// usable number to multiply.
+  ///
+  /// The current-entry range is always exactly one. The typed range is the
+  /// number only while it passes the same validation the launches apply: an
+  /// empty field, a zero and a number over the ceiling all mean "no estimate",
+  /// which is the honest answer and keeps a stale figure off the screen while
+  /// the error beside it says what is wrong.
+  int? get _estimateCount {
+    if (_mode != SaveScope.fixedCount) return 1;
+    final n = _parsedCount;
+    if (n == null || n < 1 || n > widget.config.maxEntriesPerRun) return null;
+    return n;
+  }
+
+  /// What this save is likely to cost, from this collection's own entries when
+  /// it has any. Recomputed on build because both of its inputs — the count and
+  /// the capture mode — are things the user changes inside the sheet.
+  SaveSizeEstimate get _estimate {
+    final mode = _capture;
+    return estimateSaveSize(
+      entryCount: _estimateCount,
+      historyBytes: widget.sizeHistory.forArtifact(mode?.artifact),
+      fetchesImages: mode?.fetchesImages ?? true,
+    );
+  }
+
   /// A digit key. Leading zeroes are normalised away as they are typed — 004
   /// is 4, and there is no state in which the display shows a number that
   /// means something other than what it reads as.
@@ -325,7 +361,7 @@ class _RangeSheetState extends State<_RangeSheet> {
     final palette = AppPalette.of(context);
     final free = widget.freeBytes;
     final n = _parsedCount;
-    final estimate = (n ?? 0) * widget.config.unknownEntryEstimate;
+    final estimate = _estimate;
     final busy = widget.busyLabel;
 
     return SafeArea(
@@ -443,9 +479,7 @@ class _RangeSheetState extends State<_RangeSheet> {
                   const SizedBox(height: 8),
                   Text(
                     'Save ${kPlainEntryLabels.count(n)}'
-                    '${widget.currentTitle.isNotEmpty ? ' starting from "${widget.currentTitle}"' : ''}. '
-                    'Estimated space: up to ~${_gb(estimate)}'
-                    '${free != null ? ' · available ${_gb(free)}' : ''}.',
+                    '${widget.currentTitle.isNotEmpty ? ' starting from "${widget.currentTitle}"' : ''}.',
                     style: TextStyle(
                       fontSize: 12.5,
                       height: 1.5,
@@ -455,6 +489,16 @@ class _RangeSheetState extends State<_RangeSheet> {
                 ],
               ],
               const SizedBox(height: 12),
+              Text(
+                _estimateLine(estimate),
+                key: const ValueKey('saveEstimatedSize'),
+                style: TextStyle(
+                  fontSize: 11.5,
+                  height: 1.45,
+                  color: palette.inkFaint,
+                ),
+              ),
+              const SizedBox(height: 6),
               Text(
                 free == null
                     ? 'Free space could not be checked — it will be checked '
@@ -552,6 +596,18 @@ class _RangeSheetState extends State<_RangeSheet> {
         ),
       ),
     );
+  }
+
+  /// The size line: a range, and what the range is built from.
+  ///
+  /// Never a bare figure. An estimate that reads as a measurement is worse than
+  /// no estimate, because the user cannot tell which one they were given —
+  /// which is exactly what "up to ~1.0 GB", computed by multiplying a flat
+  /// constant by the entry count, was doing to ordinary saves.
+  static String _estimateLine(SaveSizeEstimate estimate) {
+    final label = estimate.sizeLabel;
+    if (label == null) return kSizeUnknownMessage;
+    return 'Estimated size: $label — ${estimate.qualifier}.';
   }
 
   static final ButtonStyle _primaryStyle = FilledButton.styleFrom(

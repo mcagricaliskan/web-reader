@@ -21,6 +21,7 @@ import 'capture_policy.dart';
 import 'save_engine.dart';
 import 'save_preflight.dart';
 import 'save_state.dart';
+import 'size_estimate.dart';
 import '../library/collection_identity.dart';
 import '../library/collection_repository.dart' show displayNameFor;
 import '../library/entry_labels.dart' show kPlainEntryLabels;
@@ -1432,15 +1433,20 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     );
   }
 
-  /// Planning estimate for the next entry: the median of this collection's own
-  /// stored entries when it has any, the conservative default otherwise.
+  /// Planning estimate for the next entry: the typical size of this
+  /// collection's own **finished** saves, the conservative default otherwise.
+  ///
+  /// This is the disk-safety check, not the figure shown before a save, so the
+  /// fallback stays deliberately generous — the cost of over-estimating here is
+  /// stopping one entry early, and the cost of under-estimating is writing the
+  /// device full mid-entry. What is shared with the sheet is which rows count
+  /// as evidence and how the typical one is picked; see `size_estimate.dart`.
   Future<int> _estimateEntryBytes(Collection? item) async {
     if (item == null) return config.unknownEntryEstimate;
-    final sizes = (await db.entriesForCollection(
-      item.id,
-    )).map((c) => c.byteSize).where((b) => b > 0).toList()..sort();
-    if (sizes.isEmpty) return config.unknownEntryEstimate;
-    return sizes[sizes.length ~/ 2];
+    final sizes = CollectionSizeHistory.fromEntries(
+      await db.entriesForCollection(item.id),
+    ).forArtifact(null);
+    return typicalEntryBytes(sizes) ?? config.unknownEntryEstimate;
   }
 
   static String _mb(int bytes) => '${(bytes / (1024 * 1024)).round()} MB';

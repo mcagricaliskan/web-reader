@@ -2,6 +2,14 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/gestures.dart'
+    show
+        PointerCancelEvent,
+        PointerDownEvent,
+        PointerMoveEvent,
+        PointerUpEvent,
+        kLongPressTimeout,
+        kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -58,6 +66,23 @@ const Duration kReaderNoticeDuration = Duration(seconds: 2);
 /// three-button navigation bar reports ~48px there, enough to push the chrome
 /// up under a fixed offset and cover the entry controls.
 const double kReaderNoticeInset = 104;
+
+/// The one condition under which the reader can open an entry: the package is
+/// still on the device and the save got far enough to be readable.
+///
+/// This is the authority behind every entry-navigation control. A row whose
+/// `contentPath` is null has had its downloads removed (by the user, by the
+/// finished-entry flow, or by a collection deletion) or was never stored;
+/// either way opening it lands on the unavailable screen, so nothing may offer
+/// it as a destination. Deletion needs no separate test — a deleted row is not
+/// in the collection's entries at all.
+///
+/// Deliberately **not** derived from a display flag or from a count: the file
+/// column and the save status are what [_ReaderScreenState._load] itself
+/// checks, so the control and the screen it leads to agree by construction.
+bool readerCanOpen(Entry entry) =>
+    entry.contentPath != null &&
+    (entry.saveStatus == 'complete' || entry.saveStatus == 'partial');
 
 /// Vertical image reader over **local files only**.
 ///
@@ -121,6 +146,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// The collection this entry belongs to — the destination of the swipe-back.
   String? _collectionId;
 
+  /// Locally readable siblings of the open entry, in reading order.
+  ///
+  /// A notifier rather than a field of [_ReaderData] because the list can go
+  /// stale *while the reader is open*: the finished-entry flow removes the
+  /// downloads of the entry just left, and a collection deletion elsewhere can
+  /// take a sibling with it. Both bump [CleanupService.removals], which is what
+  /// [_refreshSiblings] listens to — so the entry controls disable themselves
+  /// the moment their target stops being openable, instead of staying lit until
+  /// the next load and then landing on the unavailable screen.
+  final ValueNotifier<List<Entry>> _siblings = ValueNotifier(const <Entry>[]);
+
   /// Held in a field, not read through `ref`, because the last flush runs
   /// from [dispose] — where Riverpod forbids `ref`. Reading it there threw,
   /// which silently lost the final position on every ordinary reader close.
@@ -158,17 +194,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     // The open entry is locked against offline-file removal for as long
     // as this screen exists.
     _cleanup.openReaderEntryId.value = widget.entryId;
+    _cleanup.removals.addListener(_onRemovals);
     _future = _load(widget.entryId);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _cleanup.removals.removeListener(_onRemovals);
     _saveTimer?.cancel();
     // Fire-and-forget: dispose cannot await, but the write is a single row.
     unawaited(_flush());
     _scrollController?.dispose();
     _livePosition.dispose();
+    _siblings.dispose();
     if (_cleanup.openReaderEntryId.value == _entryId) {
       _cleanup.openReaderEntryId.value = null;
     }
@@ -219,6 +258,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     // running would let the timeout fire mid-restore.
     _clearNotice();
     await undo();
+    // The files are back, so the entry is a destination again — the controls
+    // have to hear about it, since a restore frees nothing and so bumps no
+    // removal counter.
+    await _refreshSiblings();
     if (!mounted) return;
     // Parallel to the removal copy, and equally short: the verb first, the same
     // noun after it, so the pair reads as one action and its reversal.
@@ -235,15 +278,42 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final collectionId = entry.collectionId;
     if (collectionId == null) return const <Entry>[];
     return sortEntriesForReading(
-      (await db.entriesForCollection(collectionId))
-          .where(
-            (c) =>
-                c.contentPath != null &&
-                (c.saveStatus == 'complete' || c.saveStatus == 'partial'),
-          )
-          .toList(),
+      (await db.entriesForCollection(
+        collectionId,
+      )).where(readerCanOpen).toList(),
     );
   }
+
+  /// Re-read the neighbours from the database.
+  ///
+  /// Called whenever something removed offline files anywhere, because the
+  /// reader itself is one of the things that does that: finishing an entry and
+  /// moving on removes the downloads of the one left behind, which is exactly
+  /// the entry the *Previous entry* control was pointing at.
+  Future<void> _refreshSiblings() async {
+    final id = _entryId;
+    if (id == null) return;
+    final db = ref.read(databaseProvider);
+    final entry = await db.entryById(id);
+    if (entry == null) return;
+    final siblings = await _siblingsFor(db, entry);
+    // The reader may have moved on across those awaits; a list resolved for an
+    // entry that is no longer open must not be published.
+    if (_entryId != id) return;
+    _publishSiblings(siblings);
+  }
+
+  /// The only writer of [_siblings].
+  ///
+  /// Every list is resolved across an await, and the screen can be popped
+  /// inside one — so the guard belongs here rather than at each call site,
+  /// where forgetting it writes to a disposed notifier.
+  void _publishSiblings(List<Entry> siblings) {
+    if (!mounted) return;
+    _siblings.value = siblings;
+  }
+
+  void _onRemovals() => unawaited(_refreshSiblings());
 
   Future<_ReaderData> _load(String entryId) async {
     final db = ref.read(databaseProvider);
@@ -321,7 +391,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           'The saved text for this entry is unreadable.',
         );
       }
-      final siblings = await _siblingsFor(db, entry);
+      _publishSiblings(await _siblingsFor(db, entry));
       await reading.markOpened(entry.id);
       if (entry.collectionId != null) {
         await db.touchCollection(entry.collectionId!);
@@ -335,7 +405,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         pages: const [],
         document: document,
         entryDir: Directory(store.resolve(relative)),
-        siblings: siblings,
       );
     }
 
@@ -354,7 +423,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
 
     final collectionId = entry.collectionId;
-    final siblings = await _siblingsFor(db, entry);
+    _publishSiblings(await _siblingsFor(db, entry));
 
     await reading.markOpened(entry.id);
     if (collectionId != null) await db.touchCollection(collectionId);
@@ -363,12 +432,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _completed = entry.readStatus == ReadStatus.completed.name;
     _collectionId = entry.collectionId;
 
-    return _ReaderData(
-      entry: entry,
-      manifest: manifest,
-      pages: pages,
-      siblings: siblings,
-    );
+    return _ReaderData(entry: entry, manifest: manifest, pages: pages);
   }
 
   // --- finished-entry cleanup ---------------------------------------------
@@ -645,6 +709,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// is the obvious way to get this wrong.
   Future<void> _goTo(Entry target) async {
     await _flush();
+
+    // The control was drawn from a list; between that frame and this tap the
+    // target's downloads may have gone. Ask the row itself before moving, so a
+    // stale control can never land the reader on the unavailable screen — and
+    // republish the neighbours, which is what disables the control that just
+    // failed rather than leaving it lit for the next tap.
+    final fresh = await ref.read(databaseProvider).entryById(target.id);
+    if (fresh == null || !readerCanOpen(fresh)) {
+      await _refreshSiblings();
+      return;
+    }
+
     final leaving = await _finishedEntryLeavingFor(target);
     _saveTimer?.cancel();
     _scrollController?.removeListener(_onScroll);
@@ -747,6 +823,159 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// True once the reader has scrolled far enough from the restored position
   /// that offering a way back is useful rather than confusing.
   bool _showJump = false;
+
+  // --- telling a deliberate tap from a reading gesture ---------------------
+  //
+  // The chrome is toggled by one thing and one thing only: a tap on the body.
+  // The trouble is what Flutter counts as a tap. The scroll view's drag
+  // recogniser only claims a gesture once it has cleared the touch slop, and on
+  // pointer-up a drag that never claimed anything **rejects itself** — so the
+  // tap recogniser is left alone in the arena and wins by default. Every
+  // pointer sequence the scroll view declines is therefore promoted to a tap,
+  // including ones that plainly were not: a finger put down to stop a fling, a
+  // thumb resting on the page, a small back-and-forth shuffle.
+  //
+  // The policy this implements: *toggle only for a brief, stationary,
+  // single-pointer contact that began while the content was at rest.* It is
+  // enforced by watching the physical pointer sequence through a [Listener],
+  // which observes without joining the arena — the tap, the vertical scroll and
+  // the horizontal entry-navigation recognisers all keep exactly the ownership
+  // they have today.
+
+  /// The pointer being judged, or null between sequences.
+  int? _tapPointer;
+
+  /// When [_tapPointer] went down, and where it was last seen.
+  Duration? _tapDownAt;
+  Offset? _tapLastPosition;
+
+  /// Total **unsigned** travel of the sequence so far.
+  ///
+  /// Path length rather than final displacement, because the scroll view's own
+  /// accept test accumulates travel *with sign* along its axis: a finger that
+  /// wanders 30px down and 28px back nets out to almost nothing, never
+  /// convinces the scroll view, and is then swept up as a tap. Net displacement
+  /// cannot see that gesture at all; path length is what makes it visible.
+  double _tapPath = 0;
+
+  /// The slop this sequence is judged against, read once at pointer-down.
+  double _tapSlop = kTouchSlop;
+
+  /// Evidence that this sequence was not a deliberate tap.
+  bool _tapDisqualified = false;
+
+  /// The verdict on the physical sequence that has just ended, waiting for the
+  /// tap it belongs to.
+  ///
+  /// Null means *nothing physical is awaiting judgement* — which is exactly the
+  /// state an assistive activation arrives in, so those are never judged.
+  bool? _pendingTapVerdict;
+
+  /// True only for the remainder of the event dispatch in which a scroll ended.
+  ///
+  /// Read at pointer-down, that is precisely "this finger just stopped content
+  /// that was still moving". It cannot be answered by asking the scroll view
+  /// what it is doing: the scroll view sits *below* this screen's [Listener] in
+  /// the hit-test path, so it handles the pointer first and has already put
+  /// itself on hold by the time the event reaches us — at which point a live
+  /// fling and perfectly still content look exactly alike. Landing on still
+  /// content ends no scroll and so raises nothing here, while a fling that ends
+  /// on its own does so in a frame callback, whose flag is dropped by the
+  /// microtask below long before any finger arrives.
+  bool _scrollEndedInThisDispatch = false;
+
+  /// The device's own slop where it reports one, the framework's otherwise.
+  double get _effectiveTouchSlop =>
+      MediaQuery.gestureSettingsOf(context).touchSlop ?? kTouchSlop;
+
+  bool _onScrollEnd(ScrollEndNotification notification) {
+    _scrollEndedInThisDispatch = true;
+    scheduleMicrotask(() => _scrollEndedInThisDispatch = false);
+    return false;
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    final arrestedMotion = _scrollEndedInThisDispatch;
+
+    if (_tapPointer != null) {
+      // A second finger is down. Whatever this is, it is not a single-pointer
+      // tap, and the sequence already in flight can no longer become one.
+      _tapDisqualified = true;
+      return;
+    }
+
+    _tapPointer = event.pointer;
+    _tapDownAt = event.timeStamp;
+    _tapLastPosition = event.position;
+    _tapPath = 0;
+    _tapSlop = _effectiveTouchSlop;
+    _pendingTapVerdict = null;
+
+    // A touch that lands on moving content is there to stop it — that is how
+    // you halt a fling at the panel you actually wanted. Toggling the chrome as
+    // well would answer a question the reader never asked, and this is the case
+    // they meet most often.
+    _tapDisqualified = arrestedMotion;
+  }
+
+  /// Deliberately does no [setState]: nothing here is drawn, and rebuilding the
+  /// reader on every pointer move would cost far more than the decision is
+  /// worth.
+  void _onPointerMove(PointerMoveEvent event) {
+    if (event.pointer != _tapPointer) return;
+    final last = _tapLastPosition;
+    if (last != null) _tapPath += (event.position - last).distance;
+    _tapLastPosition = event.position;
+    if (_tapPath > _tapSlop) _tapDisqualified = true;
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    if (event.pointer != _tapPointer) return;
+    final downAt = _tapDownAt;
+    // Held, not tapped. kLongPressTimeout is the framework's own boundary for
+    // when a contact has stopped being a tap, so the reader does not invent a
+    // second number for the same idea.
+    if (downAt != null && event.timeStamp - downAt > kLongPressTimeout) {
+      _tapDisqualified = true;
+    }
+    _endTapSequence(verdict: !_tapDisqualified);
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    if (event.pointer != _tapPointer) return;
+    // A cancelled sequence produces no tap, so it leaves no verdict behind
+    // either.
+    _endTapSequence(verdict: null);
+  }
+
+  void _endTapSequence({required bool? verdict}) {
+    _tapPointer = null;
+    _tapDownAt = null;
+    _tapLastPosition = null;
+    _tapPath = 0;
+    _tapDisqualified = false;
+    _pendingTapVerdict = verdict;
+    // The gesture arena resolves synchronously, later in this same event
+    // dispatch, so the tap this verdict belongs to has already read it by the
+    // time a microtask runs. Dropping it here is what stops a verdict from
+    // outliving its own gesture and blocking a later assistive activation.
+    scheduleMicrotask(() => _pendingTapVerdict = null);
+  }
+
+  /// The only thing that shows or hides the chrome.
+  ///
+  /// Taps reach this from two places. The tap recogniser sends one after a
+  /// physical sequence this screen has been watching, and that sequence leaves
+  /// its verdict in [_pendingTapVerdict]. The semantics layer sends one when
+  /// assistive technology activates the body, and there is no pointer sequence
+  /// behind it at all — so it carries no verdict, is never judged, and can
+  /// never be blocked by evidence left over from someone's thumb.
+  void _handleBodyTap() {
+    final verdict = _pendingTapVerdict;
+    _pendingTapVerdict = null;
+    if (verdict == false) return;
+    setState(() => _chromeVisible = !_chromeVisible);
+  }
 
   /// Bring an entry back that has no local files — the same queued save
   /// as anywhere else, so it shows up in Activity like any other run.
@@ -868,75 +1097,92 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
         return Stack(
           children: [
-            // Everything above panel 1 lives INSIDE the scroll view, so the
-            // banner scrolls away with the content instead of permanently
-            // eating a band of the page. Its extent is a known constant,
-            // and every offset conversion goes through [_leadingExtent].
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => setState(() => _chromeVisible = !_chromeVisible),
-              // Horizontal-only recogniser: it and the list's vertical drag
-              // enter the same arena, so a reading scroll never reaches it
-              // and a deliberate sideways drag never scrolls the page.
-              onHorizontalDragStart: _onDragStart,
-              onHorizontalDragUpdate: _onDragUpdate,
-              onHorizontalDragEnd: _onDragEnd,
-              child: data.isDocument
-                  ? DocumentBody(
-                      document: data.document!,
-                      manifest: manifest,
-                      entryDir: data.entryDir!,
-                      controller: controller,
-                      leadingExtent: kReaderTopSpacer,
-                      onLayout: _onDocumentLayout,
-                      banner: partial
-                          ? _PartialBanner(
-                              stored: manifest.storedAssetCount,
-                              detected: manifest.detectedAssetCount,
-                              reason: manifest.statusReason,
-                              onRetry: () => _retryMissing(data),
-                            )
-                          : null,
-                      trailing: _EndOfEntry(
-                        data: data,
-                        entryId: _entryId!,
-                        onGoTo: _goTo,
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: controller,
-                      // The lead-in is list PADDING, not a child: padding adds its
-                      // extent exactly, while a short first child would skew
-                      // ListView's running estimate of total extent and leave the
-                      // scrollable's own maxScrollExtent short of the real bottom.
-                      padding: const EdgeInsets.only(top: kReaderTopSpacer),
-                      // One trailing row for the end-of-entry block, plus the
-                      // partial banner when there is one.
-                      itemCount: data.pages.length + 1 + (partial ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (partial && index == 0) {
-                          return _PartialBanner(
-                            stored: manifest.storedAssetCount,
-                            detected: manifest.detectedAssetCount,
-                            reason: manifest.statusReason,
-                            onRetry: () => _retryMissing(data),
-                          );
-                        }
-                        final panel = index - (partial ? 1 : 0);
-                        if (panel == data.pages.length) {
-                          return _EndOfEntry(
+            // Watches the physical pointer sequence without joining the gesture
+            // arena, so the tap, the scroll view's vertical drag and the
+            // horizontal entry-navigation recogniser below keep exactly the
+            // ownership they had. It only supplies the evidence that
+            // [_handleBodyTap] weighs. Wrapping here covers both reader bodies
+            // at once — the policy is written once, not per artifact.
+            NotificationListener<ScrollEndNotification>(
+              onNotification: _onScrollEnd,
+              child: Listener(
+                onPointerDown: _onPointerDown,
+                onPointerMove: _onPointerMove,
+                onPointerUp: _onPointerUp,
+                onPointerCancel: _onPointerCancel,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _handleBodyTap,
+                  // Horizontal-only recogniser: it and the list's vertical drag
+                  // enter the same arena, so a reading scroll never reaches it
+                  // and a deliberate sideways drag never scrolls the page.
+                  onHorizontalDragStart: _onDragStart,
+                  onHorizontalDragUpdate: _onDragUpdate,
+                  onHorizontalDragEnd: _onDragEnd,
+                  // Everything above panel 1 lives INSIDE the scroll view, so the
+                  // banner scrolls away with the content instead of permanently
+                  // eating a band of the page. Its extent is a known constant,
+                  // and every offset conversion goes through [_leadingExtent].
+                  child: data.isDocument
+                      ? DocumentBody(
+                          document: data.document!,
+                          manifest: manifest,
+                          entryDir: data.entryDir!,
+                          controller: controller,
+                          leadingExtent: kReaderTopSpacer,
+                          onLayout: _onDocumentLayout,
+                          banner: partial
+                              ? _PartialBanner(
+                                  stored: manifest.storedAssetCount,
+                                  detected: manifest.detectedAssetCount,
+                                  reason: manifest.statusReason,
+                                  onRetry: () => _retryMissing(data),
+                                )
+                              : null,
+                          trailing: _EndOfEntry(
                             data: data,
                             entryId: _entryId!,
+                            siblings: _siblings,
                             onGoTo: _goTo,
-                          );
-                        }
-                        return _PanelView(
-                          page: data.pages[panel],
-                          index: panel + 1,
-                          height: _layout?.heightOf(panel),
-                        );
-                      },
-                    ),
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: controller,
+                          // The lead-in is list PADDING, not a child: padding adds its
+                          // extent exactly, while a short first child would skew
+                          // ListView's running estimate of total extent and leave the
+                          // scrollable's own maxScrollExtent short of the real bottom.
+                          padding: const EdgeInsets.only(top: kReaderTopSpacer),
+                          // One trailing row for the end-of-entry block, plus the
+                          // partial banner when there is one.
+                          itemCount: data.pages.length + 1 + (partial ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (partial && index == 0) {
+                              return _PartialBanner(
+                                stored: manifest.storedAssetCount,
+                                detected: manifest.detectedAssetCount,
+                                reason: manifest.statusReason,
+                                onRetry: () => _retryMissing(data),
+                              );
+                            }
+                            final panel = index - (partial ? 1 : 0);
+                            if (panel == data.pages.length) {
+                              return _EndOfEntry(
+                                data: data,
+                                entryId: _entryId!,
+                                siblings: _siblings,
+                                onGoTo: _goTo,
+                              );
+                            }
+                            return _PanelView(
+                              page: data.pages[panel],
+                              index: panel + 1,
+                              height: _layout?.heightOf(panel),
+                            );
+                          },
+                        ),
+                ),
+              ),
             ),
             // A jump back to where reading left off, offered only once the
             // reader has actually wandered away from it — the app restores
@@ -962,9 +1208,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               entryId: _entryId!,
               completed: _completed,
               position: _livePosition,
-              panelCount: data.isDocument
-                  ? data.document!.blockCount
-                  : data.pages.length,
+              siblings: _siblings,
               onGoTo: _goTo,
               onToggleRead: _toggleRead,
             ),
@@ -982,8 +1226,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 /// the reader must not jump under the reader's thumb.
 ///
 /// The progress readout listens to the live position notifier, so it moves
-/// while the user scrolls (M12) — only that small column rebuilds per tick,
-/// never the panel list.
+/// while the user scrolls (M12) — only the bar and the percentage rebuild per
+/// tick, never the panel list and never the entry controls beside them.
 class _ReaderChrome extends StatelessWidget {
   const _ReaderChrome({
     required this.visible,
@@ -991,7 +1235,7 @@ class _ReaderChrome extends StatelessWidget {
     required this.entryId,
     required this.completed,
     required this.position,
-    required this.panelCount,
+    required this.siblings,
     required this.onGoTo,
     required this.onToggleRead,
   });
@@ -1001,18 +1245,15 @@ class _ReaderChrome extends StatelessWidget {
   final String entryId;
   final bool completed;
   final ValueListenable<ReadingPosition> position;
-  final int panelCount;
+
+  /// The live neighbour list. Listened to rather than captured, so a removal
+  /// that happens while this screen is up disables the control it invalidated.
+  final ValueListenable<List<Entry>> siblings;
   final Future<void> Function(Entry) onGoTo;
   final VoidCallback onToggleRead;
 
   @override
   Widget build(BuildContext context) {
-    final siblings = data.siblings;
-    final index = siblings.indexWhere((c) => c.id == entryId);
-    final previous = index > 0 ? siblings[index - 1] : null;
-    final next = (index >= 0 && index + 1 < siblings.length)
-        ? siblings[index + 1]
-        : null;
     final insets = MediaQuery.paddingOf(context);
     final entry = data.entry;
 
@@ -1102,66 +1343,69 @@ class _ReaderChrome extends StatelessWidget {
                     stops: [0, 0.3, 1],
                   ),
                 ),
-                child: Row(
+                // Bar across the full width, then one row: where you can go
+                // back to, how far through you are, where you can go next.
+                // The two ends are entry navigation and say so; the middle is
+                // the only thing that is not a button.
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(
-                      tooltip: 'Previous saved entry',
-                      icon: const Icon(Icons.skip_previous, size: 22),
-                      color: ReaderColors.ink,
-                      disabledColor: ReaderColors.inkDisabled,
-                      onPressed: previous == null
-                          ? null
-                          : () => onGoTo(previous),
-                    ),
-                    Expanded(
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
                       child: ValueListenableBuilder<ReadingPosition>(
                         valueListenable: position,
-                        builder: (context, live, _) {
-                          final pct = (live.fraction * 100)
-                              .clamp(0, 100)
-                              .round();
-                          final panel = (live.anchorIndex + 1).clamp(
-                            1,
-                            panelCount,
-                          );
-                          return Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(2),
-                                child: LinearProgressIndicator(
-                                  value: live.fraction.clamp(0.0, 1.0),
-                                  minHeight: 4,
-                                  backgroundColor: ReaderColors.track,
-                                  color: ReaderColors.accent,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    completed ? 'Completed' : '$pct%',
-                                    style: _readerMeta,
-                                  ),
-                                  Text(
-                                    'panel $panel / $panelCount',
-                                    style: _readerMeta,
-                                  ),
-                                ],
-                              ),
-                            ],
-                          );
-                        },
+                        builder: (context, live, _) => LinearProgressIndicator(
+                          value: live.fraction.clamp(0.0, 1.0),
+                          minHeight: 4,
+                          backgroundColor: ReaderColors.track,
+                          color: ReaderColors.accent,
+                        ),
                       ),
                     ),
-                    IconButton(
-                      tooltip: 'Next saved entry',
-                      icon: const Icon(Icons.skip_next, size: 22),
-                      color: ReaderColors.ink,
-                      disabledColor: ReaderColors.inkDisabled,
-                      onPressed: next == null ? null : () => onGoTo(next),
+                    const SizedBox(height: 6),
+                    ValueListenableBuilder<List<Entry>>(
+                      valueListenable: siblings,
+                      builder: (context, ordered, _) {
+                        final index = ordered.indexWhere(
+                          (c) => c.id == entryId,
+                        );
+                        final previous = index > 0 ? ordered[index - 1] : null;
+                        final next = (index >= 0 && index + 1 < ordered.length)
+                            ? ordered[index + 1]
+                            : null;
+                        // Equal flex on both sides is what actually centres the
+                        // percentage: whatever the two labels turn out to be,
+                        // the middle keeps the same place on screen, so the one
+                        // element that changes every frame is the one that
+                        // never moves.
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: _EntryStepButton(
+                                step: _Step.previous,
+                                target: previous,
+                                onGoTo: onGoTo,
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              child: _ReadingPercent(
+                                position: position,
+                                completed: completed,
+                              ),
+                            ),
+                            Expanded(
+                              child: _EntryStepButton(
+                                step: _Step.next,
+                                target: next,
+                                onGoTo: onGoTo,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -1179,6 +1423,162 @@ const _readerMeta = TextStyle(
   fontSize: 10.5,
   color: ReaderColors.inkFaint,
 );
+
+/// Which way an [_EntryStepButton] moves.
+enum _Step { previous, next }
+
+/// How far through the entry the reader is, and nothing else.
+///
+/// Its own widget because it is the only part of the bottom bar that changes
+/// while scrolling: keeping it separate means a scroll tick rebuilds one Text
+/// and leaves the two entry controls beside it alone.
+class _ReadingPercent extends StatelessWidget {
+  const _ReadingPercent({required this.position, required this.completed});
+
+  final ValueListenable<ReadingPosition> position;
+  final bool completed;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<ReadingPosition>(
+    valueListenable: position,
+    builder: (context, live, _) {
+      final pct = (live.fraction * 100).clamp(0, 100).round();
+      return Text(
+        completed ? 'Completed' : '$pct%',
+        maxLines: 1,
+        // Larger, brighter and heavier than the labels on either side, so the
+        // middle of the bar reads as a *readout* rather than a third button.
+        style: const TextStyle(
+          fontFamily: 'IBM Plex Mono',
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: ReaderColors.ink,
+        ),
+      );
+    },
+  );
+}
+
+/// One end of the bottom bar: the control that moves to the previous or the
+/// next entry.
+///
+/// It says "entry" in words. A bare arrow beside a panel counter is read as a
+/// step *within* the page — which is what the old pair of skip glyphs was, and
+/// why moving between entries was guesswork. The direction is the chevron, the
+/// unit is the label, and the destination is named underneath it.
+///
+/// [target] being null **is** the disabled state, and it comes from the live
+/// neighbour list, which only ever contains entries [readerCanOpen] accepts. So
+/// a control is lit exactly when tapping it can succeed; there is no separate
+/// enabled flag to fall out of step with the entry it points at.
+class _EntryStepButton extends StatelessWidget {
+  const _EntryStepButton({
+    required this.step,
+    required this.target,
+    required this.onGoTo,
+  });
+
+  final _Step step;
+
+  /// The entry this control opens, or null when there is no openable one in
+  /// that direction — the end of the collection, a standalone entry, or a
+  /// neighbour whose downloads have been removed.
+  final Entry? target;
+  final Future<void> Function(Entry) onGoTo;
+
+  /// Comfortable one-handed target, kept at the platform minimum even though
+  /// the label only needs about 26 of it.
+  static const double _minHeight = 48;
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = target;
+    final enabled = entry != null;
+    final forward = step == _Step.next;
+    final ink = enabled ? ReaderColors.ink : ReaderColors.inkDisabled;
+    final title = forward ? 'Next entry' : 'Previous entry';
+    final name = entry == null
+        ? null
+        : (entry.sourceMarker?.trim().isNotEmpty ?? false)
+        ? entry.sourceMarker!.trim()
+        : entry.title;
+
+    final label = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: forward
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: forward ? TextAlign.right : TextAlign.left,
+          style: TextStyle(
+            fontSize: 12,
+            height: 1.2,
+            fontWeight: FontWeight.w600,
+            color: ink,
+          ),
+        ),
+        if (name != null) ...[
+          const SizedBox(height: 1),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: forward ? TextAlign.right : TextAlign.left,
+            style: _readerMeta,
+          ),
+        ],
+      ],
+    );
+
+    final chevron = Icon(
+      forward ? Icons.chevron_right : Icons.chevron_left,
+      size: 22,
+      color: ink,
+    );
+
+    return Tooltip(
+      // Unchanged wording: the tooltip is the long form of the same action,
+      // and it is what assistive navigation and the tests reach the control by.
+      message: forward ? 'Next saved entry' : 'Previous saved entry',
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        // One spoken phrase instead of three fragments, and it says outright
+        // when there is nowhere to go.
+        label: name == null ? '$title, unavailable' : '$title, $name',
+        excludeSemantics: true,
+        child: Material(
+          type: MaterialType.transparency,
+          borderRadius: BorderRadius.circular(12),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: enabled ? () => onGoTo(entry) : null,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: _minHeight),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                child: Row(
+                  mainAxisAlignment: forward
+                      ? MainAxisAlignment.end
+                      : MainAxisAlignment.start,
+                  children: [
+                    if (!forward) chevron,
+                    Flexible(child: label),
+                    if (forward) chevron,
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _ReadPill extends StatelessWidget {
   const _ReadPill({required this.completed, required this.onPressed});
@@ -1225,16 +1625,22 @@ class _EndOfEntry extends StatelessWidget {
   const _EndOfEntry({
     required this.data,
     required this.entryId,
+    required this.siblings,
     required this.onGoTo,
   });
 
   final _ReaderData data;
   final String entryId;
+  final ValueListenable<List<Entry>> siblings;
   final Future<void> Function(Entry) onGoTo;
 
   @override
-  Widget build(BuildContext context) {
-    final siblings = data.siblings;
+  Widget build(BuildContext context) => ValueListenableBuilder<List<Entry>>(
+    valueListenable: siblings,
+    builder: (context, ordered, _) => _build(context, ordered),
+  );
+
+  Widget _build(BuildContext context, List<Entry> siblings) {
     final index = siblings.indexWhere((c) => c.id == entryId);
     final next = (index >= 0 && index + 1 < siblings.length)
         ? siblings[index + 1]
@@ -1865,7 +2271,6 @@ class _ReaderData {
     required this.pages,
     this.document,
     this.entryDir,
-    this.siblings = const [],
   }) : unavailableReason = null,
        filesGone = false,
        removedByUser = false,
@@ -1882,8 +2287,7 @@ class _ReaderData {
        manifest = null,
        pages = const [],
        document = null,
-       entryDir = null,
-       siblings = const [];
+       entryDir = null;
 
   final Entry? entry;
   final EntryManifest? manifest;
@@ -1914,8 +2318,6 @@ class _ReaderData {
   /// The row behind an unavailable entry, so it can be saved again.
   final Entry? unavailableEntry;
 
-  /// Locally readable entries of the same collection, in reading order.
-  final List<Entry> siblings;
   final String? unavailableReason;
 }
 

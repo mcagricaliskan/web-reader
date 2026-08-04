@@ -13,6 +13,7 @@ import 'browser/saved_sites_repository.dart';
 import 'save/save_run.dart';
 import 'save/page_hint_repository.dart';
 import 'features/resume_point.dart';
+import 'features/library_check_flow.dart';
 import 'features/library_screen.dart' show LibraryCollection;
 import 'library/library_sort.dart';
 import 'library/collection_deletion.dart';
@@ -379,9 +380,39 @@ final shellTabRequestProvider = Provider<ValueNotifier<int?>>((ref) {
   return notifier;
 });
 
+/// Which tab the shell is showing, published by the shell itself.
+///
+/// The read side of [shellTabRequestProvider]: a request says "go here", this
+/// says "you are here". The Library-check foreground flow needs the second to
+/// record where the user was when they started — so "the run brought the
+/// Browser forward" is something it knows rather than assumes. Defaults to
+/// the Library, which is where the shell starts and what a test without a
+/// shell should see.
+final shellTabProvider = Provider<ValueNotifier<int>>((ref) {
+  final notifier = ValueNotifier<int>(0);
+  ref.onDispose(notifier.dispose);
+  return notifier;
+});
+
 final resumableRunProvider = StreamProvider<SaveRun?>(
   (ref) => ref.watch(databaseProvider).watchResumableRun(),
 );
+
+/// The Library-wide check the user started, and what its presentation owns.
+///
+/// In memory on purpose. Everything the run *reports* is read back from
+/// durable rows — the queue's task states, each collection's `last_check_*`
+/// columns, and `discovered_at` — so the only thing a restart loses is the
+/// framing of "these collections were one operation", and a schema column to
+/// carry a heading is not a trade worth making. The foreground half is even
+/// more clearly transient: "this run moved the user into the Browser and owes
+/// them the way back" must not survive a relaunch. Nothing here authorises
+/// work: the queue rows do that, and they are already visible in Activity.
+final libraryCheckFlowProvider = Provider<LibraryCheckFlow>((ref) {
+  final flow = LibraryCheckFlow();
+  ref.onDispose(flow.dispose);
+  return flow;
+});
 
 // --- browser (M18) ---------------------------------------------------------
 

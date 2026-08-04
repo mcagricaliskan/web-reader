@@ -536,6 +536,97 @@ collection rather than joining a ghost.
   `next_source_url` this one stored. The bound is on `UpdateCheckConfig` and is
   check-only — save ranges come from `SaveLimits.forScope` and share nothing
   with it.
+- **A Library-wide check is that same check, repeated — never a second
+  checker.** "Check all collections" (`features/library_check_ui.dart`) expands
+  through `TaskQueueController.enqueueLibraryCheck` into one ordinary
+  `collectionCheck` row per collection, which the pump runs one at a time
+  through `UpdateChecker.check`. Everything else falls out of that choice rather
+  than being built again: one collection's failure is its own history row with
+  its own reason, a kill mid-run leaves the remainder as queued rows for the
+  restart offer, and stopping is the queue's existing `cancelQueuedChecks` —
+  waiting collections are dropped (scoped to the run's own task ids, so a
+  single-collection check queued from a collection screen is not swept up in
+  it), the one in flight finishes, and every collection already checked keeps
+  its result.
+
+  *One eligibility rule.* `collectionCheckBlock` in
+  `library/library_check.dart` is the only answer to "can this collection be
+  checked?", asked by the queue before it schedules and by the Library screen
+  before it offers, so the count the user is shown is the count that runs. It
+  excludes archived collections, restricted sources (through
+  `collectionSourceIsRestricted`, the one place a collection's three source
+  columns are tested together), standalone entries, and collections with no
+  page to start from — the last mirroring the checker's own precondition, so
+  nothing is scheduled that could only fail. **There is no durable "track this
+  collection" preference:** every part of that answer is already derivable from
+  existing state, and a stored flag would mean a schema column the version-1
+  database cannot take.
+
+  *What the run reports is read back, not accumulated.*
+  `computeLibraryCheckReport` is pure and derives everything from rows that
+  already exist — the queue's task states, each collection's `last_check_*`
+  columns, and `discovered_at` — so nothing new is persisted and the report
+  cannot drift from the database. Its phases are explicit (`idle · preparing ·
+  checking · blocked · completed · partiallyCompleted · cancelled ·
+  failedBeforeAnyCheck`): a partly successful run is never collapsed into a
+  failure, and a run that found nothing still reports how many collections it
+  asked. The run itself is session state (`libraryCheckPlanProvider`); a
+  restart loses the framing of "these were one operation" and nothing else,
+  because every result lives on the collection it belongs to.
+
+  *Checking is not saving.* A discovered entry is a `knownRemote` row with no
+  package; the library-wide flow queues no save and starts no download. The
+  Collection Detail card names its own scope ("Check this collection") and
+  points at the Library for the many-collection version — one vocabulary, two
+  granularities, and neither of them a refresh or a device sync.
+- **Checking is independent of navigation; the Library's *entry point* is
+  not.** The checker needs a rendered WebView, so a run started from the
+  Library card moves the user into the Browser to watch it. That move has a
+  second half, and leaving it out is what stranded people on somebody else's
+  entry list after the last collection finished. It belongs to the entry
+  point, not to the operation: `LibraryCheckFlow`
+  (`features/library_check_flow.dart`) is the *foreground coordinator*, and it
+  is the only thing that knows about tabs, surfaces and sheets.
+
+  *What a run owns.* This app has no browser tabs and the check creates no
+  WebView of its own — there is one shared surface, and what a run visibly
+  changes is which shell tab is showing and which *local* surface
+  (`BrowserPresentation`: website · home · address editor) is stacked over the
+  page. So the flow records exactly that at the start: the tab the run was
+  started from (`shellTabProvider`), the local surface it is about to cover,
+  and whether it is what brings the Browser forward at all. "Cleaning up" is
+  giving those two back. Nothing is closed, cleared or reloaded: no page is
+  navigated, no cookie, history entry or saved site is touched, and the
+  document the WebView ended on stays where it is — restoring *that* would mean
+  fetching someone else's page a second time.
+
+  *Completion.* `LibraryCheckCompletionWatcher` lives in the Library tab —
+  always built inside the shell's `IndexedStack`, and outside its `ListView`,
+  because a lazily-built watcher is not a watcher. It subscribes rather than
+  `ref.watch`es: a run can end while the user is on another route, where a
+  covered subtree is not rebuilt for a stream tick. On a terminal report
+  (`completed` · `partiallyCompleted` · `cancelled` · `failedBeforeAnyCheck`,
+  never `blocked`, which still has work queued) it claims the presentation
+  once — `LibraryCheckFlow.claimCompletion`, a field on the session, not a
+  global — then hands the local surface back, returns the user to the tab they
+  started from, and opens the terminal report as a bottom sheet. Dismissing the
+  sheet is not dismissing the result: the card keeps it until the user clears
+  it there.
+
+  *Whose screen is it.* One rule, evaluated at completion: if the user has
+  pushed another surface above the shell — the reader, Settings, Activity, a
+  collection — the flow **releases** and does nothing at all. It does not
+  navigate, restore or present; the result waits on the card. Being anywhere
+  *inside* the shell (either tab) still counts as the run's presentation,
+  because the run is what put them there.
+
+  *This policy belongs to this entry point.* `LibraryCheckPresentation`
+  distinguishes a run that owns the foreground from one that does not, and the
+  execution path is identical for both: same eligibility, same queue rows, same
+  `UpdateChecker`, same `computeLibraryCheckReport`. An unattached run
+  navigates nothing and presents nothing. Concurrent or background-capable
+  checking is **not built** and remains out of scope; what exists is the seam
+  it would use.
 - **The app ships no page hints.** `user_page_hints` is empty on a clean install
   and nothing seeds it.
 - **The restricted-site policy lives in one file and is asked at every

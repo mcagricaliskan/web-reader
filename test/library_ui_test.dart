@@ -535,7 +535,10 @@ void main() {
       await pumpUntil(tester, find.text('Not checked yet'));
 
       expect(find.text('Not checked yet'), findsOneWidget);
-      expect(find.textContaining(' new'), findsNothing);
+      // No count of new entries anywhere: "never asked" must not render as
+      // "asked, found nothing". (Scoped to a count — the Library-updates card
+      // legitimately contains the words "new entries" in its own label.)
+      expect(find.textContaining(RegExp(r'\d+ new')), findsNothing);
     });
 
     screenTest('a failed check is shown on the row, not hidden', (
@@ -572,7 +575,13 @@ void main() {
       expect(find.textContaining('SAVED · 3'), findsOneWidget);
       expect(find.text('886. part'), findsOneWidget);
       expect(find.textContaining('Save 1 saved item'), findsOneWidget);
-      expect(find.text('Check now'), findsOneWidget);
+      // The per-collection action names its own scope: this collection, not
+      // the library.
+      expect(find.text('Check this collection'), findsOneWidget);
+      expect(
+        find.textContaining('Checks this collection only'),
+        findsOneWidget,
+      );
 
       // The known-remote row is not an entry row: there is nothing local to
       // read, so it never becomes tappable into the reader.
@@ -694,7 +703,9 @@ void _headerAlignmentTests() {
       await show(tester, width);
 
       final centres = <double>[
-        for (final icon in [Icons.sync, Icons.inventory_2, Icons.settings])
+        // Navigation only. Checking every collection left this row for a
+        // labelled card in the list — a bare glyph could not say what it did.
+        for (final icon in [Icons.inventory_2, Icons.settings])
           tester.getRect(find.byIcon(icon)).center.dy,
         tester.getRect(find.byType(StoragePill)).center.dy,
         tester.getRect(find.text('Library')).center.dy,

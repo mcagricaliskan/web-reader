@@ -580,6 +580,14 @@ void main() {
     test('"check everything" skips it and checks the rest', () async {
       await seedCollection('c-blocked', 'www.netflix.com', restrictedDomainUrl);
       await seedCollection('c-ok', 'x.example', allowedUrl);
+      // Both collections hold a saved entry, so the only thing separating them
+      // is the policy — not eligibility.
+      await seedSavedEntry(
+        id: 'e-blocked',
+        url: restrictedDomainUrl,
+        collectionId: 'c-blocked',
+      );
+      await seedSavedEntry(id: 'e-ok', url: allowedUrl, collectionId: 'c-ok');
       final (:queue, :executed) = makeQueue();
 
       final ids = await queue.enqueueCheckAll();

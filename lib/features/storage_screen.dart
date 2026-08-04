@@ -15,6 +15,45 @@ import 'cleanup_dialogs.dart';
 import 'library_screen.dart' show LibraryCollection, formatBytes;
 import '../library/entry_labels.dart';
 
+const int _bytesPerMb = 1024 * 1024;
+const int _bytesPerGb = 1024 * _bytesPerMb;
+
+/// A figure this app is responsible for: the library total, one collection,
+/// the staging tree.
+///
+/// MB until the MB figure would read 1000 — including a value that only
+/// *rounds* there, so nothing ever prints `1000.0 MB` — and GB above it.
+/// Below that it is [formatBytes] unchanged, because one entry is measured in
+/// megabytes and always was.
+String formatStorageBytes(int bytes) {
+  if (bytes / _bytesPerMb < 999.95) return formatBytes(bytes);
+  return _formatGb(bytes, decimals: 1);
+}
+
+/// A device reading: space available, and the size of the disk it is
+/// available on.
+///
+/// Whole gigabytes at device scale — the tenth in `173.4 GB` is noise on a
+/// disk being written to, and `177542.7 MB` was not a number anyone could
+/// read — with one decimal kept below 10 GB, where 1 GB and 1.4 GB are
+/// different answers to "will this save finish". Under a gigabyte it falls
+/// back to [formatBytes]: `0 GB` free is a different claim from `300 MB`
+/// free, and that is exactly the reading that matters most.
+String formatDeviceBytes(int bytes) {
+  if (bytes < _bytesPerGb) return formatBytes(bytes);
+  return _formatGb(bytes, decimals: bytes < 10 * _bytesPerGb ? 1 : 0);
+}
+
+/// Gigabytes from the authoritative byte count — never from an already
+/// rounded MB figure — and never with a trailing zero: `2 GB`, not `2.0 GB`.
+String _formatGb(int bytes, {required int decimals}) {
+  final text = (bytes / _bytesPerGb).toStringAsFixed(decimals);
+  final trimmed = text.endsWith('.0')
+      ? text.substring(0, text.length - 2)
+      : text;
+  return '$trimmed GB';
+}
+
 /// What Storage shows, derived once per library emission rather than per
 /// widget rebuild: `byteSize` already lives on every entry row, so the
 /// whole screen is arithmetic over data the library stream carries — no file
@@ -165,7 +204,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      formatBytes(s.totalBytes),
+                      formatStorageBytes(s.totalBytes),
                       style: serifStyle(size: 34),
                     ),
                     const SizedBox(height: 4),
@@ -195,10 +234,10 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                     // colour live in the meter above, so this tile does not
                     // carry a second, differently-derived warning.
                     _Metric(
-                      free == null ? '—' : formatBytes(free),
+                      free == null ? '—' : formatDeviceBytes(free),
                       'available on device',
                     ),
-                    _Metric(formatBytes(temp), 'temporary files'),
+                    _Metric(formatStorageBytes(temp), 'temporary files'),
                   ],
                 ),
               ),
@@ -245,7 +284,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                 sub: s.finishedOfflineEntries == 0
                     ? 'Nothing finished is stored offline right now'
                     : '${s.finishedOfflineEntries} entries read to the end · '
-                          'frees ~${formatBytes(s.finishedOfflineBytes)}',
+                          'frees ~${formatStorageBytes(s.finishedOfflineBytes)}',
                 enabled: s.finishedOfflineEntries > 0,
                 onTap: () => _confirmGlobalCleanup(s),
               ),
@@ -289,7 +328,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
             'and you can save any of them again.',
         facts: [
           ('Entries', '${s.finishedOfflineEntries}'),
-          ('Space freed', '~${formatBytes(s.finishedOfflineBytes)}'),
+          ('Space freed', '~${formatStorageBytes(s.finishedOfflineBytes)}'),
         ],
         lockNote:
             'Anything open in the reader or being saved right now is '
@@ -430,8 +469,8 @@ class _DeviceMeter extends StatelessWidget {
     final space = free == null
         ? ''
         : total == null
-        ? '${formatBytes(free)} free. '
-        : '${formatBytes(free)} free of ${formatBytes(total)}. ';
+        ? '${formatDeviceBytes(free)} free. '
+        : '${formatDeviceBytes(free)} free of ${formatDeviceBytes(total)}. ';
     return switch (level) {
       StorageLevel.critical =>
         '$space${look.label} — a large entry may not finish. Remove '
@@ -469,7 +508,7 @@ class _TempFilesCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${formatBytes(bytes)} of temporary files',
+                  '${formatStorageBytes(bytes)} of temporary files',
                   style: TextStyle(
                     fontSize: 13,
                     fontVariations: wght(600),
@@ -509,7 +548,8 @@ class _TempFilesCard extends ConsumerWidget {
                 context,
                 text: swept == 0
                     ? 'Nothing to clean'
-                    : 'Temporary files cleaned · ${formatBytes(bytes)} freed',
+                    : 'Temporary files cleaned · '
+                          '${formatStorageBytes(bytes)} freed',
                 icon: Icons.cleaning_services,
               );
             },
@@ -622,7 +662,7 @@ class _CollectionRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  formatBytes(row.bytes),
+                  formatStorageBytes(row.bytes),
                   style: monoStyle(size: 13, color: palette.inkMuted),
                 ),
                 const SizedBox(height: 6),

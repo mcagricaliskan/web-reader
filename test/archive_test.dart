@@ -294,11 +294,14 @@ void main() {
       await pumpUntil(tester, find.text('Archived'));
 
       expect(find.text('Restore'), findsOneWidget);
-      expect(find.text('Check now'), findsNothing);
-      expect(find.text('Check again'), findsNothing);
+      expect(find.text('Check this collection'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('checkThisCollectionButton')),
+        findsNothing,
+      );
 
       await tester.tap(find.text('Restore'));
-      await pumpUntil(tester, find.text('Check now'));
+      await pumpUntil(tester, find.text('Check this collection'));
 
       expect((await db.collectionById('s1'))!.lifecycle, 'active');
       await settleDown(tester);

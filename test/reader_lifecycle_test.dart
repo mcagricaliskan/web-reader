@@ -298,10 +298,10 @@ void main() {
     await tester.runAsync(seedEntry);
     await openReader(tester);
 
-    // At the top: 0%, panel 1. The reader chrome shows the percentage and the
-    // panel anchor as two labels at either end of the progress bar.
+    // At the top: 0%. The percentage is the whole readout — the panel counter
+    // that used to sit beside it is gone.
     expect(find.text('0%'), findsOneWidget);
-    expect(find.text('panel 1 / 3'), findsOneWidget);
+    expect(find.textContaining('panel '), findsNothing);
 
     // Scroll into panel 2 and give the UI a single frame — far inside the
     // 2 s persistence debounce.
@@ -309,14 +309,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(
-      find.text('panel 2 / 3'),
-      findsOneWidget,
-      reason: 'the anchor must move while scrolling, not after leaving',
-    );
-    expect(
       find.text('0%'),
       findsNothing,
-      reason: 'the percentage must move while scrolling',
+      reason: 'the percentage must move while scrolling, not after leaving',
     );
 
     // …and the database has NOT been written yet: the visible state leads,

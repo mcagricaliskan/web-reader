@@ -18,6 +18,7 @@ import '../save/capture_mode.dart';
 import '../save/capture_policy.dart';
 import '../save/save_run.dart';
 import '../save/save_preflight.dart';
+import '../save/size_estimate.dart';
 import '../core/config.dart';
 import '../core/connectivity.dart';
 import '../library/update_checker.dart';
@@ -625,6 +626,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       capabilities: analysis.capabilities,
       preferredMode: analysis.preferredMode,
       canRemember: analysis.collection != null,
+      sizeHistory: analysis.sizeHistory,
     );
     if (choice == null || !context.mounted) return;
     if (choice.action == SaveSheetAction.viewActiveTask) {
@@ -682,10 +684,25 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       collection = null;
     }
 
+    // What this collection's entries have actually cost, so the sheet can
+    // estimate from evidence instead of a constant. Best effort like the rest
+    // of the analysis: no history is a normal state, not an error.
+    var sizeHistory = const CollectionSizeHistory.empty();
+    if (collection != null) {
+      try {
+        sizeHistory = CollectionSizeHistory.fromEntries(
+          await db.entriesForCollection(collection.id),
+        );
+      } catch (_) {
+        sizeHistory = const CollectionSizeHistory.empty();
+      }
+    }
+
     final preferred = captureModeFromName(collection?.preferredCaptureMode);
     return _PageAnalysis(
       capabilities: capabilities,
       collection: collection,
+      sizeHistory: sizeHistory,
       // Offered only when this page can honour it. A stale preference is a
       // suggestion that has stopped applying, not an instruction.
       preferredMode: preferred != null && capabilities.allows(preferred)
@@ -1398,9 +1415,14 @@ class _PageAnalysis {
     required this.capabilities,
     this.collection,
     this.preferredMode,
+    this.sizeHistory = const CollectionSizeHistory.empty(),
   });
 
   final CaptureCapabilities capabilities;
+
+  /// What entries already saved in [collection] cost. Empty when there is no
+  /// collection, or nothing has been saved from it yet.
+  final CollectionSizeHistory sizeHistory;
 
   /// The collection this page would join, when one already exists. Null makes
   /// "remember for this collection" not worth offering.

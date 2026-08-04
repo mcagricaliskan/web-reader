@@ -6,6 +6,9 @@ import 'package:web_reader/save/capture_mode.dart';
 import 'package:web_reader/library/content_shape.dart';
 import 'package:web_reader/core/device_storage.dart';
 import 'package:web_reader/features/save_scope_sheet.dart';
+import 'package:web_reader/save/size_estimate.dart';
+import 'package:web_reader/storage/database.dart';
+import 'package:web_reader/storage/manifest.dart';
 
 /// The three-choice range sheet: exactly three options, typed counts with
 /// validation, the disk refusal in front of everything — and the two launches
@@ -18,6 +21,7 @@ void main() {
     CaptureCapabilities capabilities = const CaptureCapabilities.unanalysed(),
     CaptureMode? preferredMode,
     bool canRemember = false,
+    CollectionSizeHistory sizeHistory = const CollectionSizeHistory.empty(),
     TextScaler textScale = TextScaler.noScaling,
   }) => MaterialApp(
     // Above the Navigator, so the sheet's own route inherits it too.
@@ -38,6 +42,7 @@ void main() {
               capabilities: capabilities,
               preferredMode: preferredMode,
               canRemember: canRemember,
+              sizeHistory: sizeHistory,
             );
             onResult(r);
           },
@@ -649,6 +654,166 @@ void main() {
       );
       expect(empty.value, 'No number entered', reason: 'never a bare dash');
       semantics.dispose();
+    });
+  });
+
+  /// The estimate line, as the sheet is showing it.
+  String estimateLine(WidgetTester tester) => tester
+      .widget<Text>(find.byKey(const ValueKey('saveEstimatedSize')))
+      .data!;
+
+  /// A finished image entry of [bytes], the only kind of row the estimate is
+  /// allowed to learn from.
+  Entry saved(int bytes, {String id = 'e', String status = 'complete'}) =>
+      Entry(
+        id: id,
+        collectionId: 'c',
+        title: 'Entry',
+        sourceUrl: 'https://example.com/$id',
+        urlKey: 'example.com/$id',
+        host: 'example.com',
+        contentKind: 'imageDominant',
+        contentKindConfidence: 'high',
+        contentKindIsUserSet: false,
+        artifactFormat: ArtifactFormat.imageSequence.name,
+        saveStatus: status,
+        contentPath: 'library/c/$id',
+        detectedAssetCount: 10,
+        storedAssetCount: 10,
+        entryOrder: 1,
+        byteSize: bytes,
+        readStatus: 'unread',
+        progressFraction: 0,
+        progressPageIndex: 0,
+        progressOffsetInPage: 0,
+      );
+
+  group('what it will cost', () {
+    const mb = 1024 * 1024;
+
+    testWidgets('a collection nothing was saved from shows a rough range', (
+      tester,
+    ) async {
+      phone(tester);
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await open(tester);
+      await chooseCount(tester);
+      await typeCount(tester, '5');
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('saveEstimatedSize')),
+      );
+
+      // The example from the design: five entries, 3–20 MB each.
+      expect(estimateLine(tester), contains('15–100 MB'));
+      expect(estimateLine(tester), contains('rough'));
+      // And never the old flat-constant answer, which was 250 MB for these
+      // five and a full gigabyte for twenty.
+      expect(estimateLine(tester), isNot(contains('GB')));
+    });
+
+    testWidgets('a collection with saved entries is measured, not guessed', (
+      tester,
+    ) async {
+      phone(tester);
+      await tester.pumpWidget(
+        host(
+          onResult: (_) {},
+          sizeHistory: CollectionSizeHistory.fromEntries([
+            for (var i = 0; i < 5; i++) saved(6 * mb, id: 'e$i'),
+          ]),
+        ),
+      );
+      await open(tester);
+      await chooseCount(tester);
+      await typeCount(tester, '5');
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('saveEstimatedSize')),
+      );
+
+      expect(estimateLine(tester), contains('30 MB'));
+      expect(estimateLine(tester), contains('already saved here'));
+    });
+
+    testWidgets('the single-entry range is estimated too, and for one entry', (
+      tester,
+    ) async {
+      phone(tester);
+      await tester.pumpWidget(
+        host(
+          onResult: (_) {},
+          sizeHistory: CollectionSizeHistory.fromEntries([
+            for (var i = 0; i < 5; i++) saved(12 * mb, id: 'e$i'),
+          ]),
+        ),
+      );
+      await open(tester);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('saveEstimatedSize')),
+      );
+
+      expect(estimateLine(tester), contains('12 MB'));
+    });
+
+    testWidgets('unusable rows are not history', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(
+        host(
+          onResult: (_) {},
+          sizeHistory: CollectionSizeHistory.fromEntries([
+            saved(900 * mb, id: 'failed', status: 'failed'),
+            saved(0, id: 'empty'),
+          ]),
+        ),
+      );
+      await open(tester);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('saveEstimatedSize')),
+      );
+
+      // Falls back to the band rather than reporting 900 MB for one entry.
+      expect(estimateLine(tester), contains('3–20 MB'));
+      expect(estimateLine(tester), contains('rough'));
+    });
+
+    testWidgets('a number that does not validate shows no size at all', (
+      tester,
+    ) async {
+      phone(tester);
+      await tester.pumpWidget(host(onResult: (_) {}));
+      await open(tester);
+      await chooseCount(tester);
+
+      await typeCount(tester, '');
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('saveEstimatedSize')),
+      );
+      expect(estimateLine(tester), kSizeUnknownMessage);
+
+      await typeCount(tester, '0');
+      expect(estimateLine(tester), kSizeUnknownMessage);
+
+      await typeCount(tester, '9999');
+      expect(estimateLine(tester), kSizeUnknownMessage);
+    });
+
+    testWidgets('a count that genuinely is gigabytes says so', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(
+        host(
+          onResult: (_) {},
+          sizeHistory: CollectionSizeHistory.fromEntries([
+            for (var i = 0; i < 5; i++) saved(10 * mb, id: 'e$i'),
+          ]),
+        ),
+      );
+      await open(tester);
+      await chooseCount(tester);
+      await typeCount(tester, '400');
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('saveEstimatedSize')),
+      );
+
+      expect(estimateLine(tester), contains('3.9 GB'));
     });
   });
 

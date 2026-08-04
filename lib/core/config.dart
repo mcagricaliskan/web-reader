@@ -141,7 +141,15 @@ class SaveConfig {
   /// would cross it stops with a distinct disk-full error instead.
   final int emergencyReserve;
 
-  /// Planning estimate for an entry whose size is unknown (bytes).
+  /// Planning estimate for an entry whose size is unknown (bytes), used by the
+  /// run's **rolling disk check** and nowhere else.
+  ///
+  /// Deliberately generous, and deliberately not the number the user is shown.
+  /// Here the two errors are asymmetric: over-estimating stops a run one entry
+  /// early, under-estimating writes the device full mid-entry. On screen they
+  /// are not — multiplying this constant by an entry count is what reported
+  /// "up to ~1.0 GB" for twenty ordinary entries. What the user sees comes from
+  /// `save/size_estimate.dart`, which measures the collection instead.
   final int unknownEntryEstimate;
 }
 

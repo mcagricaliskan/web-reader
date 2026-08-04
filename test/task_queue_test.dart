@@ -607,21 +607,53 @@ void main() {
   });
 
   group('check all collection (M15)', () {
-    Future<void> seedCollection(String id) => db.upsertCollection(
-      Collection(
-        contentKind: 'unknownWebContent',
-        sequenceKind: 'none',
-        orderingBasis: 'discoveryOrder',
-        shapeConfidence: 'low',
-        lifecycle: 'active',
-        id: id,
-        title: 'Collection $id',
-        sourceUrl: 'https://x.example/guide/$id',
-        host: 'x.example',
-        collectionKey: '/guide/$id',
-        createdAt: DateTime(2026, 7, 1),
-      ),
-    );
+    /// A collection a check could actually start from: one saved entry with a
+    /// page address. A collection with none is not eligible for a library-wide
+    /// check — see `library/library_check.dart`.
+    Future<void> seedCollection(String id) async {
+      await db.upsertCollection(
+        Collection(
+          contentKind: 'unknownWebContent',
+          sequenceKind: 'none',
+          orderingBasis: 'discoveryOrder',
+          shapeConfidence: 'low',
+          lifecycle: 'active',
+          id: id,
+          title: 'Collection $id',
+          sourceUrl: 'https://x.example/guide/$id',
+          host: 'x.example',
+          collectionKey: '/guide/$id',
+          createdAt: DateTime(2026, 7, 1),
+        ),
+      );
+      await db.upsertEntry(
+        Entry(
+          host: 'x.example',
+          contentKind: 'unknownWebContent',
+          contentKindConfidence: 'low',
+          contentKindIsUserSet: false,
+          id: '$id-c1',
+          collectionId: id,
+          title: 'Collection $id Entry 1',
+          sourceUrl: 'https://x.example/guide/$id/1',
+          urlKey: 'https://x.example/guide/$id/1',
+          artifactFormat: 'imageSequence',
+          saveStatus: 'complete',
+          contentPath: 'library/$id/entries/$id-c1',
+          savedAt: DateTime(2026, 7, 20),
+          detectedAssetCount: 1,
+          storedAssetCount: 1,
+          entryOrder: 1,
+          byteSize: 8,
+          entryNumber: 1,
+          sourceMarker: 'Entry 1',
+          readStatus: 'unread',
+          progressFraction: 0,
+          progressPageIndex: 0,
+          progressOffsetInPage: 0,
+        ),
+      );
+    }
 
     test('expands to one sequential check per collection', () async {
       await seedCollection('s1');

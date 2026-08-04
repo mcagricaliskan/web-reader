@@ -191,6 +191,35 @@ void main() {
           createdAt: DateTime(2026, 7, 1),
         ),
       );
+      await db.upsertEntry(
+        // The second collection needs a saved entry of its own: a collection
+        // with nothing to start from takes no part in a library-wide check.
+        Entry(
+          host: 'x.example',
+          contentKind: 'unknownWebContent',
+          contentKindConfidence: 'low',
+          contentKindIsUserSet: false,
+          id: 'bar1',
+          collectionId: 'collection-2',
+          title: 'Bar Entry 1',
+          sourceUrl: '$host/guide/bar/1',
+          urlKey: '$host/guide/bar/1',
+          artifactFormat: 'imageSequence',
+          saveStatus: 'complete',
+          contentPath: 'library/collection-2/entries/bar1',
+          savedAt: DateTime(2026, 7, 10),
+          detectedAssetCount: 1,
+          storedAssetCount: 1,
+          entryOrder: 1,
+          byteSize: 32,
+          entryNumber: 1,
+          sourceMarker: 'Entry 1',
+          readStatus: 'unread',
+          progressFraction: 0,
+          progressPageIndex: 0,
+          progressOffsetInPage: 0,
+        ),
+      );
 
       await queue.enqueueCheckAll();
       await settle();

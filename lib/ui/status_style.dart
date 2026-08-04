@@ -401,10 +401,12 @@ CheckLook checkLook({
     palette.border,
   );
 
-  if (checking) return accent(Icons.sync, 'Checking');
+  // Not a sync glyph: a check asks a source what it has published, which is
+  // neither refreshing this screen nor reconciling two copies of anything.
+  if (checking) return accent(Icons.manage_search, 'Checking');
   if (failed) {
     return CheckLook(
-      Icons.sync_problem,
+      Icons.error_outline,
       'Check failed',
       palette.dangerContainer,
       palette.onDangerContainer,

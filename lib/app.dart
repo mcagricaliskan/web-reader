@@ -126,6 +126,11 @@ class _ShellState extends ConsumerState<_Shell> {
   bool _wasBusy = false;
 
   late final ValueNotifier<int?> _tabRequest;
+
+  /// The read side of the tab: published so anything that needs to know
+  /// where the user *is* — rather than ask them to move — can read it. The
+  /// Library-check foreground flow records it at the start of a run.
+  late final ValueNotifier<int> _tab;
   late final CleanupService _cleanup;
   late final TaskQueueController _queue;
 
@@ -141,6 +146,8 @@ class _ShellState extends ConsumerState<_Shell> {
     _run = ref.read(saveRunProvider);
     _checker = ref.read(updateCheckerProvider);
     _tabRequest = ref.read(shellTabRequestProvider);
+    _tab = ref.read(shellTabProvider);
+    _tab.value = _index;
     _run.addListener(_onAutomationChanged);
     _checker.addListener(_onAutomationChanged);
     _tabRequest.addListener(_onTabRequested);
@@ -237,6 +244,7 @@ class _ShellState extends ConsumerState<_Shell> {
     _tabRequest.value = null;
     if (requested != _index && requested >= 0 && requested <= 1) {
       setState(() => _index = requested);
+      _tab.value = _index;
     }
   }
 
@@ -250,6 +258,7 @@ class _ShellState extends ConsumerState<_Shell> {
     final busy = _run.isRunning || _checker.isRunning;
     if (busy && !_wasBusy && _index != 1) {
       setState(() => _index = 1);
+      _tab.value = _index;
     }
     // Falling idle is the moment the disk actually changed: a save just
     // wrote (or a check just did not). Re-read then, rather than polling —
@@ -275,6 +284,7 @@ class _ShellState extends ConsumerState<_Shell> {
     if (i != 1 && !await confirmLeaveBrowser()) return;
     if (!mounted) return;
     setState(() => _index = i);
+    _tab.value = _index;
     if (i == 1) _onEnteredBrowser();
   }
 

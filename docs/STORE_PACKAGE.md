@@ -336,7 +336,7 @@ Header: **Review what will be saved**
 | Shape | `Numbered, 12 pages` · `Open-ended — no known end` · `Dated, newest first` · `One continuous page` |
 | Direction | `Following "next", which moves to older posts` |
 | Stop condition | `Stops when there is no next page, or after 12 items` |
-| Estimated size | `About 24 MB` · or `Size cannot be estimated yet` |
+| Estimated size | `Estimated size: 30 MB — based on entries already saved here` · `Estimated size: 15–100 MB — a rough range — nothing saved here yet` · or `Size cannot be estimated yet` |
 | Cancel | `You can stop this at any time from Activity.` |
 
 Scope options, in this order, with the first preselected:

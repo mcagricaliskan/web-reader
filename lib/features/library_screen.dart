@@ -15,6 +15,7 @@ import '../reading/reading_position.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'library_check_ui.dart';
 import 'open_in_browser.dart';
 import 'save_queue_ui.dart';
 import 'resume_point.dart';
@@ -40,6 +41,12 @@ class LibraryScreen extends ConsumerWidget {
         child: Column(
           children: [
             const _LibraryHeader(),
+            // Zero-sized, and deliberately NOT inside the list below: a
+            // `ListView`'s children are built lazily, so a watcher scrolled
+            // out of view is a watcher that is not watching. A library-wide
+            // check that ends while the user is in the Browser has to be
+            // noticed wherever the Library happens to be scrolled to.
+            const LibraryCheckCompletionWatcher(),
             Expanded(
               child: groups.when(
                 loading: () => const _LibrarySkeleton(),
@@ -62,6 +69,18 @@ class LibraryScreen extends ConsumerWidget {
                         entries: continueEntries,
                         allCollection: list,
                       ),
+                      // Library maintenance, stated rather than implied by a
+                      // glyph: what a check covers, what it found, and that it
+                      // downloads nothing (see library_check_ui.dart). Absent
+                      // on an empty library — there is nothing to check yet,
+                      // and the empty state below already says what to do.
+                      if (list.isNotEmpty) ...[
+                        const SectionLabel(
+                          'LIBRARY UPDATES',
+                          padding: EdgeInsets.fromLTRB(20, 20, 20, 4),
+                        ),
+                        const LibraryUpdatesCard(),
+                      ],
                       SectionLabel(
                         'YOUR LIBRARY · ${list.length}',
                         trailing: const _SortControl(),
@@ -87,6 +106,13 @@ class LibraryScreen extends ConsumerWidget {
   }
 }
 
+/// The header carries navigation only.
+///
+/// Checking every collection used to live here as a bare sync glyph with a
+/// tooltip — which is indistinguishable from "refresh this screen" and from
+/// "sync my devices", and is unreachable to anyone who does not hover. It is
+/// now a labelled card in the list ([LibraryUpdatesCard]) that states its scope
+/// before it starts.
 class _LibraryHeader extends ConsumerWidget {
   const _LibraryHeader();
 
@@ -111,11 +137,6 @@ class _LibraryHeader extends ConsumerWidget {
             overflow: TextOverflow.ellipsis,
           ),
         ),
-        HeaderIconButton(
-          icon: Icons.sync,
-          tooltip: 'Check all collection',
-          onPressed: () => _checkAll(context, ref),
-        ),
         const StoragePill(),
         HeaderIconButton(
           icon: Icons.inventory_2,
@@ -130,21 +151,6 @@ class _LibraryHeader extends ConsumerWidget {
       ],
     ),
   );
-
-  Future<void> _checkAll(BuildContext context, WidgetRef ref) async {
-    final ids = await ref.read(taskQueueProvider).enqueueCheckAll();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ids.isEmpty
-              ? 'Nothing to check yet — save a collection first.'
-              : 'Checking ${ids.length} collection, one at a time — metadata '
-                    'only. Progress is in Activity.',
-        ),
-      ),
-    );
-  }
 }
 
 /// A live band above the library when the queue has anything to say. It is a
@@ -848,9 +854,12 @@ Future<void> showCollectionMenu(
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.sync),
-            title: const Text('Check for updates'),
-            subtitle: const Text('Metadata only'),
+            // Not a sync glyph, and not "check for updates" — both read as
+            // "update the app" or "reconcile my devices". The label names the
+            // scope (this one collection) and the subtitle names the limit.
+            leading: const Icon(Icons.manage_search),
+            title: const Text('Check this collection'),
+            subtitle: const Text('Look for new entries · nothing downloaded'),
             onTap: () async {
               Navigator.of(sheetContext).pop();
               // The M8 per-collection check, on the queue (M14): runs now if the
