@@ -386,6 +386,7 @@ class PageProbe {
     this.documentHeight = 0,
     this.viewportHeight = 0,
     this.viewportWidth = 0,
+    this.pageHidden = false,
     this.scrollY = 0,
     this.images = const [],
     this.links = const [],
@@ -408,6 +409,7 @@ class PageProbe {
     documentHeight: _int(json['documentHeight']),
     viewportHeight: _int(json['viewportHeight']),
     viewportWidth: _int(json['viewportWidth']),
+    pageHidden: json['pageHidden'] == true,
     scrollY: _int(json['scrollY']),
     images: (json['images'] as List<dynamic>? ?? const [])
         .map((e) => PageImage.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -453,6 +455,16 @@ class PageProbe {
   /// Zero on a probe taken by an older bridge, which every ratio test guards
   /// against rather than dividing by.
   final int viewportWidth;
+
+  /// The page says it is not being shown (`document.visibilityState`).
+  ///
+  /// A **hold** signal, never a liveness proof. Measured on both platforms
+  /// (docs/FOREGROUND_MULTITASKING.md §3.1): a WebView the app has stopped
+  /// painting reports `hidden` on iOS and `visible` on Android, so `true` here
+  /// means "definitely not being shown" while `false` means nothing at all.
+  /// Whether the app is painting its WebView is answered by
+  /// [BrowserController.surfaceIsPainted], not from inside the page.
+  final bool pageHidden;
   final int scrollY;
 
   /// Laid-out viewport area, or 0 when it could not be measured.

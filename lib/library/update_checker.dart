@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import 'package:drift/drift.dart' show Value;
 
 import '../browser/browser_controller.dart';
+import '../browser/browser_surface_policy.dart';
 import '../browser/history_repository.dart' show NavigationSource;
 import '../browser/page_data.dart';
 import '../save/capture_policy.dart';
@@ -371,6 +372,12 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     _addLog('checking "${item.title}" for new entries');
 
     browser.automationOwner = 'an update check';
+    // Let the surface come back before the first page is opened. Claiming the
+    // WebView is what makes the app start drawing it again; navigating in the
+    // same breath would create the document while it is still uncomposited,
+    // and that document keeps the visibility it was born with for its whole
+    // life. See `BrowserController.awaitPaintedSurface`.
+    await browser.awaitPaintedSurface();
     // Reading an entry list is the app asking the source a question, not a
     // page the user visited — excluded from browsing history (D53).
     browser.navigationSource = NavigationSource.updateCheck;
@@ -591,7 +598,34 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
           pagesInspected: _pagesInspected,
         );
       }
-      final resolved = await _resolveNext(probe, latest.sourceUrl);
+      // A page that answered with no links at all did not tell us the chain
+      // ends here; it told us nothing. Reading that as "up to date" on first
+      // sight is the check's characteristic silent failure — invisible,
+      // and it stamps the collection as checked. `readyState` does not help:
+      // a page that builds its own list is 'complete' long before the list
+      // exists. So give it one settle window and read again, and if it is
+      // still empty, say so out loud rather than reporting a clean result
+      // that happens to be indistinguishable from one.
+      var settled = probe;
+      if (settled.links.isEmpty) {
+        _addLog('no links on the page yet — waiting once before reading again');
+        await Future<void>.delayed(config.cooldownBetweenPages);
+        // Re-read, not re-fetch: the page is already open, and asking the
+        // site for it a second time is a request this app has no reason to
+        // make.
+        try {
+          settled = await browser.probe(withLinks: true);
+        } catch (_) {
+          // Mid-navigation or gone; the empty read stands.
+        }
+        if (settled.links.isEmpty) {
+          _addLog(
+            'the latest known entry still offers no links — treating this '
+            'check as inconclusive rather than up to date',
+          );
+        }
+      }
+      final resolved = await _resolveNext(settled, latest.sourceUrl);
       if (resolved.cancelled) {
         return UpdateCheckOutcome(
           state: UpdateCheckState.cancelled,
@@ -802,18 +836,25 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
       await browser.loadAndWait(url, timeout: config.navigationTimeout);
       await Future<void>.delayed(config.cooldownBetweenPages);
       var probe = await browser.probe(withLinks: true);
-      // Same protection as save (the hidden-tab class of bug): a
-      // zero-viewport WebView answers probes with unmeasurable layout. A
-      // check reads links rather than geometry, but "measure nothing on an
-      // unrendered surface" is one rule, not two.
+      // Same protection as save, and the same three checks — see
+      // `SaveEngine._waitForRenderedSurface`. A check reads links rather than
+      // geometry, but "read nothing off a surface the app is not drawing" is
+      // one rule, not two: a page whose entry list is built after layout has
+      // exactly the save's problem, and its failure is worse, because an empty
+      // link set reads as "no new entries".
       var warned = false;
-      while (probe.viewportHeight <= 0 && !_cancelRequested) {
+      final waitStart = DateTime.now();
+      while (!_cancelRequested) {
+        final hold = surfaceHoldReason(
+          surfaceIsPainted: browser.surfaceIsPainted,
+          pageHidden: probe.pageHidden,
+          viewportHeight: probe.viewportHeight,
+          heldFor: DateTime.now().difference(waitStart),
+        );
+        if (hold == null) break;
         if (!warned) {
           warned = true;
-          _addLog(
-            'browser surface is not rendered — open the Browser to continue '
-            'the check',
-          );
+          _addLog('browser surface: ${surfaceHoldMessage(hold)}');
         }
         await Future<void>.delayed(const Duration(milliseconds: 500));
         probe = await browser.probe(withLinks: true);

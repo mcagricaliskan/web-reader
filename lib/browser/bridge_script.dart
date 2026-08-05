@@ -738,6 +738,10 @@ window.__wr = window.__wr || (function () {
         viewportWidth: m.isDoc
           ? (window.innerWidth || document.documentElement.clientWidth || 0)
           : Math.round(m.el.clientWidth || 0),
+        // A hold signal only — see PageProbe.pageHidden. Android keeps
+        // reporting 'visible' for a surface the app has stopped painting, so
+        // false here proves nothing.
+        pageHidden: document.visibilityState === 'hidden',
         scrollY: m.y,
         atBottom: (m.y + m.vpH) >= (m.docH - 8),
         headNextHref: headNext(),

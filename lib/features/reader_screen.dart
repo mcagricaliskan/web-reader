@@ -24,6 +24,7 @@ import '../storage/database.dart';
 import '../storage/document.dart';
 import '../storage/file_store.dart';
 import '../storage/manifest.dart';
+import '../reading/decode_budget.dart';
 import '../ui/palette.dart';
 import 'document_reader.dart';
 import 'save_queue_ui.dart';
@@ -1717,9 +1718,22 @@ class _PanelView extends StatelessWidget {
     }
 
     // Decode at display width, not full resolution: a 60-panel entry would
-    // otherwise be hundreds of MB of bitmaps.
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    final decodeWidth = (MediaQuery.of(context).size.width * dpr).round();
+    // otherwise be hundreds of MB of bitmaps. And never *wider* than the file
+    // actually is — long-strip art is commonly narrower than the screen, and
+    // asking for more than it has upscales at decode time, which costs
+    // (display/natural)² memory for no extra detail (see decode_budget.dart).
+    final media = MediaQuery.of(context);
+    final decodeWidth = decodeWidthWithinBudget(
+      width:
+          decodeWidthFor(
+            displayWidth: media.size.width,
+            devicePixelRatio: media.devicePixelRatio,
+            naturalWidth: page.width,
+          ) ??
+          1,
+      naturalWidth: page.width,
+      naturalHeight: page.height,
+    );
 
     final image = Image.file(
       page.file,

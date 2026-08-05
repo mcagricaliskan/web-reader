@@ -627,6 +627,31 @@ collection rather than joining a ghost.
   navigates nothing and presents nothing. Concurrent or background-capable
   checking is **not built** and remains out of scope; what exists is the seam
   it would use.
+- **A page is only read while the app is drawing it.** The authority is
+  `BrowserController.surfaceIsPainted`, written by `resolveBrowserSurface` in
+  `lib/browser/browser_surface_policy.dart` and nowhere else, and the save
+  engine and the update checker both hold on it. It is the app's own fact, not
+  the page's, because no page-side signal answers it portably: a WebView the app
+  has stopped compositing keeps reporting a full viewport and keeps accepting
+  programmatic scrolling on both platforms, and on Android it goes on calling
+  itself `visible`. What actually degrades is `requestAnimationFrame` — stopped
+  on iOS, throttled to about a fifth of the display rate on Android — which is
+  how a page's lazy content silently fails to arrive, and how the 2026-07-27
+  audit got a complete-looking entry made of the wrong images. The two page-side
+  checks stay as corroboration and are never relaxed: a zero viewport holds, and
+  a page reporting itself hidden holds. Measured on both platforms in
+  `integration_test/occlusion_gate_test.dart`; the numbers are in
+  docs/FOREGROUND_MULTITASKING.md §3.1.
+- **Whether the WebView keeps being drawn is one decision in one place.**
+  `ForegroundMultitasking` is a single boolean; while it is on and an operation
+  owns the WebView, the shell keeps the Browser child onstage and every screen
+  pushed above the shell (`AppPage`) stops being an opaque route, so Flutter goes
+  on painting the one WebView at the one rect it has always had. Occlusion,
+  pointer blocking and semantics blocking are Flutter's own — a route's modal
+  barrier absorbs every pointer and wraps its content in `BlockSemantics`. With
+  the boolean off, every one of those reverts and the behaviour is exactly what
+  it was: leaving the Browser holds the run. See
+  docs/FOREGROUND_MULTITASKING.md.
 - **The app ships no page hints.** `user_page_hints` is empty on a clean install
   and nothing seeds it.
 - **The restricted-site policy lives in one file and is asked at every
@@ -676,7 +701,8 @@ yet reachable from a screen.
 | Video capture or playback | **Not built, and out of scope** — see §11 |
 | Privacy / Terms / Content-rights settings pages | **Deferred** |
 | Hosted demo site, store assets | **Deferred**, external |
-| Device runtime verification | **Not run** — simulator launch only |
+| Foreground multitasking — one operation continuing while the user reads | **Built**, off by default; unit, widget and fixture-integration tested on the iOS Simulator. See docs/FOREGROUND_MULTITASKING.md and its plan for the device tests still outstanding |
+| Device runtime verification | **Not run** — simulator and emulator only. The architecture gate (`integration_test/occlusion_gate_test.dart`) has passed on the iOS Simulator and the Android emulator; physical-hardware runs, VoiceOver and TalkBack are recorded as outstanding in the foreground-multitasking plan |
 
 ## 11. The video boundary
 

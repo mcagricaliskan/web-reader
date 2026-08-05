@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:uuid/uuid.dart';
 
 import '../browser/browser_controller.dart';
+import '../browser/browser_surface_policy.dart';
 import '../browser/page_data.dart';
 import '../core/config.dart';
 import '../core/url_utils.dart';
@@ -1266,13 +1267,25 @@ class SaveEngine {
     throw StateError('Page never became inspectable');
   }
 
-  /// Hold while the WebView surface is unrendered (hidden tab).
+  /// Hold while the WebView surface is not being composited.
   ///
-  /// An offstage WKWebView answers probes with real DOM data but zero
-  /// viewport and a scroll position that never moves — measurements taken in
-  /// that state are garbage. The engine waits (checkpointing for cancel), and
-  /// the waited time is *added back* to the entry deadline: the page did
-  /// not get slower, the user just looked away.
+  /// Three independent checks, because no one of them is sufficient
+  /// (docs/FOREGROUND_MULTITASKING.md §3.1):
+  ///
+  /// * **The app is not painting the WebView** ([BrowserController.surfaceIsPainted]).
+  ///   The only portable answer. An unpainted WebView keeps a full viewport and
+  ///   keeps scrolling on both platforms, but its `requestAnimationFrame` stops
+  ///   (iOS) or is throttled to a fifth of the display rate (Android), which is
+  ///   how a page's lazy content silently fails to arrive.
+  /// * **Zero viewport.** The original check. Still true for a WebView that has
+  ///   never been laid out, and cheap to keep.
+  /// * **The page says it is hidden.** True on iOS for an unpainted surface, and
+  ///   true on both when the app is not in the foreground. Never read the other
+  ///   way round: `visible` proves nothing.
+  ///
+  /// The engine waits (checkpointing for cancel), and the waited time is *added
+  /// back* to the entry deadline: the page did not get slower, the user just
+  /// looked away.
   Future<void> _waitForRenderedSurface(String phase) async {
     var warned = false;
     final waitStart = DateTime.now();
@@ -1285,7 +1298,20 @@ class SaveEngine {
         // Mid-navigation; the caller's own probe loop handles that case.
         return;
       }
-      if (probe.viewportHeight > 0) {
+      final hold = surfaceHoldReason(
+        surfaceIsPainted: browser.surfaceIsPainted,
+        pageHidden: probe.pageHidden,
+        viewportHeight: probe.viewportHeight,
+        heldFor: DateTime.now().difference(waitStart),
+      );
+      if (hold == null) {
+        if (warned && probe.pageHidden) {
+          _log(
+            'the page still calls itself hidden, but the app is drawing it — '
+            'continuing (a document created behind another screen keeps the '
+            'visibility it was born with)',
+          );
+        }
         if (warned) {
           final waited = DateTime.now().difference(waitStart);
           _deadline = _deadline.add(waited);
@@ -1300,8 +1326,8 @@ class SaveEngine {
       if (!warned) {
         warned = true;
         _log(
-          'browser surface is not rendered (zero viewport) — holding the '
-          '$phase phase until the Browser tab is visible',
+          'browser surface: ${surfaceHoldMessage(hold)} — holding the $phase '
+          'phase',
         );
         _emit(
           (p) => p.copyWith(

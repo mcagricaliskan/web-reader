@@ -1302,6 +1302,11 @@ class _WebViewHostState extends State<_WebViewHost>
           debugPrint('[page] ${msg.message}');
         }
       },
+      // The page's own process died. Named on both platforms so a run that
+      // was reading it fails honestly rather than timing out into a shrug.
+      onWebContentProcessDidTerminate: (_) =>
+          widget.browser.onRendererTerminated(),
+      onRenderProcessGone: (_, _) => widget.browser.onRendererTerminated(),
     );
   }
 }

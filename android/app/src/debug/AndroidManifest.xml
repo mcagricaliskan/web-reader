@@ -4,4 +4,8 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Debug only: lets the in-process fixture site on 127.0.0.1 be loaded by
+         the WebView during integration tests. Release and profile builds are
+         unaffected — this source set is not part of them. -->
+    <application android:networkSecurityConfig="@xml/network_security_config" />
 </manifest>

@@ -248,6 +248,41 @@ Future<void> showClearWebsiteDataDialog(
   BuildContext context,
   WidgetRef ref,
 ) async {
+  // Refused while an operation holds the WebView, the same way a collection
+  // refuses to be deleted while one of its entries is open. Cookies and site
+  // storage are process-global: clearing them mid-run signs the run out of the
+  // site it is reading, and it would find out as a stopping condition several
+  // pages later. Refusing is not a limitation the user has to work around —
+  // the operation is theirs, it is on screen, and stopping it takes one tap.
+  final run = ref.read(saveRunProvider);
+  final checker = ref.read(updateCheckerProvider);
+  if (run.isRunning ||
+      checker.isRunning ||
+      ref.read(browserProvider).isAutomating) {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const ValueKey('clearDataRefused'),
+        title: const Text('Something is using the Browser'),
+        content: Text(
+          run.isRunning
+              ? 'A save is running. Clearing website data now would sign it '
+                    'out of the site it is reading. Stop the save first, or '
+                    'wait for it to finish.'
+              : 'A check is running. Clearing website data now would sign it '
+                    'out of the site it is reading. Stop the check first, or '
+                    'wait for it to finish.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    return;
+  }
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => const _ClearWebsiteDataDialog(),

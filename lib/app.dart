@@ -4,8 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'browser/browser_controller.dart';
+import 'browser/browser_surface_policy.dart';
+import 'capability/foreground_multitasking.dart';
 import 'save/save_run.dart';
 import 'features/activity_screen.dart';
+import 'features/operation_indicator.dart';
+import 'ui/app_page.dart';
 import 'features/archived_screen.dart';
 import 'core/local_reset.dart';
 import 'features/browser_history_screen.dart';
@@ -37,7 +42,31 @@ class WebReaderApp extends ConsumerStatefulWidget {
   ConsumerState<WebReaderApp> createState() => _WebReaderAppState();
 }
 
-class _WebReaderAppState extends ConsumerState<WebReaderApp> {
+class _WebReaderAppState extends ConsumerState<WebReaderApp>
+    with WidgetsBindingObserver {
+  /// Every screen above the shell is built through this, so "a screen that
+  /// keeps the Browser working underneath it" is one decision in one place
+  /// rather than a property each route has to remember.
+  ///
+  /// **Adding a route? Use `pageBuilder:` and call this. Not `builder:`.**
+  ///
+  /// `builder:` gets go_router's default page, which is an *opaque* route.
+  /// Flutter does not paint what an opaque route covers, and a platform view
+  /// that is not painted is a WebView whose `requestAnimationFrame` stops — so
+  /// a save or check the user started would hold, silently, until they
+  /// navigated back. Nothing about that fails to compile or fails analysis; it
+  /// fails on a device, minutes in, as a hang.
+  ///
+  /// `test/route_paint_invariant_test.dart` reads this file and fails the build
+  /// if a route above the shell bypasses this helper. If it fails, route the
+  /// new screen through here rather than adding an exception.
+  Page<void> _page(GoRouterState state, Widget child) => AppPage<void>(
+    key: state.pageKey,
+    name: state.name ?? state.uri.path,
+    keepBelowPainted: _keepPainted,
+    child: child,
+  );
+
   // Built per app instance, not as a top-level singleton: a global router
   // keeps its navigation stack across app restarts inside a test process, so
   // a second boot would come up on whatever route the first one ended on.
@@ -47,49 +76,136 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp> {
       GoRoute(path: '/', builder: (context, state) => const _Shell()),
       GoRoute(
         path: '/reader/:entryId',
-        builder: (context, state) =>
-            ReaderScreen(entryId: state.pathParameters['entryId']!),
+        pageBuilder: (context, state) => _page(
+          state,
+          ReaderScreen(entryId: state.pathParameters['entryId']!),
+        ),
       ),
       GoRoute(
         path: '/collection/:collectionId',
-        builder: (context, state) => CollectionDetailScreen(
-          collectionId: state.pathParameters['collectionId']!,
-          startInSelectionMode: state.uri.queryParameters['select'] == '1',
+        pageBuilder: (context, state) => _page(
+          state,
+          CollectionDetailScreen(
+            collectionId: state.pathParameters['collectionId']!,
+            startInSelectionMode: state.uri.queryParameters['select'] == '1',
+          ),
         ),
       ),
       GoRoute(
         path: '/rules',
-        builder: (context, state) => const PageHintsScreen(),
+        pageBuilder: (context, state) => _page(state, const PageHintsScreen()),
       ),
       GoRoute(
         path: '/history',
-        builder: (context, state) => const BrowserHistoryScreen(),
+        pageBuilder: (context, state) =>
+            _page(state, const BrowserHistoryScreen()),
       ),
       GoRoute(
         path: '/activity',
-        builder: (context, state) => const ActivityScreen(),
+        pageBuilder: (context, state) => _page(state, const ActivityScreen()),
       ),
       GoRoute(
         path: '/settings',
-        builder: (context, state) => const SettingsScreen(),
+        pageBuilder: (context, state) => _page(state, const SettingsScreen()),
       ),
       GoRoute(
         path: '/archived',
-        builder: (context, state) => const ArchivedScreen(),
+        pageBuilder: (context, state) => _page(state, const ArchivedScreen()),
       ),
       GoRoute(
         path: '/storage',
-        builder: (context, state) => const StorageScreen(),
+        pageBuilder: (context, state) => _page(state, const StorageScreen()),
       ),
       // Registered only in debug: in release the route does not exist, so
       // even a hand-typed deep link cannot reach it (D50).
       if (developerToolsAvailable)
         GoRoute(
           path: '/developer',
-          builder: (context, state) => const DeveloperScreen(),
+          pageBuilder: (context, state) =>
+              _page(state, const DeveloperScreen()),
         ),
     ],
   );
+
+  late final ValueNotifier<bool> _keepPainted;
+  late final ValueNotifier<bool> _browserOnScreen;
+  late final ValueNotifier<int> _tab;
+  late final BrowserController _browser;
+  late final SaveRunController _run;
+  late final UpdateChecker _checker;
+  late final ForegroundMultitasking _capability;
+
+  @override
+  void initState() {
+    super.initState();
+    _keepPainted = ref.read(keepBrowserPaintedProvider);
+    _browserOnScreen = ref.read(browserOnScreenProvider);
+    _tab = ref.read(shellTabProvider);
+    _browser = ref.read(browserProvider);
+    _run = ref.read(saveRunProvider);
+    _checker = ref.read(updateCheckerProvider);
+    _capability = ref.read(foregroundMultitaskingProvider);
+    for (final source in [_run, _checker, _capability, _browser]) {
+      source.addListener(_recomputeSurface);
+    }
+    _tab.addListener(_recomputeSurface);
+    _router.routerDelegate.addListener(_recomputeSurface);
+    WidgetsBinding.instance.addObserver(this);
+    _recomputeSurface();
+  }
+
+  /// The app leaving the foreground is not a background hand-off; it is the
+  /// app no longer drawing anything, including its WebView. Recorded as
+  /// exactly that, so a running operation holds through the existing guard
+  /// rather than needing a state of its own — and resumes on the way back.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    _recomputeSurface();
+  }
+
+  bool _foreground = true;
+
+  @override
+  void dispose() {
+    for (final source in [_run, _checker, _capability, _browser]) {
+      source.removeListener(_recomputeSurface);
+    }
+    _tab.removeListener(_recomputeSurface);
+    _router.routerDelegate.removeListener(_recomputeSurface);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// The one place that decides whether the app is painting its WebView, and
+  /// tells the controller so.
+  ///
+  /// Three inputs, and all three have to hold:
+  ///
+  /// * the shell is showing the Browser child — either because the user is on
+  ///   that tab, or because an operation asked for it to stay painted;
+  /// * nothing opaque is stacked above the shell — true at the shell route, and
+  ///   true above it exactly when [_keepPainted] made those routes non-opaque;
+  /// * an operation is what wants it, or the user is simply there.
+  ///
+  /// Published to [BrowserController.surfaceIsPainted] because the page cannot
+  /// answer this for itself: an unpainted WebView keeps a full viewport and
+  /// keeps scrolling on both platforms, and on Android it goes on calling
+  /// itself visible (docs/FOREGROUND_MULTITASKING.md §3.1).
+  void _recomputeSurface() {
+    final resolved = resolveBrowserSurface(
+      capabilityEnabled: _capability.enabled,
+      operationOwnsBrowser:
+          _run.isRunning || _checker.isRunning || _browser.isAutomating,
+      appInForeground: _foreground,
+      browserTabSelected: _tab.value == 1,
+      atShellRoute:
+          _router.routerDelegate.currentConfiguration.matches.length <= 1,
+    );
+    _keepPainted.value = resolved.keepPainted;
+    _browser.surfaceIsPainted = resolved.isPainted;
+    _browserOnScreen.value = resolved.browserOnScreen;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +221,12 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp> {
       darkTheme: appDarkTheme(),
       themeMode: themeModeFor(appearance),
       routerConfig: _router,
+      // Above the router, so a running operation is legible from every screen
+      // — including the ones the router pushes over the shell.
+      builder: (context, child) => Stack(
+        fit: StackFit.expand,
+        children: [?child, const OperationIndicator()],
+      ),
     );
   }
 }
@@ -134,6 +256,13 @@ class _ShellState extends ConsumerState<_Shell> {
   late final CleanupService _cleanup;
   late final TaskQueueController _queue;
 
+  /// Set by [_WebReaderAppState]; read here to decide what the shell paints.
+  late final ValueNotifier<bool> _keepPainted;
+
+  /// The Browser child is drawn when the user is on that tab, or when an
+  /// operation needs it to go on working while they are elsewhere.
+  bool get _browserOnstage => _index == 1 || _keepPainted.value;
+
   /// Files just went away: the device figure the Library shows is stale by
   /// exactly the amount that was freed.
   void _onStorageChanged() {
@@ -148,6 +277,8 @@ class _ShellState extends ConsumerState<_Shell> {
     _tabRequest = ref.read(shellTabRequestProvider);
     _tab = ref.read(shellTabProvider);
     _tab.value = _index;
+    _keepPainted = ref.read(keepBrowserPaintedProvider);
+    _keepPainted.addListener(_onKeepPaintedChanged);
     _run.addListener(_onAutomationChanged);
     _checker.addListener(_onAutomationChanged);
     _tabRequest.addListener(_onTabRequested);
@@ -197,8 +328,13 @@ class _ShellState extends ConsumerState<_Shell> {
     return browser.isAttached;
   }
 
+  void _onKeepPaintedChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _keepPainted.removeListener(_onKeepPaintedChanged);
     _run.removeListener(_onAutomationChanged);
     _checker.removeListener(_onAutomationChanged);
     _tabRequest.removeListener(_onTabRequested);
@@ -210,8 +346,14 @@ class _ShellState extends ConsumerState<_Shell> {
   /// True when leaving the Browser right now would strand a WebView-
   /// dependent phase. Downloading/saving phases and already-paused runs are
   /// deliberately excluded — the modal must not cry wolf.
+  ///
+  /// And when the Browser is going to keep working underneath whatever the
+  /// user opens, there is nothing to strand, so there is nothing to ask about.
+  /// Asking anyway would be the same cry-wolf mistake in a new place.
   bool get _leavingBrowserIsRisky =>
-      _index == 1 && (_run.needsRenderedBrowser || _checker.isRunning);
+      _index == 1 &&
+      !_keepPainted.value &&
+      (_run.needsRenderedBrowser || _checker.isRunning);
 
   /// The design's leave-Browser confirmation. Returns true when navigation
   /// may proceed (either nothing was at risk, or the user chose to pause).
@@ -305,11 +447,32 @@ class _ShellState extends ConsumerState<_Shell> {
           }
         },
         child: Scaffold(
-          // IndexedStack, not a swapped child: switching tabs must not
-          // dispose the WebView or a running save dies with it.
-          body: IndexedStack(
-            index: _index,
-            children: const [LibraryScreen(), BrowserScreen()],
+          // A Stack whose children are never added or removed, not a swapped
+          // child and no longer an IndexedStack: switching tabs must not
+          // dispose the WebView or a running save dies with it, *and* the
+          // Browser has to be able to keep painting underneath the Library
+          // while an operation is using it. `StackFit.expand` is load-bearing
+          // — an offstage child is still laid out, and it must be laid out at
+          // the full size, or the WebView would come back at a different
+          // viewport from the one it was working at.
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              Offstage(
+                offstage: !_browserOnstage,
+                // Onstage but covered: the Library owns every touch and every
+                // announcement. `Offstage` already blocks both when it is off;
+                // this is the case it cannot cover.
+                child: IgnorePointer(
+                  ignoring: _index != 1,
+                  child: ExcludeSemantics(
+                    excluding: _index != 1,
+                    child: const BrowserScreen(),
+                  ),
+                ),
+              ),
+              Offstage(offstage: _index != 0, child: const LibraryScreen()),
+            ],
           ),
           bottomNavigationBar: _BottomNav(index: _index, onSelect: _select),
         ),
@@ -356,6 +519,11 @@ class LeaveBrowserGuard extends InheritedWidget {
   bool updateShouldNotify(LeaveBrowserGuard oldWidget) =>
       confirm != oldWidget.confirm;
 }
+
+/// How tall [_BottomNav] is, excluding the bottom safe-area inset: 6 + 6
+/// padding around a 6/3/2-padded 22pt glyph and its 11pt label. Published so
+/// anything floating over the shell can clear it rather than guess.
+const double kShellBottomBarHeight = 62;
 
 /// The design's two-item bar: a filled pill behind the selected glyph rather
 /// than Material's default indicator, and no ripple sprawl. Plain Material

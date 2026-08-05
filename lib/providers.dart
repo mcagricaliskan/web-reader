@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'browser/browser_controller.dart';
+import 'capability/foreground_multitasking.dart';
 import 'browser/browser_navigator.dart';
 import 'browser/browser_presentation.dart';
 import 'browser/favicon_service.dart';
@@ -37,7 +38,10 @@ class AppServices {
     UpdateChecker? updateChecker,
     TaskQueueController? taskQueue,
     CleanupService? cleanup,
-  }) : updateChecker = updateChecker ?? UpdateChecker(browser: browser, db: db),
+    ForegroundMultitasking? foregroundMultitasking,
+  }) : foregroundMultitasking =
+           foregroundMultitasking ?? ForegroundMultitasking(),
+       updateChecker = updateChecker ?? UpdateChecker(browser: browser, db: db),
        cleanup =
            cleanup ??
            CleanupService(db: db, fileStore: fileStore, saveRun: saveRun) {
@@ -58,6 +62,10 @@ class AppServices {
   final SaveRunController saveRun;
   final UpdateChecker updateChecker;
   final CleanupService cleanup;
+
+  /// The one place that answers whether an operation may keep running while
+  /// the user is elsewhere in the app.
+  final ForegroundMultitasking foregroundMultitasking;
   late final TaskQueueController taskQueue;
 }
 
@@ -84,6 +92,19 @@ final saveRunProvider = Provider<SaveRunController>(
 final updateCheckerProvider = Provider<UpdateChecker>(
   (ref) => ref.watch(appServicesProvider).updateChecker,
 );
+
+final foregroundMultitaskingProvider = Provider<ForegroundMultitasking>((ref) {
+  try {
+    return ref.watch(appServicesProvider).foregroundMultitasking;
+  } catch (_) {
+    // Widget tests override the database and file store only. A capability
+    // built here holds its default, which is what a screen under test should
+    // see: off, and therefore no behaviour change at all.
+    final capability = ForegroundMultitasking();
+    ref.onDispose(capability.dispose);
+    return capability;
+  }
+});
 
 /// Falls back to a locally-built service when [appServicesProvider] is not
 /// overridden — widget tests override the database and file store only, and
@@ -390,6 +411,32 @@ final shellTabRequestProvider = Provider<ValueNotifier<int?>>((ref) {
 /// shell should see.
 final shellTabProvider = Provider<ValueNotifier<int>>((ref) {
   final notifier = ValueNotifier<int>(0);
+  ref.onDispose(notifier.dispose);
+  return notifier;
+});
+
+/// True while the app must keep painting the Browser's WebView even though
+/// the user is looking at something else.
+///
+/// Written by exactly one owner — the app root, which is the only thing that
+/// can see the capability, the running operations, the shell's tab and the
+/// route stack at once. Read by the shell (what to draw) and by every route
+/// pushed above it (whether to be opaque). Defaults to false, which is
+/// the behaviour that shipped before this existed.
+final keepBrowserPaintedProvider = Provider<ValueNotifier<bool>>((ref) {
+  final notifier = ValueNotifier<bool>(false);
+  ref.onDispose(notifier.dispose);
+  return notifier;
+});
+
+/// True when the Browser is what the user is looking at — its tab is selected
+/// and nothing is stacked over the shell.
+///
+/// Written by the same owner as [keepBrowserPaintedProvider]. Read by the
+/// running-operation indicator, which stays out of the Browser's way because
+/// the Browser already reports the same run in full.
+final browserOnScreenProvider = Provider<ValueNotifier<bool>>((ref) {
+  final notifier = ValueNotifier<bool>(false);
   ref.onDispose(notifier.dispose);
   return notifier;
 });
