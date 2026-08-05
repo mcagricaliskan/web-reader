@@ -31,7 +31,7 @@ void main() {
   group('capability seam', () {
     test('is off until a physical-device gate says otherwise', () {
       expect(ForegroundMultitasking.defaultEnabled, isFalse);
-      expect(ForegroundMultitasking().enabled, isFalse);
+      expect(ForegroundMultitasking().preference, isFalse);
     });
 
     test('an unreadable stored value falls back to the default', () {
@@ -51,9 +51,9 @@ void main() {
       var notifications = 0;
       final capability = ForegroundMultitasking()
         ..addListener(() => notifications++);
-      capability.enabled = true;
-      capability.enabled = true;
-      capability.enabled = false;
+      capability.preference = true;
+      capability.preference = true;
+      capability.preference = false;
       expect(notifications, 2);
     });
   });

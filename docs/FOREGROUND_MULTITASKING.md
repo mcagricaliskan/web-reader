@@ -519,6 +519,68 @@ everything in the "both" column is unconditional.
   simply starts or stops holding. No state is corrupted either way, which is
   what `AppPage`'s live listener is for.
 
+### 10.4 Entitlement, capability, preference — and the internal build
+
+Three ideas that a single boolean would collapse, and must not:
+
+```text
+production source  +  internal override  ->  effective entitlement
+                                                    |
+                                          Pro capability available
+                                                    |
+                                   available AND "Keep working while I read"
+                                                    |
+                                      foreground multitasking active
+```
+
+| Concept | Where | Today |
+|---|---|---|
+| **Entitlement** | `productionEntitlement()` | Returns `free` — there is no billing, and `unknown` would imply loading while `pro` would give the product away |
+| **Override** | `EntitlementOverride` | `production` · `forceFree` · `forcePro`. Internal builds only |
+| **Capability** | `proCapabilityAvailable()` | Pure function of the effective entitlement |
+| **Preference** | `ForegroundMultitasking.preference` | What the user asked for, persisted, and **kept across entitlement loss** |
+| **Active** | `ForegroundMultitasking.enabled` | Capability **and** preference. The only thing the shell and engines read |
+
+**Rules the tests enforce** (`test/entitlement_test.dart`):
+
+- Forcing Pro makes the capability available but does **not** enable the
+  behaviour — the user still has to ask for it.
+- Losing Pro turns it off but **keeps the preference**, so restoring Pro
+  restores the behaviour. Discarding it would silently reset a decision the
+  user made.
+- A production build ignores the override entirely, whatever is persisted —
+  belt and braces, since the UI that writes it does not exist there.
+- `unknown` is never treated as entitled.
+
+**Internal builds.** `kInternalBuild` is `kDebugMode || bool.fromEnvironment('SCROLLARY_INTERNAL_BUILD')`
+— a compile-time constant, so a Store build folds it to `false` and the
+tree-shaker removes the screen, the route and the override. `kDebugMode` alone
+was too narrow: profile and release builds are exactly where device
+performance, energy and accessibility work happens, and that work needs these
+tools.
+
+```
+flutter run --profile --dart-define=SCROLLARY_INTERNAL_BUILD=true -d <udid>
+```
+
+**Changing the override during live work.** The rule is *the next task picks it
+up*. A run already in flight keeps the capability it started with, because
+pulling the painted surface out from under a scrolling save is precisely the
+corruption this feature exists to avoid. Nothing is cancelled, no ownership is
+dropped, no commit is interrupted, and no downloaded content or reading
+position is touched.
+
+**When billing lands**, it replaces the body of `productionEntitlement()`. No
+screen, engine or capability check changes — that is the entire reason the seam
+is a function rather than a boolean somewhere convenient.
+
+**One standing guard was narrowed, deliberately.** `library_check_test.dart`
+forbids entitlement and purchase vocabulary anywhere in `lib/`. Its own failure
+message states the subject: *checking is unrestricted*. That is still true —
+Library checks, saves, recovery, retry and every byte already on disk are
+ungated. The exemption is by path with a recorded reason for each, and covers
+the seam plus the three files that merely name it.
+
 ### 10.2 The capability seam
 
 Foreground multitasking is expressed as one capability object,

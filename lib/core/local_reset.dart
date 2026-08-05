@@ -5,6 +5,7 @@ import 'package:drift/drift.dart' show TableInfo;
 import 'package:flutter/foundation.dart';
 
 import '../browser/browser_controller.dart';
+import '../capability/internal_build.dart';
 
 import '../save/save_run.dart';
 import '../library/update_checker.dart';
@@ -14,11 +15,17 @@ import '../storage/file_store.dart';
 
 /// Whether the destructive development reset may be shown at all.
 ///
-/// `kDebugMode` and nothing else. Not a setting, not a hidden gesture, not a
-/// build flavour string that could be typo'd into production — the constant
-/// the compiler strips in release (D50). Every entry point checks this, and
-/// the widget test asserts a release-mode build has no way in.
-bool get developerToolsAvailable => kDebugMode;
+/// A **compile-time** constant, not a setting, a gesture or a flavour string
+/// that could be typo'd into production (D50). Every entry point checks it, and
+/// the widget test asserts a normal release build has no way in.
+///
+/// `kDebugMode` alone would have been too narrow: profile and release builds
+/// are exactly where device performance, energy and accessibility work happens,
+/// and that work needs these tools. So an internal build is either debug or one
+/// launched with `--dart-define=SCROLLARY_INTERNAL_BUILD=true`. A Store build
+/// passes neither, both halves fold to `false` at compile time, and the screens
+/// and routes are tree-shaken out. See lib/capability/internal_build.dart.
+bool get developerToolsAvailable => kInternalBuild;
 
 /// One area of the wipe, and whether it worked.
 class ResetStep {

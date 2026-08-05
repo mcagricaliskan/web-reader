@@ -214,7 +214,7 @@ class _KeepWorkingSwitchState extends ConsumerState<_KeepWorkingSwitch> {
   }
 
   Future<void> _set(bool value) async {
-    _capability.enabled = value;
+    _capability.preference = value;
     await ref
         .read(databaseProvider)
         .setSetting(ForegroundMultitasking.settingKey, _capability.storedValue);
@@ -222,18 +222,26 @@ class _KeepWorkingSwitchState extends ConsumerState<_KeepWorkingSwitch> {
 
   @override
   Widget build(BuildContext context) {
+    // Availability and preference are different questions. Without Pro the
+    // switch shows what the user asked for and refuses to act, rather than
+    // silently reading back "off" and losing their choice.
+    final available = _capability.proAvailable;
     return SwitchListTile(
       key: const ValueKey('settingsKeepWorking'),
-      secondary: const Icon(Icons.hourglass_bottom),
+      secondary: Icon(available ? Icons.hourglass_bottom : Icons.lock_outline),
       title: const Text('Keep working while I read'),
       subtitle: Text(
-        _capability.enabled
-            ? 'A save or check you started carries on while you use the rest '
-                  'of Scrollary'
+        !available
+            ? 'A Pro capability. Without it, a save or check waits whenever '
+                  'you leave the Browser — everything else is unchanged.'
+            : _capability.enabled
+            ? 'A save or check you started carries on while you read or use '
+                  'the Library. Scrollary has to stay open in front — nothing '
+                  'runs in the background.'
             : 'A save or check waits whenever you leave the Browser',
       ),
-      value: _capability.enabled,
-      onChanged: _set,
+      value: _capability.preference,
+      onChanged: available ? _set : null,
     );
   }
 }

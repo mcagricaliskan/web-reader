@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'entitlement.dart';
+
 /// Whether one user-started operation may keep running while the user is
 /// somewhere else in the app.
 ///
@@ -21,6 +23,9 @@ import 'package:flutter/foundation.dart';
 /// must stay unreachable from reading state, cleanup and collection deletion.
 class ForegroundMultitasking extends ChangeNotifier {
   ForegroundMultitasking([this._enabled = defaultEnabled]);
+
+  /// The persisted key for the internal entitlement override.
+  static const String overrideSettingKey = 'capability.entitlementOverride';
 
   /// The persisted settings key. The value is `'true'` or `'false'`; anything
   /// else — including a missing row — reads as [defaultEnabled].
@@ -45,13 +50,53 @@ class ForegroundMultitasking extends ChangeNotifier {
   };
 
   bool _enabled;
-  bool get enabled => _enabled;
 
-  set enabled(bool value) {
+  /// What the **user asked for**, whatever they are entitled to.
+  ///
+  /// Deliberately survives losing Pro. A preference is a statement of intent,
+  /// and discarding it on entitlement loss would silently reset a choice the
+  /// user made — so it is kept and simply stops taking effect. [enabled] is
+  /// the honest answer to "is this happening", [preference] to "what did they
+  /// ask for", and the Settings toggle shows the second while obeying the
+  /// first.
+  bool get preference => _enabled;
+
+  set preference(bool value) {
     if (_enabled == value) return;
     _enabled = value;
     notifyListeners();
   }
+
+  EntitlementOverride _override = EntitlementOverride.production;
+
+  /// The internal build's pretend entitlement. Always `production` in a
+  /// production build, where nothing can write it.
+  EntitlementOverride get override => _override;
+
+  set override(EntitlementOverride value) {
+    if (_override == value) return;
+    _override = value;
+    notifyListeners();
+  }
+
+  /// The entitlement after the override is applied.
+  Entitlement get effectiveEntitlement => resolveEntitlement(
+    production: productionEntitlement(),
+    override: _override,
+  );
+
+  /// Is the paid capability available to this user at all?
+  bool get proAvailable => proCapabilityAvailable(effectiveEntitlement);
+
+  /// **Is foreground multitasking actually happening?**
+  ///
+  /// Pro available *and* the user asked for it. Everything in the app reads
+  /// this and nothing reads the two halves separately, so there is one answer
+  /// and it cannot drift.
+  bool get enabled => foregroundMultitaskingActive(
+    effective: effectiveEntitlement,
+    preferenceEnabled: _enabled,
+  );
 
   /// What the persisted row should say.
   String get storedValue => _enabled ? 'true' : 'false';
