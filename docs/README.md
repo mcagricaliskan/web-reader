@@ -9,6 +9,8 @@
 | [PRIVACY.md](./PRIVACY.md) | Per-flow data audit and the claims the listing may make |
 | [DEMO_CONTENT.md](./DEMO_CONTENT.md) | The original, developer-owned demo site a reviewer needs |
 | [MONETIZATION_STRATEGY.md](./MONETIZATION_STRATEGY.md) | Research and a recommendation for how the app earns — store policy findings, competitor pricing, the free/Pro boundary, and the decisions still needing approval. **Nothing in it is implemented.** |
+| [FOREGROUND_MULTITASKING.md](./FOREGROUND_MULTITASKING.md) | Specification for one user-started operation continuing while the user reads — the measured baseline, the architecture decision, and the data-safety, WebView, platform and accessibility invariants it rests on |
+| [FOREGROUND_MULTITASKING_PLAN.md](./FOREGROUND_MULTITASKING_PLAN.md) | The live, ordered checklist for that specification: phases, dependencies, acceptance criteria, device tests still outstanding, and the validation record |
 
 The previous planning documents (product brief, MVP plan, technical spec, data
 model sketch, decision log, implementation status, open questions) described the

@@ -1,3 +1,4 @@
+import '../capability/entitlement_developer_control.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -48,12 +49,16 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
       appBar: AppBar(title: const Text('Developer')),
       body: ListView(
         children: [
-          const SectionLabel('DEBUG BUILD ONLY'),
+          const SectionLabel('SIMULATED ENTITLEMENT'),
+          const EntitlementOverridePicker(),
+          const SectionLabel('INTERNAL BUILD ONLY'),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
             child: Text(
               'These tools exist so development can start from a known empty '
-              'state. They are compiled out of release builds.',
+              'state, and so Free and Pro behaviour can be exercised without '
+              'reinstalling. Compiled out unless this is a debug build or was '
+              'launched with SCROLLARY_INTERNAL_BUILD=true.',
               style: TextStyle(
                 fontSize: 13,
                 height: 1.55,

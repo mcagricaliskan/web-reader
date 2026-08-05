@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
 import '../browser/saved_sites_repository.dart';
+import '../capability/foreground_multitasking.dart';
 import '../core/local_reset.dart';
 import '../providers.dart';
 import '../ui/palette.dart';
@@ -118,6 +119,13 @@ class SettingsScreen extends ConsumerWidget {
             'per collection — open a collection and use Downloaded entries.',
           ),
           const SectionLabel('SAVING & SOURCES'),
+          const _KeepWorkingSwitch(),
+          _SettingsNote(
+            'Nothing runs on its own, and nothing continues once you leave '
+            'Scrollary — this only decides whether the page a save or check '
+            'is working on keeps being drawn while you look at something '
+            'else in the app.',
+          ),
           ListTile(
             leading: const Icon(Icons.ads_click),
             title: const Text('Saved rules'),
@@ -167,6 +175,73 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The one control for the foreground-multitasking capability.
+///
+/// A switch rather than a door: it changes one behaviour and has one state, and
+/// it takes effect the moment it moves — a run in flight follows it without a
+/// restart. Turning it off never stops anything and never loses anything; the
+/// operation simply goes back to needing the Browser on screen, which is what
+/// it always did.
+class _KeepWorkingSwitch extends ConsumerStatefulWidget {
+  const _KeepWorkingSwitch();
+
+  @override
+  ConsumerState<_KeepWorkingSwitch> createState() => _KeepWorkingSwitchState();
+}
+
+class _KeepWorkingSwitchState extends ConsumerState<_KeepWorkingSwitch> {
+  late final ForegroundMultitasking _capability;
+
+  @override
+  void initState() {
+    super.initState();
+    _capability = ref.read(foregroundMultitaskingProvider);
+    _capability.addListener(_onChanged);
+  }
+
+  @override
+  void dispose() {
+    _capability.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  void _onChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _set(bool value) async {
+    _capability.preference = value;
+    await ref
+        .read(databaseProvider)
+        .setSetting(ForegroundMultitasking.settingKey, _capability.storedValue);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Availability and preference are different questions. Without Pro the
+    // switch shows what the user asked for and refuses to act, rather than
+    // silently reading back "off" and losing their choice.
+    final available = _capability.proAvailable;
+    return SwitchListTile(
+      key: const ValueKey('settingsKeepWorking'),
+      secondary: Icon(available ? Icons.hourglass_bottom : Icons.lock_outline),
+      title: const Text('Keep working while I read'),
+      subtitle: Text(
+        !available
+            ? 'A Pro capability. Without it, a save or check waits whenever '
+                  'you leave the Browser — everything else is unchanged.'
+            : _capability.enabled
+            ? 'A save or check you started carries on while you read or use '
+                  'the Library. Scrollary has to stay open in front — nothing '
+                  'runs in the background.'
+            : 'A save or check waits whenever you leave the Browser',
+      ),
+      value: _capability.preference,
+      onChanged: available ? _set : null,
     );
   }
 }

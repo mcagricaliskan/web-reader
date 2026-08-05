@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import '../reading/reading_position.dart';
 import '../storage/document.dart';
 import '../storage/manifest.dart';
+import '../reading/decode_budget.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart' show serifStyle;
 import '../ui/theme.dart' show wght;
@@ -314,8 +315,29 @@ class DocumentBlockView extends StatelessWidget {
     final file = File('${entryDir.path}/$relative');
     if (!file.existsSync()) return _missingImage(fileGone: true);
 
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    final decodeWidth = (MediaQuery.of(context).size.width * dpr).round();
+    // A document builds every block eagerly — that is what makes its restore
+    // offsets exact — so all of its inline images are resident at once and the
+    // per-image decode size is multiplied by the whole document. Never decode
+    // wider than the file is, and cap the pathological case (decode_budget.dart).
+    final media = MediaQuery.of(context);
+    // Only dimensions read back from the stored bytes may bound a decode.
+    // `EntryAsset.width` is otherwise whatever the *page* claimed, which is
+    // diagnostics — trusting it could ask for fewer pixels than the file has
+    // and quietly soften the image. Unverified means "do not bound".
+    final verified = asset != null && asset.dimensionsVerified;
+    final naturalWidth = verified ? asset.width : null;
+    final naturalHeight = verified ? asset.height : null;
+    final decodeWidth = decodeWidthWithinBudget(
+      width:
+          decodeWidthFor(
+            displayWidth: media.size.width,
+            devicePixelRatio: media.devicePixelRatio,
+            naturalWidth: naturalWidth,
+          ) ??
+          1,
+      naturalWidth: naturalWidth,
+      naturalHeight: naturalHeight,
+    );
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),

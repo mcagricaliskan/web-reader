@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'browser/browser_controller.dart';
+import 'capability/entitlement.dart';
+import 'capability/foreground_multitasking.dart';
 import 'browser/history_repository.dart';
 import 'save/save_run.dart';
 import 'core/device_storage.dart';
@@ -213,11 +215,28 @@ class AppStartup {
           }),
     );
 
+    // Read before the app builds, not watched: the shell decides how to
+    // composite the Browser on its first frame, and a capability that arrived
+    // a frame later would flip that decision under a run.
+    final multitasking =
+        ForegroundMultitasking(
+            ForegroundMultitasking.parse(
+              await db.setting(ForegroundMultitasking.settingKey),
+            ),
+          )
+          // The internal entitlement override. Read here so it is in force
+          // before the first frame decides what the shell paints; in a
+          // production build nothing can ever have written it.
+          ..override = EntitlementOverride.parse(
+            await db.setting(ForegroundMultitasking.overrideSettingKey),
+          );
+
     _services = AppServices(
       db: db,
       fileStore: fileStore,
       browser: browser,
       saveRun: saveRun,
+      foregroundMultitasking: multitasking,
     );
 
     // Entry assets are re-downloadable; a multi-GB library must not ride

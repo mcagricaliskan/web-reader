@@ -714,6 +714,10 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     // unattended run — make the run earn its own consent.
     browser.clearAllowedHostChanges();
     browser.allowNextNavigation(beginUrl);
+    // As with the checker: claiming the WebView is what makes the app draw it
+    // again, and a document created before that lands is born hidden and stays
+    // hidden. See `BrowserController.awaitPaintedSurface`.
+    await browser.awaitPaintedSurface();
 
     try {
       await _runLoop(limit: limit, startUrl: beginUrl);

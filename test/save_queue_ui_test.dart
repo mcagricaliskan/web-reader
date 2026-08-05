@@ -261,6 +261,13 @@ void main() {
     testWidgets('Settings offers Developer in a debug build', (tester) async {
       await show(tester, const SettingsScreen());
       expect(developerToolsAvailable, isTrue);
+      // Settings is longer than one viewport, so the door has to be scrolled
+      // to rather than assumed to be built.
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('developerTools')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.byKey(const ValueKey('developerTools')), findsOneWidget);
       await drain(tester);
     });

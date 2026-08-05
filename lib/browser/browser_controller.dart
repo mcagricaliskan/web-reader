@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/url_utils.dart';
@@ -53,6 +54,120 @@ class BrowserController extends ChangeNotifier {
 
   /// True when something other than the user is moving the page.
   bool get isAutomating => automationOwner != null;
+
+  // --- is the app painting this WebView? -----------------------------------
+
+  bool _surfaceIsPainted = true;
+
+  /// Whether the app is currently compositing the WebView.
+  ///
+  /// **The app is the authority on this, not the page.** Measured on both
+  /// platforms (docs/FOREGROUND_MULTITASKING.md §3.1): a WebView the app has
+  /// stopped painting keeps reporting a full viewport, keeps accepting
+  /// programmatic scrolling, and — on Android — keeps reporting
+  /// `document.visibilityState === 'visible'`. What actually degrades is
+  /// `requestAnimationFrame`, which stops on iOS and is throttled to about a
+  /// fifth of the display rate on Android. That is the mechanism behind the
+  /// 2026-07-27 audit's complete-looking, wrong entry, and no signal readable
+  /// from inside the page detects it portably.
+  ///
+  /// So the one widget that hosts the WebView publishes it here, and the
+  /// Browser-dependent phases hold while it is false. Defaults to **true**:
+  /// a controller nobody has told (a unit test's fake, a harness) is not
+  /// making a claim about compositing, and the page-side checks still apply.
+  bool get surfaceIsPainted => _surfaceIsPainted;
+
+  /// When [surfaceIsPainted] last became true. Null if it has never changed —
+  /// which is the case for every controller nobody wires to a shell.
+  DateTime? _paintedSince;
+
+  set surfaceIsPainted(bool value) {
+    if (_surfaceIsPainted == value) return;
+    _surfaceIsPainted = value;
+    if (value) _paintedSince = DateTime.now();
+    notifyListeners();
+  }
+
+  /// True when the decision to draw is newer than the frames that carry it out.
+  ///
+  /// Measured on a physical iPhone: a check started from the Reader saw
+  /// `surfaceIsPainted == true` immediately — the app had *decided* — and
+  /// navigated at once, so the document was still created before the route
+  /// opacity, the shell rebuild and the platform-view composition had actually
+  /// happened. It was then born hidden and cost the full page-hidden grace,
+  /// about six seconds, on every check.
+  bool get _paintDecisionIsFresh {
+    final since = _paintedSince;
+    return since != null &&
+        DateTime.now().difference(since) < const Duration(milliseconds: 600);
+  }
+
+  /// Wait until the app is drawing the WebView, up to [timeout].
+  ///
+  /// **Call this before an operation's first navigation.** WebKit fixes a
+  /// document's `document.visibilityState` when the document is created, and a
+  /// document created in a view that is not being composited starts life
+  /// `hidden` — and stays that way even once the view is composited. An
+  /// operation that asks for the surface to be drawn and navigates in the same
+  /// breath creates exactly that document, and then every visibility-based
+  /// check about it is wrong for as long as it exists.
+  ///
+  /// Measured on a physical iPhone against a real site: a check started while
+  /// the Reader was open held for its whole budget and failed, on a page that
+  /// was being drawn the entire time. Waiting one or two frames here is what
+  /// stops the document being born hidden in the first place.
+  ///
+  /// Returns whether the surface was painted in the end. **False is not an
+  /// error** — with the capability off, or the user genuinely elsewhere, the
+  /// caller proceeds and the ordinary render guard does its job.
+  Future<bool> awaitPaintedSurface({
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    // Drawing, and has been for long enough that the frames have landed? Then
+    // there is nothing to wait for: a document created now cannot be born
+    // hidden. Returning immediately keeps this method invisible to every caller
+    // in the common case — which matters, because it sits in front of the first
+    // navigation of every operation, and because a controller that no shell
+    // ever wired up (a unit test's) is always in exactly this case.
+    if (_surfaceIsPainted && !_paintDecisionIsFresh) return true;
+
+    final deadline = DateTime.now().add(timeout);
+    while (!_surfaceIsPainted && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    if (!_surfaceIsPainted) return false;
+    // The flag is not the frame. `surfaceIsPainted` flips the moment the app
+    // *decides* to draw the WebView, which is one or more frames before the
+    // route opacity, the shell rebuild and the platform-view composition have
+    // actually happened. A document created in that window is still born
+    // hidden — measured on a physical iPhone, where a check claimed the
+    // WebView, navigated immediately, and then sat out the whole page-hidden
+    // grace before it could read anything.
+    //
+    // Waiting for real frames costs a few milliseconds and removes the wait
+    // that costs seconds.
+    //
+    // Each wait is bounded, because `endOfFrame` completes only when a frame is
+    // actually produced — and there are legitimate states where none is: the
+    // app is not in the foreground, or this is a test that does not pump. An
+    // unbounded wait here would turn "be careful about the first navigation"
+    // into a hang, which is the class of bug this whole method exists to fix.
+    // …and the whole thing is optional. This class is a plain `ChangeNotifier`
+    // that pure Dart tests construct directly, where there is no binding and
+    // therefore no frames at all. Reaching for one must not be able to break a
+    // caller: no binding means nothing to wait for.
+    try {
+      for (var i = 0; i < 3; i++) {
+        await SchedulerBinding.instance.endOfFrame.timeout(
+          const Duration(milliseconds: 120),
+          onTimeout: () {},
+        );
+      }
+    } catch (_) {
+      // No binding in this context.
+    }
+    return _surfaceIsPainted;
+  }
 
   /// The source a visit landing now should be attributed to.
   ///
@@ -363,6 +478,29 @@ class BrowserController extends ChangeNotifier {
       _currentUrl.startsWith('https://') &&
       _fault?.state != BrowserPageState.certificate;
 
+  /// The page's own process died — iOS `onWebContentProcessDidTerminate`,
+  /// Android `onRenderProcessGone`.
+  ///
+  /// Named rather than left to be discovered as a timeout, because the two
+  /// look identical from the Dart side and mean different things: the document
+  /// is gone, whatever was measured about it a second ago is no longer true,
+  /// and nothing read after this may be treated as the page. An operation in
+  /// flight finds out through the failing probe that follows and ends the
+  /// entry — a terminated renderer is never a completion.
+  void onRendererTerminated() {
+    _isLoading = false;
+    _fault = BrowserPageFault(
+      state: BrowserPageState.unavailable,
+      detail: 'the page stopped responding and was reloaded by the system',
+      url: _currentUrl,
+    );
+    notifyListeners();
+    for (final c in _navigationCompleters) {
+      if (!c.isCompleted) c.complete();
+    }
+    _navigationCompleters.clear();
+  }
+
   /// Record a classified failure for the current page.
   void onPageFault({
     String description = '',
@@ -638,6 +776,24 @@ class BrowserController extends ChangeNotifier {
   }
 
   // --- JavaScript bridge --------------------------------------------------
+
+  /// Run [body] in the page and return its value. **Diagnostics only.**
+  ///
+  /// The one question no product code needs and no validation can do without:
+  /// *is this page still doing anything?* Counting `requestAnimationFrame`
+  /// ticks, watching a `setInterval`, or reading how many requests a page has
+  /// in flight cannot be expressed through [probe], which deliberately returns
+  /// a fixed shape. Rather than widen that shape for a test, this is a narrow,
+  /// named seam with the word "debug" in it.
+  ///
+  /// Refuses outside a debug build, so no release path can reach it. Nothing in
+  /// `lib/` calls it and nothing may: a product behaviour that depends on
+  /// arbitrary injected script is a product behaviour that cannot be reviewed.
+  @visibleForTesting
+  Future<Object?> debugEvaluate(String body, {Duration? timeout}) async {
+    if (!kDebugMode) return null;
+    return _call(body, timeout: timeout);
+  }
 
   /// Every bridge call is bounded. `callAsyncJavaScript` awaits a promise, and
   /// a promise that never settles — a `fetch` against a dead socket, a page
