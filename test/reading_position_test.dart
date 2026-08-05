@@ -138,6 +138,31 @@ void main() {
       expect(policy.threshold, greaterThan(0.9));
     });
 
+    test('near-completion is a question, not a second completion rule', () {
+      // Well short: moving on here is a skip ahead, and asking about it would
+      // be a nag.
+      expect(policy.nearEnd(0.5), isFalse);
+      expect(policy.nearEnd(0.89), isFalse);
+      // Close enough that "did you finish this?" is fair.
+      expect(policy.nearEnd(0.9), isTrue);
+      expect(policy.nearEnd(0.96), isTrue);
+      // And still fair past the automatic threshold: a fling to the bottom
+      // clears [reachedEnd] without ever satisfying the dwell, so the entry is
+      // unfinished and is exactly what the question is for.
+      expect(policy.nearEnd(0.97), isTrue);
+      expect(policy.nearEnd(1.0), isTrue);
+    });
+
+    test('near-completion sits below automatic completion, with room', () {
+      expect(policy.nearThreshold, lessThan(policy.threshold));
+      // Not merely below it: the gap is the band the question lives in, and a
+      // near-threshold pressed up against the automatic one would leave almost
+      // nothing to ask about.
+      expect(policy.threshold - policy.nearThreshold, greaterThan(0.05));
+      // Nor so low that most of an entry counts as nearly finished.
+      expect(policy.nearThreshold, greaterThan(0.75));
+    });
+
     test('requires dwell, so a fling to the bottom is not reading', () {
       expect(policy.dwell, greaterThan(Duration.zero));
     });

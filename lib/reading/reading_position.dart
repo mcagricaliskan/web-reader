@@ -315,6 +315,7 @@ class CompletionPolicy {
   const CompletionPolicy({
     this.threshold = 0.97,
     this.dwell = const Duration(milliseconds: 800),
+    this.nearThreshold = 0.9,
   });
 
   /// How far through counts as the end. Not 1.0: a trailing comments section
@@ -326,7 +327,32 @@ class CompletionPolicy {
   /// the bottom from silently marking an entry read.
   final Duration dwell;
 
+  /// Far enough through that "did you finish this?" is a fair question when the
+  /// reader moves on to the next entry, but not far enough to answer it for
+  /// them. Never a completion rule of its own: nothing is marked, removed or
+  /// stored because a fraction crossed it — it only decides whether the reader
+  /// is *asked*.
+  ///
+  /// A tenth of the entry left. Read against what [ReadingPosition.fraction]
+  /// actually measures — the **bottom** of the viewport, so a reader who can
+  /// see the last panel in full is already at 1.0 — 0.90 means roughly the
+  /// final panel of an image sequence is still unseen, or the last few
+  /// paragraphs of a document. Below that there is too much left for the
+  /// question to be anything but a nag, and the reader is moving on for one of
+  /// the ordinary reasons (a look ahead, a comparison, a mistap).
+  ///
+  /// Deliberately clear of [threshold] rather than just under it: the gap is
+  /// where an entry that reached the end but never dwelt there lands, and that
+  /// is the case the question exists for.
+  final double nearThreshold;
+
   bool reachedEnd(double fraction) => fraction >= threshold;
+
+  /// Whether an *unfinished* entry is close enough to the end to be worth
+  /// asking about. Deliberately not bounded above by [threshold]: a fling to
+  /// the bottom passes [reachedEnd] without ever satisfying [dwell], so it is
+  /// still an unfinished entry — and still one to ask about.
+  bool nearEnd(double fraction) => fraction >= nearThreshold;
 }
 
 const kDefaultCompletionPolicy = CompletionPolicy();

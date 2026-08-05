@@ -420,6 +420,36 @@ void main() {
       expect(entry.progressPageIndex, 2);
     });
 
+    test(
+      'a delayed progress write cannot un-finish a completed entry',
+      () async {
+        await seed();
+        // The reader's own sequence when someone answers "mark complete and
+        // continue": the entry is marked, and a progress write that was already
+        // in flight for it lands afterwards carrying `completed: false`.
+        await reading.markRead('c1');
+        await reading.saveProgress(
+          'c1',
+          const ReadingPosition(fraction: 0.42, anchorIndex: 1),
+        );
+
+        final entry = (await db.entryById('c1'))!;
+        expect(entry.readStatus, 'completed');
+        expect(entry.completedAt, isNotNull);
+        expect(
+          entry.progressFraction,
+          1,
+          reason: 'a completed entry is 100% read, on every write',
+        );
+        expect(
+          entry.progressPageIndex,
+          1,
+          reason:
+              'the anchor still follows the scroll — only the status is fixed',
+        );
+      },
+    );
+
     test('a failed write does not wedge the queue', () async {
       await seed();
       // A write against a nonexistent entry resolves harmlessly…

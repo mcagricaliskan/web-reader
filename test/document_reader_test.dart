@@ -10,6 +10,7 @@ import 'package:web_reader/features/document_reader.dart';
 import 'package:web_reader/features/reader_screen.dart';
 import 'package:web_reader/providers.dart';
 import 'package:web_reader/save/capture_mode.dart';
+import 'package:web_reader/storage/cleanup.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/document.dart';
 import 'package:web_reader/storage/file_store.dart';
@@ -439,6 +440,24 @@ void main() {
     // controller was being reused.
     await tester.runAsync(() => seedDocument(id: 'doc1', order: 1));
     await tester.runAsync(() => seedDocument(id: 'doc2', order: 2));
+    // This test is about the scroll controller, so the transition is set up to
+    // ask nothing: doc1 is already finished (no completion question) and the
+    // collection already keeps its downloads (no cleanup question, and doc1's
+    // files stay put). A modal over the reader would block the drags below.
+    await tester.runAsync(() async {
+      await db.writeEntryReading(
+        'doc1',
+        EntriesCompanion(
+          readStatus: const Value('completed'),
+          completedAt: Value(DateTime(2026, 7, 22)),
+          progressFraction: const Value(1),
+        ),
+      );
+      await db.setCollectionCleanupPreference(
+        'collection-1',
+        CollectionCleanupPreference.keep.name,
+      );
+    });
 
     await open(tester);
     await tester.drag(find.byType(DocumentBody), const Offset(0, -1500));

@@ -435,7 +435,7 @@ void main() {
     await tester.runAsync(seedThree);
     await openReader(tester, 'c2');
 
-    // Read a little, then move on and back.
+    // Read a little — nowhere near the end — then move on.
     await tester.drag(find.byType(ListView), const Offset(0, -900));
     await tester.pump(const Duration(milliseconds: 50));
     await tester.tap(next);
@@ -445,7 +445,30 @@ void main() {
     final left = (await db.entryById('c2'))!;
     expect(left.progressFraction, greaterThan(0));
     expect(left.progressUpdatedAt, isNotNull);
+    expect(
+      left.readStatus,
+      'inProgress',
+      reason: 'moving on is not finishing, and this entry is barely started',
+    );
     expect(left.contentPath, isNotNull, reason: 'nothing was deleted');
+    expect(
+      find.byType(AlertDialog),
+      findsNothing,
+      reason: 'and nothing was asked about it either',
+    );
+  });
+
+  readerTest('the last entry offers no way forward', (tester) async {
+    await tester.runAsync(seedThree);
+    await openReader(tester, 'c3');
+
+    expect(isEnabled(tester, next), isFalse);
+    expect(
+      find.descendant(of: next, matching: find.text('Next entry')),
+      findsOneWidget,
+      reason: 'the control still names the unit; it just has nowhere to go',
+    );
+    expect(isEnabled(tester, previous), isTrue);
   });
 
   readerTest(

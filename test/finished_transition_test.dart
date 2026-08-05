@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 import 'package:web_reader/features/reader_screen.dart';
 import 'package:web_reader/providers.dart';
+import 'package:web_reader/reading/reading_repository.dart';
 import 'package:web_reader/storage/cleanup.dart';
 import 'package:web_reader/storage/database.dart';
 import 'package:web_reader/storage/file_store.dart';
@@ -22,6 +24,10 @@ void main() {
   late AppDatabase db;
   late Directory root;
   late FileStore store;
+
+  /// The service the reader under test is using. Assigned by [harness], so a
+  /// test can read the reader lock it moves.
+  late CleanupService cleanup;
 
   setUp(() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
@@ -61,12 +67,38 @@ void main() {
   String entryId(String collectionId, int n) =>
       collectionId == 's1' ? 'c$n' : '${collectionId}c$n';
 
+  /// Three 800×1200 panels at the 800pt test viewport are 1200pt tall each:
+  /// 3600pt of content against a 600pt viewport, so 3000pt of travel is the
+  /// whole entry. Progress is seeded as a fraction and the anchor is derived
+  /// from it, so the position the reader restores to and the fraction it
+  /// computes once laid out are the same number.
+  const panelHeight = 1200.0;
+  const travel = 3000.0;
+  const panelCount = 3;
+
+  int anchorIndexFor(double progress) {
+    final index = (progress.clamp(0.0, 1.0) * travel) ~/ panelHeight;
+    return index >= panelCount ? panelCount - 1 : index;
+  }
+
+  double anchorOffsetFor(double progress) {
+    final offset = progress.clamp(0.0, 1.0) * travel;
+    return ((offset - anchorIndexFor(progress) * panelHeight) / panelHeight)
+        .clamp(0.0, 1.0);
+  }
+
   /// Real files so the reader actually opens.
+  ///
+  /// [progress] is how far through the entry the reader left off — the input
+  /// that decides which side of `CompletionPolicy.nearThreshold` a transition
+  /// out of this entry falls on. The default sits well below it: an ordinary
+  /// part-read entry.
   Future<void> seedEntry(
     int n, {
     required String readStatus,
     bool withFiles = true,
     String collectionId = 's1',
+    double progress = 0.4,
   }) async {
     final id = entryId(collectionId, n);
     String? relative;
@@ -130,9 +162,9 @@ void main() {
         entryNumber: n.toDouble(),
         sourceMarker: 'Entry $n',
         readStatus: readStatus,
-        progressFraction: readStatus == 'completed' ? 1 : 0.4,
-        progressPageIndex: 0,
-        progressOffsetInPage: 0,
+        progressFraction: readStatus == 'completed' ? 1 : progress,
+        progressPageIndex: anchorIndexFor(progress),
+        progressOffsetInPage: anchorOffsetFor(progress),
         completedAt: readStatus == 'completed' ? DateTime(2026, 7, 22) : null,
       ),
     );
@@ -153,7 +185,11 @@ void main() {
       databaseProvider.overrideWithValue(db),
       fileStoreProvider.overrideWithValue(store),
       cleanupProvider.overrideWithValue(
-        CleanupService(db: db, fileStore: store, undoWindow: undoWindow),
+        cleanup = CleanupService(
+          db: db,
+          fileStore: store,
+          undoWindow: undoWindow,
+        ),
       ),
     ],
     child: MaterialApp.router(
@@ -228,6 +264,29 @@ void main() {
   final cleanupDialog = find.text('Downloaded entries in this collection');
   final removeOption = find.byKey(const ValueKey('collectionCleanup-remove'));
   final keepOption = find.byKey(const ValueKey('collectionCleanup-keep'));
+  final completionDialog = find.text('You have not finished this one');
+  final markComplete = find.byKey(const ValueKey('entryCompletion-complete'));
+  final continueWithout = find.byKey(
+    const ValueKey('entryCompletion-continueWithout'),
+  );
+  final cancelCompletion = find.byKey(const ValueKey('entryCompletion-cancel'));
+
+  /// Whether the reader actually opened [id]. `_load` marks an entry opened,
+  /// and nothing else in these tests does — which makes this a fact about the
+  /// destination rather than about a label that also appears on a control
+  /// pointing at it.
+  Future<bool> opened(String id) async =>
+      (await db.entryById(id))?.firstOpenedAt != null;
+
+  /// Let real IO and the widget tree settle without asserting anything.
+  Future<void> pumpAWhile(WidgetTester tester, {int rounds = 40}) async {
+    for (var i = 0; i < rounds; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+  }
 
   /// Which option the dialog has selected right now.
   bool isSelected(Finder option) => find
@@ -318,38 +377,469 @@ void main() {
     await settleDown(tester);
   });
 
-  testWidgets('a partially read entry never asks', (tester) async {
+  testWidgets('moving backward never asks, and finishes nothing', (
+    tester,
+  ) async {
     await tester.runAsync(() async {
       await seedCollection();
-      await seedEntry(1, readStatus: 'inProgress');
+      await seedEntry(1, readStatus: 'completed');
+      // Right at the end, and the collection already removes: the two things
+      // that would make a forward move act. Backward is still backward.
+      await seedEntry(2, readStatus: 'inProgress', progress: 0.95);
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
+    });
+    await openReader(tester, 'c2');
+    await tester.tap(find.byTooltip('Previous saved entry'));
+    await pumpAWhile(tester);
+
+    expect(find.byType(AlertDialog), findsNothing);
+    final left = (await db.entryById('c2'))!;
+    expect(left.contentPath, isNotNull);
+    expect(
+      left.readStatus,
+      'inProgress',
+      reason:
+          'going back is not continuing, so the entry left behind is not '
+          'finished by it either',
+    );
+    expect(left.progressFraction, closeTo(0.95, 0.06));
+    await settleDown(tester);
+  });
+
+  // --- an unfinished entry, near the end -----------------------------------
+  //
+  // Moving forward is not evidence of finishing. Close to the end it is worth
+  // asking about; the answers are what these pin down.
+
+  testWidgets('near the end, an unfinished entry is asked about', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'inProgress', progress: 0.95);
       await seedEntry(2, readStatus: 'unread');
     });
     await openReader(tester, 'c1');
     await tapNext(tester);
 
-    expect(find.byType(AlertDialog), findsNothing);
-    expect((await db.entryById('c1'))!.contentPath, isNotNull);
-    expect(await prefOf('s1'), isNull, reason: 'nothing was decided');
+    expect(completionDialog, findsOneWidget);
+    expect(find.text('Mark complete and continue'), findsOneWidget);
+    expect(find.text('Continue without completing'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(
+      find.textContaining('does not finish it'),
+      findsOneWidget,
+      reason: 'the dialog must not imply that moving on requires finishing',
+    );
+    expect(
+      cleanupDialog,
+      findsNothing,
+      reason: 'one question at a time — cleanup is only asked after completion',
+    );
     await settleDown(tester);
   });
 
-  testWidgets('moving backward never asks', (tester) async {
+  for (final width in <double>[320, 414]) {
+    testWidgets('the completion question fits a ${width}pt screen', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 720);
+      addTearDown(tester.view.reset);
+
+      await tester.runAsync(() async {
+        await seedCollection();
+        await seedEntry(1, readStatus: 'inProgress', progress: 0.95);
+        await seedEntry(2, readStatus: 'unread');
+        await db.setCollectionCleanupPreference(
+          's1',
+          CollectionCleanupPreference.remove.name,
+        );
+      });
+      await openReader(tester, 'c1');
+      await tapNext(tester);
+
+      expect(tester.takeException(), isNull, reason: 'nothing overflowed');
+      // All three answers reachable, and each one a real button rather than a
+      // label — assistive navigation reaches them by exactly this.
+      for (final answer in [markComplete, continueWithout, cancelCompletion]) {
+        expect(answer, findsOneWidget);
+        expect(
+          tester.getSize(answer).height,
+          greaterThanOrEqualTo(36),
+          reason: 'a stacked answer keeps a real tap target',
+        );
+      }
+      await settleDown(tester);
+    });
+  }
+
+  testWidgets('Cancel stays put and changes nothing at all', (tester) async {
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'inProgress', progress: 0.95);
+      await seedEntry(2, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
+    });
+    await openReader(tester, 'c1');
+    await tapNext(tester);
+    await tester.tap(cancelCompletion);
+    await pumpAWhile(tester);
+
+    expect(await opened('c2'), isFalse, reason: 'the reader never moved');
+    final left = (await db.entryById('c1'))!;
+    expect(left.readStatus, 'inProgress');
+    expect(left.contentPath, isNotNull);
+    expect(left.progressFraction, closeTo(0.95, 0.06));
+    expect(
+      cleanup.openReaderEntryId.value,
+      'c1',
+      reason: 'the reader lock never left the entry it is still showing',
+    );
+    await settleDown(tester);
+  });
+
+  testWidgets('Continue without completing moves on and leaves it alone', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'inProgress', progress: 0.95);
+      await seedEntry(2, readStatus: 'unread');
+      // The collection's rule is *remove*, and it must not reach an entry the
+      // reader has just said is unfinished.
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
+    });
+    await openReader(tester, 'c1');
+    final anchorBefore = (await db.entryById('c1'))!.progressPageIndex;
+    await tapNext(tester);
+    await tester.tap(continueWithout);
+    await pumpUntil(
+      tester,
+      () => opened('c2'),
+      reason: 'the next entry never opened',
+    );
+
+    final left = (await db.entryById('c1'))!;
+    expect(left.readStatus, 'inProgress');
+    expect(left.contentPath, isNotNull, reason: 'the files are still there');
+    expect(left.progressFraction, closeTo(0.95, 0.06));
+    expect(
+      left.progressPageIndex,
+      anchorBefore,
+      reason: 'the anchor it would resume at is untouched',
+    );
+    // And that anchor is exactly what a reopen restores from: `positionOf` is
+    // the reader's own entry point into these columns.
+    final resume = ReadingRepository(db).positionOf(left);
+    expect(resume.fraction, closeTo(0.95, 0.06));
+    expect(resume.anchorIndex, anchorBefore);
+    expect(cleanupDialog, findsNothing);
+    await settleDown(tester);
+  });
+
+  testWidgets('Mark complete and continue, with remove already chosen', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'inProgress', progress: 0.95);
+      await seedEntry(2, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
+    });
+    await openReader(tester, 'c1');
+    await tapNext(tester);
+    expect(
+      find.textContaining('also removes its files'),
+      findsOneWidget,
+      reason: 'the deletion is named before the tap, not in a notice after it',
+    );
+
+    await tester.tap(markComplete);
+    await pumpUntil(
+      tester,
+      () async => (await db.entryById('c1'))?.contentPath == null,
+      reason: 'the entry was never removed',
+    );
+
+    expect(await opened('c2'), isTrue);
+    final left = (await db.entryById('c1'))!;
+    expect(left.readStatus, 'completed');
+    expect(left.progressFraction, 1);
+    expect(left.offlineRemovedAt, isNotNull);
+    expect(left.sourceUrl, isNotEmpty, reason: 'the row survives intact');
+    expect(cleanupDialog, findsNothing, reason: 'already decided');
+    expect(
+      cleanup.openReaderEntryId.value,
+      'c2',
+      reason: 'the lock followed the reader to the entry it is now on',
+    );
+    await settleDown(tester);
+  });
+
+  testWidgets('Mark complete and continue, with keep already chosen', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'inProgress', progress: 0.95);
+      await seedEntry(2, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.keep.name,
+      );
+    });
+    await openReader(tester, 'c1');
+    await tapNext(tester);
+    expect(
+      find.textContaining('also removes its files'),
+      findsNothing,
+      reason: 'nothing is going to be removed, so nothing warns about it',
+    );
+
+    await tester.tap(markComplete);
+    await pumpUntil(
+      tester,
+      () async => (await db.entryById('c1'))?.readStatus == 'completed',
+      reason: 'the entry was never completed',
+    );
+
+    expect((await db.entryById('c1'))!.contentPath, isNotNull);
+    expect(cleanupDialog, findsNothing);
+    await settleDown(tester);
+  });
+
+  testWidgets('Mark complete and continue, with no decision yet, asks next', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'inProgress', progress: 0.95);
+      await seedEntry(2, readStatus: 'unread');
+    });
+    await openReader(tester, 'c1');
+    await tapNext(tester);
+    await tester.tap(markComplete);
+    await pumpUntil(
+      tester,
+      () async => cleanupDialog.evaluate().isNotEmpty,
+      reason: 'the cleanup question never followed the completion answer',
+    );
+
+    // Two dialogs, in one order, each asking one thing: is this finished, and
+    // then what does this collection do with finished entries.
+    expect(completionDialog, findsNothing, reason: 'the first one is done');
+    await tester.tap(removeOption);
+    await saveChoice(tester);
+    await pumpUntil(
+      tester,
+      () async => (await db.entryById('c1'))?.contentPath == null,
+      reason: 'the answer was never applied',
+    );
+
+    expect(await prefOf('s1'), CollectionCleanupPreference.remove);
+    expect((await db.entryById('c1'))!.readStatus, 'completed');
+    await settleDown(tester);
+  });
+
+  // --- an unfinished entry, not near the end -------------------------------
+
+  testWidgets(
+    'well short of the end, moving on asks nothing and does nothing',
+    (tester) async {
+      await tester.runAsync(() async {
+        await seedCollection();
+        await seedEntry(1, readStatus: 'inProgress', progress: 0.3);
+        await seedEntry(2, readStatus: 'unread');
+        // Remembered *remove*, which must not reach an unfinished entry.
+        await db.setCollectionCleanupPreference(
+          's1',
+          CollectionCleanupPreference.remove.name,
+        );
+      });
+      await openReader(tester, 'c1');
+      final anchorBefore = (await db.entryById('c1'))!.progressPageIndex;
+      await tester.tap(find.byTooltip('Next saved entry'));
+      await pumpUntil(
+        tester,
+        () => opened('c2'),
+        reason: 'the next entry never opened',
+      );
+
+      expect(find.byType(AlertDialog), findsNothing, reason: 'no modal at all');
+      final left = (await db.entryById('c1'))!;
+      expect(left.readStatus, 'inProgress');
+      expect(left.contentPath, isNotNull);
+      expect(left.progressFraction, closeTo(0.3, 0.06));
+      expect(left.progressPageIndex, anchorBefore);
+      await settleDown(tester);
+    },
+  );
+
+  testWidgets('the reported case: no decision, unfinished, bottom-bar Next', (
+    tester,
+  ) async {
+    // The regression this whole flow was reopened for, in both of its halves.
+    // Below the near-completion threshold nothing is asked and nothing is
+    // touched; above it the question appears — and it is the *bottom bar's*
+    // control being tapped in each case, which is what used to be unable to
+    // reach any of this.
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'inProgress', progress: 0.5);
+      await seedEntry(2, readStatus: 'inProgress', progress: 0.93);
+      await seedEntry(3, readStatus: 'unread');
+    });
+    await openReader(tester, 'c1');
+    await tester.tap(find.byTooltip('Next saved entry'));
+    await pumpUntil(
+      tester,
+      () => opened('c2'),
+      reason: 'the next entry never opened',
+    );
+    expect(find.byType(AlertDialog), findsNothing);
+    expect((await db.entryById('c1'))!.readStatus, 'inProgress');
+    expect(await prefOf('s1'), isNull);
+
+    await tapNext(tester);
+    expect(completionDialog, findsOneWidget);
+    await settleDown(tester);
+  });
+
+  // --- a destination that does not open ------------------------------------
+
+  testWidgets('a destination whose row lost its files changes nothing', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'inProgress', progress: 0.95);
+      await seedEntry(2, readStatus: 'unread');
+    });
+    await openReader(tester, 'c1');
+    // Cleared without bumping the removal counter, so the control stays lit —
+    // which is exactly the stale-control race `_goTo` re-reads the row for.
+    await tester.runAsync(
+      () => db.writeEntryReading(
+        'c2',
+        const EntriesCompanion(contentPath: Value(null)),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('Next saved entry'));
+    await pumpAWhile(tester);
+
+    expect(
+      find.byType(AlertDialog),
+      findsNothing,
+      reason: 'nothing is asked about a move that cannot happen',
+    );
+    final left = (await db.entryById('c1'))!;
+    expect(left.readStatus, 'inProgress');
+    expect(left.contentPath, isNotNull);
+    expect(left.progressFraction, closeTo(0.95, 0.06));
+    expect(await prefOf('s1'), isNull);
+    expect(await opened('c2'), isFalse);
+    expect(
+      cleanup.openReaderEntryId.value,
+      'c1',
+      reason: 'the lock stays on the entry that is still open',
+    );
+    await settleDown(tester);
+  });
+
+  testWidgets('a destination that fails while loading changes nothing', (
+    tester,
+  ) async {
     await tester.runAsync(() async {
       await seedCollection();
       await seedEntry(1, readStatus: 'completed');
-      await seedEntry(2, readStatus: 'completed');
-    });
-    await openReader(tester, 'c2');
-    await tester.tap(find.byTooltip('Previous saved entry'));
-    for (var i = 0; i < 40; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      await seedEntry(2, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
       );
-      await tester.pump();
-    }
+    });
+    await openReader(tester, 'c1');
+    // The row still says the package is there — it is the disk that has moved
+    // on. This is the case `readerCanOpen` cannot see, and the reason the
+    // removal waits for the load rather than for the row check.
+    await tester.runAsync(() async {
+      final target = (await db.entryById('c2'))!;
+      Directory(store.resolve(target.contentPath!)).deleteSync(recursive: true);
+    });
 
-    expect(find.byType(AlertDialog), findsNothing);
-    expect((await db.entryById('c2'))!.contentPath, isNotNull);
+    await tester.tap(find.byTooltip('Next saved entry'));
+    await pumpAWhile(tester);
+
+    expect(
+      find.text('The files for this entry are gone'),
+      findsOneWidget,
+      reason: 'the destination landed on the unavailable screen',
+    );
+    final left = (await db.entryById('c1'))!;
+    expect(
+      left.contentPath,
+      isNotNull,
+      reason:
+          'the entry just left is the only readable thing left — removing it '
+          'would strand the reader',
+    );
+    expect(left.offlineRemovedAt, isNull);
+    expect(noticeText, findsNothing);
+    await settleDown(tester);
+  });
+
+  testWidgets('a burst of taps completes and removes exactly once', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await seedCollection();
+      await seedEntry(1, readStatus: 'completed');
+      await seedEntry(2, readStatus: 'unread');
+      await seedEntry(3, readStatus: 'unread');
+      await db.setCollectionCleanupPreference(
+        's1',
+        CollectionCleanupPreference.remove.name,
+      );
+    });
+    await openReader(tester, 'c1');
+
+    // Three taps inside one frame, so the control is still mounted for each:
+    // the second and third arrive while the first transition is mid-flight.
+    final next = find.byTooltip('Next saved entry');
+    await tester.tap(next);
+    await tester.tap(next, warnIfMissed: false);
+    await tester.tap(next, warnIfMissed: false);
+    await pumpUntil(
+      tester,
+      () async => (await db.entryById('c1'))?.contentPath == null,
+      reason: 'the entry left behind was never removed',
+    );
+    await pumpAWhile(tester);
+
+    expect(
+      cleanup.removals.value,
+      1,
+      reason: 'one transition, one removal, however many taps produced it',
+    );
+    expect(
+      (await db.entryById('c2'))!.contentPath,
+      isNotNull,
+      reason: 'the entry the reader landed on is never the one removed',
+    );
     await settleDown(tester);
   });
 
@@ -367,6 +857,13 @@ void main() {
     await openReader(tester, 'c1');
     await tapNext(tester);
     await saveChoice(tester);
+    // The answer is stored at once; the removal waits for the destination to
+    // actually open.
+    await pumpUntil(
+      tester,
+      () async => (await db.entryById('c1'))?.contentPath == null,
+      reason: 'the entry left behind was never removed',
+    );
 
     expect(await prefOf('s1'), CollectionCleanupPreference.remove);
     expect(
@@ -739,14 +1236,14 @@ void main() {
     await tester.runAsync(() async {
       await seedCollection();
       await seedEntry(1, readStatus: 'completed');
-      await seedEntry(2, readStatus: 'unread');
+      await seedEntry(2, readStatus: 'completed');
       await seedEntry(3, readStatus: 'unread');
       await db.setCollectionCleanupPreference(
         's1',
         CollectionCleanupPreference.remove.name,
       );
     });
-    await openReader(tester, 'c1');
+    await openReader(tester, 'c2');
     await tester.tap(find.byTooltip('Next saved entry'));
     await pumpUntil(
       tester,
@@ -754,14 +1251,14 @@ void main() {
       reason: 'the removal notice never appeared',
     );
 
-    // c2 is unread, so moving on from it removes nothing — and the notice
-    // about c1 has no business surviving onto c3.
+    // Now go back. Backward movement removes nothing — and the notice about
+    // c2 has no business surviving onto c1.
     await pumpUntil(
       tester,
-      () async => find.byTooltip('Next saved entry').evaluate().isNotEmpty,
+      () async => find.byTooltip('Previous saved entry').evaluate().isNotEmpty,
       reason: 'the next entry never finished loading',
     );
-    await tester.tap(find.byTooltip('Next saved entry'));
+    await tester.tap(find.byTooltip('Previous saved entry'));
     await tester.pump();
     expect(noticeText, findsNothing);
     await settleDown(tester);

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_reader/capability/entitlement.dart';
 import 'package:web_reader/capability/foreground_multitasking.dart';
@@ -169,5 +171,33 @@ void main() {
       expect(c.storedValue, 'true');
       expect(ForegroundMultitasking.parse(c.storedValue), isTrue);
     });
+  });
+
+  group('what entitlement must never reach', () {
+    /// Reading, finishing an entry and removing its downloads are things the
+    /// app does for everyone. The cheapest way to keep it that way is to keep
+    /// the capability layer out of the files that do them: a screen that cannot
+    /// see an entitlement cannot condition anything on one, and this fails the
+    /// moment an import appears rather than the moment a user notices.
+    const readingSurfaces = [
+      'lib/features/reader_screen.dart',
+      'lib/features/cleanup_dialogs.dart',
+      'lib/storage/cleanup.dart',
+      'lib/reading/reading_repository.dart',
+      'lib/reading/reading_position.dart',
+    ];
+
+    for (final path in readingSurfaces) {
+      test('$path does not import the capability layer', () {
+        final source = File(path).readAsStringSync();
+        expect(
+          source.contains('capability/'),
+          isFalse,
+          reason:
+              'reading and finished-entry cleanup are not Pro features, so '
+              'this file has no business seeing an entitlement',
+        );
+      });
+    }
   });
 }

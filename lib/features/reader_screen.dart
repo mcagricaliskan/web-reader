@@ -85,6 +85,36 @@ bool readerCanOpen(Entry entry) =>
     entry.contentPath != null &&
     (entry.saveStatus == 'complete' || entry.saveStatus == 'partial');
 
+/// What a forward move has undertaken to do to the entry it leaves behind.
+///
+/// Built before the reader moves, from questions asked while it was still on
+/// that entry, and carried until the destination is open. Two fields, both
+/// false by default, because the ordinary forward move — a skip ahead, a look
+/// at the next entry, a mistap — promises nothing at all.
+class _ForwardPlan {
+  const _ForwardPlan({
+    this.leaving,
+    this.markComplete = false,
+    this.remove = false,
+  });
+
+  /// Move, and change nothing about the entry being left.
+  static const none = _ForwardPlan();
+
+  /// The entry being left, when there is something to do to it.
+  final Entry? leaving;
+
+  /// The reader said it is finished. Only ever true for an entry that was not
+  /// already complete and whose reader answered *Mark complete and continue*.
+  final bool markComplete;
+
+  /// The collection's decision is to remove a finished entry's downloads, and
+  /// this entry is (or is about to be) finished.
+  final bool remove;
+
+  bool get hasWork => leaving != null && (markComplete || remove);
+}
+
 /// Vertical image reader over **local files only**.
 ///
 /// No remote-URL fallback exists anywhere in this screen: if a file is missing
@@ -182,6 +212,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// Screen state, and the reason a burst of "next entry" taps cannot open a
   /// second dialog or race two decisions into the database.
   String? _cleanupAskCollectionId;
+
+  /// True from the moment a move is asked for until the destination is loading.
+  ///
+  /// A transition can now sit on an open dialog for as long as the reader takes
+  /// to answer it, and every entry control is still on screen behind it. One
+  /// transition at a time is what stops the same move being planned — and
+  /// applied — twice.
+  bool _navigating = false;
 
   static const _policy = kDefaultCompletionPolicy;
 
@@ -436,85 +474,169 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return _ReaderData(entry: entry, manifest: manifest, pages: pages);
   }
 
-  // --- finished-entry cleanup ---------------------------------------------
+  // --- moving on: completion, then cleanup ---------------------------------
 
-  /// The entry being left, when this transition qualifies for the
-  /// finished-entry cleanup flow — otherwise null.
+  /// What a forward move should do to the entry it leaves behind — or null
+  /// when the user said no and the reader must stay exactly where it is.
   ///
-  /// Every condition here is a guard the spec names: only a *completed*
-  /// entry, only *forward* movement to a different entry, only when the
-  /// files actually exist locally, only when nothing else is using them, and
-  /// only when the target is genuinely openable. Closing the reader, moving
-  /// backwards, re-opening the same entry, a partially-read entry, or one
-  /// with no local files all fall through to null.
-  Future<Entry?> _finishedEntryLeavingFor(Entry target) async {
+  /// **Completion, navigation and cleanup are three decisions, not one.**
+  /// Moving forward is not evidence of finishing: a reader looks ahead,
+  /// compares two entries, mistaps, or means to come back. So the only entries
+  /// this can plan anything for are the ones already finished, and the ones
+  /// the reader has explicitly *said* are finished when asked. Everything else
+  /// moves and changes nothing — which is what keeps a collection's remove
+  /// preference away from an entry that is still being read.
+  ///
+  /// Nothing here writes to the entry being left. The questions are asked
+  /// while the reader is still on it, and the answers are carried in the plan
+  /// until the destination is genuinely open — see [_applyOnArrival].
+  Future<_ForwardPlan?> _planForForward(Entry target) async {
     final leavingId = _entryId;
-    if (leavingId == null || leavingId == target.id) return null;
-    if (!_completed) return null;
+    if (leavingId == null || leavingId == target.id) return _ForwardPlan.none;
 
     final db = ref.read(databaseProvider);
     final leaving = await db.entryById(leavingId);
-    if (leaving == null) return null;
-    if (leaving.readStatus != ReadStatus.completed.name) return null;
-    if (!_cleanup.isRemovable(leaving)) return null;
+    if (leaving == null) return _ForwardPlan.none;
 
     // Forward only: reading order, not tap order. A standalone entry has no
-    // reading order to move forward through, so the flow does not apply.
-    final leavingCollectionId = leaving.collectionId;
-    if (leavingCollectionId == null) return null;
+    // reading order to move forward through, so none of this applies to one.
+    final collectionId = leaving.collectionId;
+    if (collectionId == null) return _ForwardPlan.none;
     final ordered = sortEntriesForReading(
-      await db.entriesForCollection(leavingCollectionId),
+      await db.entriesForCollection(collectionId),
     );
     final from = ordered.indexWhere((c) => c.id == leaving.id);
     final to = ordered.indexWhere((c) => c.id == target.id);
-    if (from < 0 || to < 0 || to <= from) return null;
+    if (from < 0 || to < 0 || to <= from) return _ForwardPlan.none;
 
-    // The target must be openable, or removing the old one strands the user.
-    if (target.contentPath == null) return null;
-    return leaving;
+    final item = await db.collectionById(collectionId);
+    if (item == null) return _ForwardPlan.none;
+
+    var markComplete = false;
+    if (leaving.readStatus != ReadStatus.completed.name) {
+      // The live position rather than the row: [_flush] has just written it,
+      // but an entry whose geometry never materialised has nothing to flush
+      // and the restored position is still the honest answer.
+      if (!_policy.nearEnd(_position.fraction)) return _ForwardPlan.none;
+      if (!mounted) return _ForwardPlan.none;
+
+      // Read before the question so the dialog can name the consequence: when
+      // this collection already removes downloads after continuing, saying
+      // "mark complete" is also what removes this entry's files.
+      final stored = collectionCleanupFromName(item.cleanupPreference);
+      final choice = await showEntryCompletionDialog(
+        context: context,
+        entryName: leaving.sourceMarker ?? leaving.title,
+        percentRead: (_position.fraction * 100).clamp(0, 100).round(),
+        willRemoveDownloads: stored == CollectionCleanupPreference.remove,
+      );
+      switch (choice) {
+        // Dismissed by the barrier or the back gesture is the same answer as
+        // Cancel: the reader asked for nothing, so nothing happens — including
+        // the navigation.
+        case null:
+        case EntryCompletionChoice.cancel:
+          return null;
+        // Moving on with the entry left as it is. No completion, no cleanup
+        // question, and the collection's stored preference is deliberately
+        // NOT consulted: it is a rule about finished entries, and this one is
+        // not finished.
+        case EntryCompletionChoice.continueWithout:
+          return _ForwardPlan.none;
+        case EntryCompletionChoice.completeAndContinue:
+          markComplete = true;
+      }
+    }
+
+    final decision = await _resolveCleanupPreference(item);
+    return _ForwardPlan(
+      leaving: leaving,
+      markComplete: markComplete,
+      remove: decision == CollectionCleanupPreference.remove,
+    );
   }
 
-  /// Apply the collection's cleanup decision to the entry just left behind, and
-  /// ask for it once if the collection has none (D37).
+  /// The collection's decision about a finished entry's downloaded files,
+  /// asking for it once if the collection has none (D37).
   ///
-  /// The collection is taken from the entry being left and saved *before* any
-  /// await, so a decision can only ever be written to the collection it was asked
-  /// about — even if the reader has moved on, or moved to another collection,
-  /// while the dialog was open.
-  Future<void> _afterFinished(Entry leaving) async {
-    final db = ref.read(databaseProvider);
-    // Only reachable for an entry inside a collection: the cleanup decision is
-    // a per-collection preference, and a standalone entry has no collection to
-    // record it on. `_finishedEntryLeavingFor` already returned null for those.
-    final collectionId = leaving.collectionId;
-    if (collectionId == null) return;
-    final item = await db.collectionById(collectionId);
-    if (item == null) return;
+  /// Null means *there is no decision to apply*: the question was dismissed
+  /// without an answer, or one is already on screen for this collection.
+  /// Both keep the files and store nothing, and the question comes back on the
+  /// next eligible transition.
+  ///
+  /// An answer is persisted the moment it is given, before the reader moves.
+  /// That is the existing contract of this question everywhere it is asked —
+  /// the dialog's button says *Save choice*, and the collection sheet writes on
+  /// each tap — and it is a rule about the collection, not about this
+  /// transition. What waits for the destination is the *removal*, never the
+  /// rule.
+  Future<CollectionCleanupPreference?> _resolveCleanupPreference(
+    Collection item,
+  ) async {
+    final stored = collectionCleanupFromName(item.cleanupPreference);
+    if (stored != null) return stored;
 
-    var decision = collectionCleanupFromName(item.cleanupPreference);
-    if (decision == null) {
-      // One question at a time. A second transition arriving while the dialog
-      // is open must not stack a duplicate or race a conflicting write; it
-      // keeps its files and asks nothing, and the answer being given now
-      // covers every transition after it.
-      if (_cleanupAskCollectionId != null || !mounted) return;
-      _cleanupAskCollectionId = collectionId;
-      try {
-        decision = await showCollectionCleanupDialog(
-          context: context,
-          collectionName: item.userTitle ?? item.title,
-        );
-      } finally {
-        _cleanupAskCollectionId = null;
-      }
-      // Dismissed without saving: nothing is stored and nothing is removed.
-      // The question comes back on the next eligible transition.
-      if (decision == null) return;
-      await db.setCollectionCleanupPreference(collectionId, decision.name);
+    // One question at a time. A second transition arriving while the dialog is
+    // open must not stack a duplicate or race a conflicting write.
+    if (_cleanupAskCollectionId != null || !mounted) return null;
+    _cleanupAskCollectionId = item.id;
+    final CollectionCleanupPreference? decision;
+    try {
+      decision = await showCollectionCleanupDialog(
+        context: context,
+        collectionName: item.userTitle ?? item.title,
+      );
+    } finally {
+      _cleanupAskCollectionId = null;
     }
-    if (decision == CollectionCleanupPreference.remove) {
-      await _removeFinished(leaving);
+    if (decision == null) return null;
+    // The collection was captured before the dialog opened, so an answer can
+    // only ever be written to the collection it was asked about.
+    await ref
+        .read(databaseProvider)
+        .setCollectionCleanupPreference(item.id, decision.name);
+    return decision;
+  }
+
+  /// Carry out a plan — but only once the destination is genuinely open.
+  ///
+  /// "Open" means the load resolved to something readable, not merely that the
+  /// row passed [readerCanOpen] a moment earlier. A manifest that turns out to
+  /// be unreadable, files that vanished between the check and the read, and a
+  /// package written by a newer build all land on the unavailable screen, and
+  /// none of them is a reason to finish or empty the entry the reader just
+  /// left. That entry is then the only readable thing they had.
+  Future<void> _applyOnArrival(
+    _ForwardPlan plan,
+    Future<_ReaderData> arriving,
+    String targetId,
+  ) async {
+    final leaving = plan.leaving;
+    if (leaving == null) return;
+
+    final _ReaderData data;
+    try {
+      data = await arriving;
+    } catch (_) {
+      // The destination could not even be read. Nothing was promised about the
+      // outgoing entry that has to be honoured now.
+      return;
     }
+    if (data.unavailableReason != null) return;
+    if (!data.isDocument && data.pages.isEmpty) return;
+    // The reader moved on again, or left, while the destination was loading:
+    // this plan belongs to a transition that is no longer the current one.
+    if (_entryId != targetId) return;
+
+    if (plan.markComplete) {
+      // [ReadingRepository.markRead] keeps the anchor and only lifts the
+      // fraction to 1, so the spot this entry would resume at survives being
+      // finished. A progress write still in flight cannot undo it either:
+      // `saveProgress` reads the row first and keeps a completed entry
+      // completed, whatever the flag it was called with says.
+      await _reading.markRead(leaving.id);
+    }
+    if (plan.remove) await _removeFinished(leaving);
   }
 
   /// Remove and offer an undo. A failure here never blocks reading — the new
@@ -706,9 +828,30 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (mounted) setState(() {});
   }
 
-  /// Save first, then move. Losing the position of the entry you are leaving
-  /// is the obvious way to get this wrong.
+  /// Save first, then move.
+  ///
+  /// The order is the safety property, and it is worth reading as one list:
+  /// flush the position of the entry being left; confirm the destination can
+  /// be opened at all; ask whatever this transition has to ask, while the
+  /// reader is still on the entry the questions are about; move; and only once
+  /// the destination has actually opened, apply anything that changes the
+  /// entry left behind. A transition that fails or is cancelled at any point
+  /// leaves that entry with its progress, its status and its files.
+  ///
+  /// One at a time, because the questions are awaited: a second tap arriving
+  /// mid-transition would otherwise plan the same move twice and could apply
+  /// completion or removal twice over.
   Future<void> _goTo(Entry target) async {
+    if (_navigating) return;
+    _navigating = true;
+    try {
+      await _navigateTo(target);
+    } finally {
+      _navigating = false;
+    }
+  }
+
+  Future<void> _navigateTo(Entry target) async {
     await _flush();
 
     // The control was drawn from a list; between that frame and this tap the
@@ -722,13 +865,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return;
     }
 
-    final leaving = await _finishedEntryLeavingFor(target);
+    final plan = await _planForForward(fresh);
+    // Cancelled. Nothing has been written on the way here, so staying put is
+    // simply not doing the rest of this.
+    if (plan == null || !mounted) return;
+
     _saveTimer?.cancel();
     _scrollController?.removeListener(_onScroll);
     // The lock follows the reader: the entry being LEFT is no longer open,
     // and the one arriving is. Without this the entry just finished stays
     // locked against its own cleanup.
     _cleanup.openReaderEntryId.value = target.id;
+    final arriving = _load(target.id);
     setState(() {
       // Anything the last transition had to say is about an entry that is no
       // longer on screen. A new removal will post its own notice.
@@ -741,12 +889,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _completed = false;
       _pastThresholdSince = null;
       _position = ReadingPosition.start;
-      _future = _load(target.id);
+      _future = arriving;
     });
-    // Navigation is secured (the new entry is already loading and the lock
-    // has moved) before anything is removed — the entry the user is now
-    // looking at can never be the one cleaned up.
-    if (leaving != null) unawaited(_afterFinished(leaving));
+    if (plan.hasWork) unawaited(_applyOnArrival(plan, arriving, target.id));
   }
 
   // --- leaving for the entry list ----------------------------------------

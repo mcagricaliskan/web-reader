@@ -145,6 +145,24 @@ void main() {
     expect(await db.setting(kEntrySortKey), isNull);
   });
 
+  test('a collection cleanup decision does not survive a reset', () async {
+    await seedUsedApp();
+    final collection = (await db.allCollections()).first;
+    await db.setCollectionCleanupPreference(collection.id, 'remove');
+    expect(
+      (await db.collectionById(collection.id))!.cleanupPreference,
+      'remove',
+    );
+
+    await makeService().resetEverything();
+
+    // The decision lives on the collection row, so it goes with it: a reset
+    // app asks the question again, exactly as a clean install does. There is no
+    // separate setting for it to hide in.
+    expect(await db.collectionById(collection.id), isNull);
+    expect(await db.allCollections(), isEmpty);
+  });
+
   test('every table is emptied, discovered from the schema', () async {
     await seedUsedApp();
     await makeService().resetEverything();

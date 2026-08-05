@@ -472,6 +472,67 @@ Afterwards the same source can be saved again: identity is matched on
 `(host, collection_key)`, the deleted row is gone, so a save creates a new
 collection rather than joining a ghost.
 
+### 8.3 Moving forward in the reader: completion, then cleanup
+
+Three decisions that look like one and are not: **has the reader finished this
+entry**, **where are they going**, and **what happens to the finished entry's
+downloaded files**. Collapsing them is how "next entry" turns into a delete
+button. The reader's forward transition (`_goTo` → `_planForForward` →
+`_applyOnArrival` in `lib/features/reader_screen.dart`) keeps them apart.
+
+**Finishing an entry** happens automatically at
+`CompletionPolicy.threshold` (0.97 of the entry) once the reader has stayed
+past it for `CompletionPolicy.dwell` (800 ms). That dwell is what stops a fling
+to the bottom from counting as reading, and it is the *only* automatic route to
+`completed`.
+
+**Moving forward is not evidence of finishing.** A reader looks ahead, compares
+two entries, mistaps, or means to come back. So a forward move out of an
+unfinished entry does one of two things, decided by
+`CompletionPolicy.nearThreshold` (0.90 — a tenth of the entry left, measured
+the way `ReadingPosition.fraction` measures, i.e. against the **bottom** of the
+viewport):
+
+| Where the reader is | What happens |
+|---|---|
+| Entry already `completed` | The collection's cleanup decision applies (asked once if unset) |
+| Unfinished, at or past `nearThreshold` | Asked: *Mark complete and continue* · *Continue without completing* · *Cancel* |
+| Unfinished, below `nearThreshold` | Move, and change nothing — no question, no completion, no cleanup |
+
+*Mark complete and continue* joins the first row: the entry is marked read and
+the collection's decision applies to it. *Continue without completing* moves on
+and leaves the entry `inProgress` with its position, its anchor and its files —
+the collection's `remove` preference is deliberately **not** consulted, because
+it is a rule about finished entries. *Cancel* stays put.
+
+**The cleanup preference is per-collection and tri-state** —
+`collections.cleanup_preference` is unset · `keep` · `remove`, and unset is a
+question, not a default. It is asked once per collection, on the first
+transition that actually finishes an entry, and an answer is stored the moment
+it is given (the dialog's button says *Save choice*, and the collection sheet
+writes on each tap). It applies only to entries that are complete or that the
+reader has just said are complete. It is reset from *Collection detail →
+Downloaded entries → Ask again next time*, and it goes with the collection row
+on deletion and on a developer reset.
+
+**Order, and what it protects.** Flush the outgoing position → confirm the
+destination with `readerCanOpen` → ask → move → **and only once the destination
+has actually opened**, mark complete and remove. "Opened" means the load
+resolved to something readable, not merely that the row looked right a moment
+earlier: a package whose files vanished between the check and the read lands on
+the unavailable screen, and the entry just left is then the only readable thing
+the reader has. So a transition that is cancelled, or whose destination fails at
+any point, leaves the outgoing entry with its progress, its status and its
+files. One transition runs at a time, so a burst of taps completes and removes
+once.
+
+Removal is `CleanupService.removeOffline` and nothing more — the entry row, its
+`source_url`, its reading history and its place in the collection all survive,
+and there is a real undo window (§8.2). None of this is conditioned on
+entitlement: `lib/features/reader_screen.dart`, `lib/storage/cleanup.dart` and
+`lib/reading/` import nothing from `lib/capability/`, and `entitlement_test.dart`
+fails the build if that changes.
+
 ## 9. Invariants worth keeping
 
 - **Reading state is writable only from `lib/reading/`.** `writeEntryReading` is
@@ -505,6 +566,11 @@ collection rather than joining a ghost.
   that is a fact about the content (finished, first opened, the
   content-independent fraction) and resets only the anchor, which would
   otherwise drop the reader somewhere arbitrary and call it "where you were".
+- **Moving between entries never finishes one by itself.** The only automatic
+  route to `completed` is `CompletionPolicy.threshold` plus its dwell. Forward
+  movement out of a nearly-finished entry *asks*; below `nearThreshold` it does
+  not even ask, and an unfinished entry is always still resumable afterwards.
+  Backward movement asks nothing and changes nothing. See §8.3.
 - **An entry's `source_url` is durable.** Every writer names its columns, so it
   survives removal, archive, restore, re-save and reading updates. It is what
   "Open original page" stands on.
