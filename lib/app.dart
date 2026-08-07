@@ -21,7 +21,8 @@ import 'features/open_in_browser.dart';
 import 'features/reader_screen.dart';
 import 'features/page_hints_screen.dart';
 import 'features/collection_detail_screen.dart';
-import 'features/cleanup_dialogs.dart';
+import 'capability/foreground_gate.dart';
+import 'features/foreground_gate_sheet.dart';
 import 'features/settings_screen.dart';
 import 'features/storage_screen.dart';
 import 'library/update_checker.dart';
@@ -134,6 +135,7 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp>
   late final SaveRunController _run;
   late final UpdateChecker _checker;
   late final ForegroundMultitasking _capability;
+  late final ValueNotifier<bool> _pendingSurfaceClaim;
 
   @override
   void initState() {
@@ -145,6 +147,8 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp>
     _run = ref.read(saveRunProvider);
     _checker = ref.read(updateCheckerProvider);
     _capability = ref.read(foregroundMultitaskingProvider);
+    _pendingSurfaceClaim = ref.read(pendingSurfaceClaimProvider);
+    _pendingSurfaceClaim.addListener(_recomputeSurface);
     for (final source in [_run, _checker, _capability, _browser]) {
       source.addListener(_recomputeSurface);
     }
@@ -171,6 +175,7 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp>
     for (final source in [_run, _checker, _capability, _browser]) {
       source.removeListener(_recomputeSurface);
     }
+    _pendingSurfaceClaim.removeListener(_recomputeSurface);
     _tab.removeListener(_recomputeSurface);
     _router.routerDelegate.removeListener(_recomputeSurface);
     WidgetsBinding.instance.removeObserver(this);
@@ -193,10 +198,21 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp>
   /// keeps scrolling on both platforms, and on Android it goes on calling
   /// itself visible (docs/FOREGROUND_MULTITASKING.md §3.1).
   void _recomputeSurface() {
+    final owns =
+        _run.isRunning ||
+        _checker.isRunning ||
+        _browser.isAutomating ||
+        _pendingSurfaceClaim.value;
+    // Latched for the lifetime of this operation's ownership: a setting the
+    // user changes mid-task must not take the surface away from a run that is
+    // in the middle of reading a page (see TaskCapabilitySnapshot).
+    final capabilityForTask = _capability.taskSnapshot.resolve(
+      operationOwnsBrowser: owns,
+      liveEnabled: _capability.enabled,
+    );
     final resolved = resolveBrowserSurface(
-      capabilityEnabled: _capability.enabled,
-      operationOwnsBrowser:
-          _run.isRunning || _checker.isRunning || _browser.isAutomating,
+      capabilityEnabled: capabilityForTask,
+      operationOwnsBrowser: owns,
       appInForeground: _foreground,
       browserTabSelected: _tab.value == 1,
       atShellRoute:
@@ -206,6 +222,28 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp>
     _browser.surfaceIsPainted = resolved.isPainted;
     _browserOnScreen.value = resolved.browserOnScreen;
   }
+
+  /// Everything the compact activity indicator does not say itself: progress,
+  /// logs, failures, retry, reorder, stop, and the way back to the Browser for
+  /// a run that needs one.
+  ///
+  /// Pushed from the router the app owns rather than from a context: the
+  /// indicator is built in [MaterialApp.router]'s builder, which sits *above*
+  /// the router's own inherited widget, so nothing there can look one up. The
+  /// no-op when Activity is already on top is what stops a repeated tap from
+  /// stacking the same screen on itself.
+  void _openActivity() {
+    final matches = _router.routerDelegate.currentConfiguration.matches;
+    if (matches.isNotEmpty && matches.last.matchedLocation == '/activity') {
+      return;
+    }
+    _router.push('/activity');
+  }
+
+  /// Where a "Needs you" goes: the Browser, on the page the held operation is
+  /// already on. The same one mechanism every other "open the Browser" in the
+  /// app uses, handed the router directly because this call site is above it.
+  void _openBrowserForOperation() => showBrowserSurfaceWith(_router, ref);
 
   @override
   Widget build(BuildContext context) {
@@ -225,7 +263,13 @@ class _WebReaderAppState extends ConsumerState<WebReaderApp>
       // — including the ones the router pushes over the shell.
       builder: (context, child) => Stack(
         fit: StackFit.expand,
-        children: [?child, const OperationIndicator()],
+        children: [
+          ?child,
+          OperationIndicator(
+            onOpenDetails: _openActivity,
+            onOpenBrowser: _openBrowserForOperation,
+          ),
+        ],
       ),
     );
   }
@@ -263,6 +307,10 @@ class _ShellState extends ConsumerState<_Shell> {
   /// operation needs it to go on working while they are elsewhere.
   bool get _browserOnstage => _index == 1 || _keepPainted.value;
 
+  /// Held as a field for the same reason the controllers are: the leave gate is
+  /// asked from `dispose`-adjacent paths and from `PopScope`.
+  late final ForegroundMultitasking _capability;
+
   /// Files just went away: the device figure the Library shows is stale by
   /// exactly the amount that was freed.
   void _onStorageChanged() {
@@ -284,6 +332,7 @@ class _ShellState extends ConsumerState<_Shell> {
     _tabRequest.addListener(_onTabRequested);
     _cleanup = ref.read(cleanupProvider);
     _cleanup.removals.addListener(_onStorageChanged);
+    _capability = ref.read(foregroundMultitaskingProvider);
     // The queue asks the shell to bring the Browser forward before it drives
     // the WebView. The shell is the only thing that can switch tabs, and the
     // ordering — navigate, THEN automate — is the whole contract (D47).
@@ -318,7 +367,17 @@ class _ShellState extends ConsumerState<_Shell> {
     // nothing is lost to the pop or to a WebView that is not there yet.
     final target = url?.trim() ?? '';
     if (target.isNotEmpty) ref.read(browserNavigatorProvider).request(target);
-    showBrowserSurface(context, ref);
+    if (_capability.enabled) {
+      // The capability's whole point: the page must be *drawn*, not *shown*.
+      // Nothing owns the Browser yet — the run starts after this returns — so
+      // the claim is what makes the shell keep the child on stage in the
+      // meantime. It is released the moment a real owner appears, and by a
+      // fallback timer if one never does, so a start that fizzles cannot leave
+      // the Browser painted under the Library forever.
+      _claimSurfaceForStart();
+    } else {
+      showBrowserSurface(context, ref);
+    }
     final browser = ref.read(browserProvider);
     for (var i = 0; i < 100; i++) {
       if (!mounted) return false;
@@ -326,6 +385,32 @@ class _ShellState extends ConsumerState<_Shell> {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     return browser.isAttached;
+  }
+
+  /// Set while a multitasking start is bringing the surface up, before the
+  /// operation that asked for it exists. Counted as ownership by
+  /// [_WebReaderAppState._recomputeSurface] via [pendingSurfaceClaim].
+  bool _surfaceClaim = false;
+  Timer? _surfaceClaimTimer;
+
+  void _claimSurfaceForStart() {
+    _surfaceClaim = true;
+    _surfaceClaimTimer?.cancel();
+    // Long enough for a queue pump to claim a task and start it; short enough
+    // that a start which never happened stops holding the surface.
+    _surfaceClaimTimer = Timer(
+      const Duration(seconds: 20),
+      _releaseSurfaceClaim,
+    );
+    ref.read(pendingSurfaceClaimProvider).value = true;
+  }
+
+  void _releaseSurfaceClaim() {
+    _surfaceClaimTimer?.cancel();
+    _surfaceClaimTimer = null;
+    if (!_surfaceClaim) return;
+    _surfaceClaim = false;
+    ref.read(pendingSurfaceClaimProvider).value = false;
   }
 
   void _onKeepPaintedChanged() {
@@ -340,32 +425,42 @@ class _ShellState extends ConsumerState<_Shell> {
     _tabRequest.removeListener(_onTabRequested);
     _cleanup.removals.removeListener(_onStorageChanged);
     _queue.ensureBrowserVisible = null;
+    _surfaceClaimTimer?.cancel();
     super.dispose();
   }
 
-  /// True when leaving the Browser right now would strand a WebView-
-  /// dependent phase. Downloading/saving phases and already-paused runs are
-  /// deliberately excluded — the modal must not cry wolf.
+  /// True when leaving the Browser right now would strand a phase that needs
+  /// the page on screen.
   ///
-  /// And when the Browser is going to keep working underneath whatever the
-  /// user opens, there is nothing to strand, so there is nothing to ask about.
-  /// Asking anyway would be the same cry-wolf mistake in a new place.
-  bool get _leavingBrowserIsRisky =>
-      _index == 1 &&
-      !_keepPainted.value &&
-      (_run.needsRenderedBrowser || _checker.isRunning);
+  /// Downloading and committing phases are deliberately excluded — they were
+  /// safe away from the Browser before any of this existed and stay safe for
+  /// everyone — and so is an already-paused run. The modal must not cry wolf.
+  bool get _phaseNeedsBrowser =>
+      _index == 1 && (_run.needsRenderedBrowser || _checker.isRunning);
 
-  /// The design's leave-Browser confirmation. Returns true when navigation
-  /// may proceed (either nothing was at risk, or the user chose to pause).
+  /// Who decides, and it is never this widget: what the user has, what they
+  /// asked for and what the running task started with all resolve in
+  /// [ForegroundMultitasking.leaveGate].
+  LeaveGate get _leaveGate =>
+      _capability.leaveGate(phaseNeedsBrowser: _phaseNeedsBrowser);
+
+  /// The leave-Browser decision. Returns true when navigation may proceed —
+  /// either nothing was at risk, or the user chose to hold the work here.
+  ///
+  /// Dismissing the sheet is *stay*: walking away from a question about work in
+  /// flight must never be read as permission to strand it.
   Future<bool> confirmLeaveBrowser() async {
-    if (!_leavingBrowserIsRisky) return true;
-    final leave = await showLeaveBrowserDialog(
+    final gate = _leaveGate;
+    if (gate == LeaveGate.allowed) return true;
+    final choice = await showLeaveBrowserSheet(
       context: context,
+      ref: ref,
+      gate: gate,
       progressLine: _run.isRunning
           ? _run.progressSummary
           : 'Checking for new entries',
     );
-    if (!leave) return false;
+    if (choice != LeaveChoice.pauseAndLeave) return false;
     // Pause the WebView-dependent phase before anything moves. The task
     // stays active and queued work is untouched: this is a hold, not a stop.
     if (_run.isRunning) _run.pauseForBrowserHidden();
@@ -398,7 +493,12 @@ class _ShellState extends ConsumerState<_Shell> {
   /// go back to the Library without the shell fighting them.
   void _onAutomationChanged() {
     final busy = _run.isRunning || _checker.isRunning;
-    if (busy && !_wasBusy && _index != 1) {
+    // A real owner has appeared: the start claim has done its job.
+    if (busy) _releaseSurfaceClaim();
+    // With the capability on, an operation starting is not a reason to move
+    // the user. The surface is kept drawn underneath whatever they are looking
+    // at, which is the entire product difference.
+    if (busy && !_wasBusy && _index != 1 && !_capability.enabledForActiveTask) {
       setState(() => _index = 1);
       _tab.value = _index;
     }
@@ -438,7 +538,7 @@ class _ShellState extends ConsumerState<_Shell> {
       // WebView-dependent phase is running, then let it through once the
       // user has answered.
       child: PopScope(
-        canPop: !_leavingBrowserIsRisky,
+        canPop: _leaveGate == LeaveGate.allowed,
         onPopInvokedWithResult: (didPop, _) async {
           if (didPop) return;
           final navigator = Navigator.of(context);

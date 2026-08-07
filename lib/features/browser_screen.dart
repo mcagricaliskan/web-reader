@@ -33,6 +33,7 @@ import 'browser_states.dart';
 import 'browser_toolbar.dart';
 import 'browser_url_editor.dart';
 import 'check_panel.dart';
+import 'collection_name_panel.dart';
 import 'save_panel.dart';
 import 'save_queue_ui.dart';
 import 'save_preflight_sheet.dart';
@@ -522,6 +523,16 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                     request: checkRequest,
                   );
                 }
+                // Before the duplicate prompt, because it comes first in the
+                // run: membership is decided on page 1, ahead of the preflight
+                // that finds an existing copy.
+                final naming = run.pendingCollectionName;
+                if (naming != null) {
+                  return CollectionNamePanel(
+                    proposal: naming,
+                    onSubmit: run.resolveCollectionName,
+                  );
+                }
                 final duplicate = run.pendingDuplicate;
                 if (duplicate != null) {
                   return DuplicateDecisionPanel(run: run, request: duplicate);
@@ -586,7 +597,9 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
       activeState: run.progress.state,
       needsRenderedBrowser: run.needsRenderedBrowser,
       awaitingUser:
-          run.pendingSelection != null || run.pendingDuplicate != null,
+          run.pendingSelection != null ||
+          run.pendingDuplicate != null ||
+          run.pendingCollectionName != null,
       pausedForBrowser: run.pauseReason == kPauseBrowserHidden,
       checkerRunning: checker.isRunning,
       pageEnteredManually: _pageEnteredManually,
@@ -981,7 +994,9 @@ class _SaveActions extends StatelessWidget {
           activeState: run.progress.state,
           needsRenderedBrowser: run.needsRenderedBrowser,
           awaitingUser:
-              run.pendingSelection != null || run.pendingDuplicate != null,
+              run.pendingSelection != null ||
+              run.pendingDuplicate != null ||
+              run.pendingCollectionName != null,
           pausedForBrowser: run.pauseReason == kPauseBrowserHidden,
           checkerRunning: checker.isRunning,
           pageEnteredManually: pageEnteredManually,

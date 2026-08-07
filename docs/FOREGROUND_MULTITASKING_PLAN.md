@@ -21,6 +21,33 @@ Status vocabulary: `todo` · `doing` · `done` · `blocked` · `dropped`.
 
 ---
 
+## Product boundary — built
+
+The Free/Pro boundary is implemented and covered by deterministic tests. What
+landed, and where it is specified:
+
+- `lib/capability/foreground_gate.dart` — `resolveStartGate`,
+  `resolveLeaveGate`, `TaskCapabilitySnapshot`. Pure; no widget, route or
+  WebView. Spec: FOREGROUND_MULTITASKING.md §10.5–§10.6.
+- `lib/features/foreground_gate_sheet.dart` — the one reusable surface:
+  `showStartOptionsSheet`, `ForegroundStartActions` (embedded by the Library
+  check sheet), `showLeaveBrowserSheet`, `showProInfoSheet`, and
+  `setKeepWorkingPreference` as the single writer of the preference.
+- Wired at: queued saves (`confirmAndStartSaves`), Library check
+  (`startLibraryCheck`), every route out of the Browser (`LeaveBrowserGuard` →
+  `_ShellState.confirmLeaveBrowser`, which also backs `PopScope`, the bottom
+  tabs and every `LeaveBrowserGuard.push`), and the Settings row.
+- Tests: `foreground_gate_test.dart` (49 assertions over the decision layer,
+  the snapshot, and a structural guard that no screen reads the internal
+  override), `foreground_gate_ui_test.dart` (both sheets, the locked-row
+  semantics, the Settings row under Force Free and Force Pro).
+
+**Still open, and unchanged by this work:** the physical-hardware gate (D-1,
+D-2). `ForegroundMultitasking.defaultEnabled` is still `false`, so the Pro path
+is reachable today only through the internal Force Pro override.
+
+**Not built:** billing. `_upgradeSeat` is the seam; nothing fakes a purchase.
+
 ## 1. Phase order, and why
 
 1. **Gate** — the covered-rendering premise decides the architecture, so nothing

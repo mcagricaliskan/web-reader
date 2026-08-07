@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
 import '../browser/saved_sites_repository.dart';
+import '../capability/foreground_gate.dart';
 import '../capability/foreground_multitasking.dart';
 import '../core/local_reset.dart';
 import '../providers.dart';
@@ -10,6 +11,7 @@ import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import 'appearance_selector.dart';
 import 'browser_data_dialogs.dart';
+import 'foreground_gate_sheet.dart';
 import 'library_screen.dart' show formatBytes;
 import '../library/entry_labels.dart';
 
@@ -119,7 +121,7 @@ class SettingsScreen extends ConsumerWidget {
             'per collection — open a collection and use Downloaded entries.',
           ),
           const SectionLabel('SAVING & SOURCES'),
-          const _KeepWorkingSwitch(),
+          const KeepWorkingSettingRow(),
           _SettingsNote(
             'Nothing runs on its own, and nothing continues once you leave '
             'Scrollary — this only decides whether the page a save or check '
@@ -186,14 +188,15 @@ class SettingsScreen extends ConsumerWidget {
 /// restart. Turning it off never stops anything and never loses anything; the
 /// operation simply goes back to needing the Browser on screen, which is what
 /// it always did.
-class _KeepWorkingSwitch extends ConsumerStatefulWidget {
-  const _KeepWorkingSwitch();
+class KeepWorkingSettingRow extends ConsumerStatefulWidget {
+  const KeepWorkingSettingRow({super.key});
 
   @override
-  ConsumerState<_KeepWorkingSwitch> createState() => _KeepWorkingSwitchState();
+  ConsumerState<KeepWorkingSettingRow> createState() =>
+      _KeepWorkingSettingRowState();
 }
 
-class _KeepWorkingSwitchState extends ConsumerState<_KeepWorkingSwitch> {
+class _KeepWorkingSettingRowState extends ConsumerState<KeepWorkingSettingRow> {
   late final ForegroundMultitasking _capability;
 
   @override
@@ -213,12 +216,7 @@ class _KeepWorkingSwitchState extends ConsumerState<_KeepWorkingSwitch> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _set(bool value) async {
-    _capability.preference = value;
-    await ref
-        .read(databaseProvider)
-        .setSetting(ForegroundMultitasking.settingKey, _capability.storedValue);
-  }
+  Future<void> _set(bool value) => setKeepWorkingPreference(ref, value);
 
   @override
   Widget build(BuildContext context) {
@@ -226,22 +224,52 @@ class _KeepWorkingSwitchState extends ConsumerState<_KeepWorkingSwitch> {
     // switch shows what the user asked for and refuses to act, rather than
     // silently reading back "off" and losing their choice.
     final available = _capability.proAvailable;
-    return SwitchListTile(
-      key: const ValueKey('settingsKeepWorking'),
-      secondary: Icon(available ? Icons.hourglass_bottom : Icons.lock_outline),
-      title: const Text('Keep working while I read'),
-      subtitle: Text(
-        !available
-            ? 'A Pro capability. Without it, a save or check waits whenever '
-                  'you leave the Browser — everything else is unchanged.'
-            : _capability.enabled
-            ? 'A save or check you started carries on while you read or use '
-                  'the Library. Scrollary has to stay open in front — nothing '
-                  'runs in the background.'
-            : 'A save or check waits whenever you leave the Browser',
+    const title = kKeepWorkingLabel;
+    final subtitle = !available
+        ? 'A Pro capability. Without it, a save or check waits whenever you '
+              'leave the Browser — everything else is unchanged.'
+        : _capability.enabled
+        ? 'A save or check you started carries on while you read or use the '
+              'Library. $kForegroundOnlyNote'
+        : 'A save or check waits whenever you leave the Browser';
+
+    if (available) {
+      return SwitchListTile(
+        key: const ValueKey('settingsKeepWorking'),
+        secondary: const Icon(Icons.hourglass_bottom),
+        title: const Text(title),
+        subtitle: Text(subtitle),
+        value: _capability.preference,
+        onChanged: _set,
+      );
+    }
+
+    // Locked, and **tappable**. A disabled switch cannot explain itself: it
+    // announces as unavailable and stops there, which teaches the user nothing
+    // about what is missing or why. This row keeps showing what they asked for
+    // — the stored preference is never discarded — refuses to change it, and
+    // opens the one surface that says what Pro would do.
+    return Semantics(
+      button: true,
+      label: '$title. Requires Pro. $subtitle Double tap to learn more.',
+      excludeSemantics: true,
+      child: ListTile(
+        key: const ValueKey('settingsKeepWorking'),
+        leading: const Icon(Icons.lock_outline),
+        title: Row(
+          children: [
+            const Flexible(child: Text(title)),
+            const SizedBox(width: 8),
+            const ProBadge(),
+          ],
+        ),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => showProInfoSheet(
+          context: context,
+          action: ForegroundGateAction.settingsPreference,
+        ),
       ),
-      value: _capability.preference,
-      onChanged: available ? _set : null,
     );
   }
 }

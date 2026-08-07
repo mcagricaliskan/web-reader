@@ -23,7 +23,8 @@ import 'save_preflight.dart';
 import 'save_state.dart';
 import 'size_estimate.dart';
 import '../library/collection_identity.dart';
-import '../library/collection_repository.dart' show displayNameFor;
+import '../library/collection_repository.dart'
+    show NewCollectionProposal, displayNameFor;
 import '../library/entry_labels.dart' show kPlainEntryLabels;
 import 'next_page.dart';
 import 'page_hint_repository.dart';
@@ -103,6 +104,7 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     PageHintRepository? rules,
     this.config = kDefaultSaveConfig,
     DeviceStorage? deviceStorage,
+    this.asksForCollectionName = false,
   }) : rules = rules ?? PageHintRepository(db),
        deviceStorage = deviceStorage ?? DeviceStorage();
 
@@ -113,6 +115,16 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
   final PageHintRepository rules;
   final SaveConfig config;
   final DeviceStorage deviceStorage;
+
+  /// Whether a collection this run creates is named by the user before the row
+  /// is written.
+  ///
+  /// True in the app, where the Browser renders `CollectionNamePanel` in the
+  /// slot the duplicate prompt uses. Left false by default so a run with
+  /// nothing able to answer — a unit test, an integration harness — keeps the
+  /// detected title rather than holding forever for an answer that can never
+  /// arrive. The only place that sets it is `main.dart`.
+  final bool asksForCollectionName;
 
   SaveProgress _progress = const SaveProgress();
   SaveProgress get progress => _progress;
@@ -168,6 +180,12 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
   DuplicateRequest? _pendingDuplicate;
   DuplicateRequest? get pendingDuplicate => _pendingDuplicate;
   Completer<DuplicateChoice>? _duplicateCompleter;
+
+  /// Set while the run is holding for the user to name a collection it is
+  /// about to create. Nothing has been written when this is non-null.
+  NewCollectionProposal? _pendingCollectionName;
+  NewCollectionProposal? get pendingCollectionName => _pendingCollectionName;
+  Completer<String?>? _collectionNameCompleter;
 
   /// Session-scoped duplicate answers. Reset by [start], persisted with the
   /// run so an interrupted-session resume keeps them, never stored anywhere
@@ -319,6 +337,16 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     // entries there is no engine to cancel, and Stop must still be honoured.
     _stopRequested = true;
     _engine?.cancel();
+    // A run holding for a name is not inside the engine and not at the loop
+    // head — it is parked on a completer nothing else will finish. Stop has to
+    // release it, or "stop" from Activity leaves the run holding the Browser
+    // and the wakelock forever. Declining is the right answer: no row is
+    // written, which is what stopping here means.
+    if (_pendingCollectionName != null) {
+      _pendingCollectionName = null;
+      _collectionNameCompleter?.complete(null);
+      _collectionNameCompleter = null;
+    }
     _addLog('stop requested');
     notifyListeners();
   }
@@ -444,6 +472,41 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
     _duplicateCompleter?.complete(choice);
     _duplicateCompleter = null;
     notifyListeners();
+  }
+
+  /// The user answered the mid-run collection-naming prompt.
+  ///
+  /// A null [name] is a cancel, and a cancel goes through [stop] like every
+  /// other one: the repository writes no row, and the loop head ends the run
+  /// before the first entry is inspected.
+  void resolveCollectionName(String? name) {
+    if (_pendingCollectionName == null) return;
+    _pendingCollectionName = null;
+    if (name == null) {
+      _addLog('naming cancelled — nothing was saved');
+      stop();
+    }
+    _collectionNameCompleter?.complete(name);
+    _collectionNameCompleter = null;
+    notifyListeners();
+  }
+
+  Future<String?> _askCollectionName(NewCollectionProposal proposal) {
+    _pendingCollectionName = proposal;
+    _collectionNameCompleter = Completer<String?>();
+    _setProgress(
+      (p) => p.copyWith(
+        state: SaveState.awaitingSelection,
+        message: 'Name this collection',
+      ),
+    );
+    // Deliberately no `browser.startSelection` — this hold wants a keyboard,
+    // not a tap on the page.
+    _addLog(
+      'holding: naming a new collection from ${proposal.host} '
+      '(suggested "${proposal.suggestedName}")',
+    );
+    return _collectionNameCompleter!.future;
   }
 
   Future<DuplicateChoice> _askDuplicate(DuplicateRequest request) async {
@@ -732,6 +795,8 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
       _engine = null;
       _pendingDuplicate = null;
       _duplicateCompleter = null;
+      _pendingCollectionName = null;
+      _collectionNameCompleter = null;
       pauseReason = null;
       _publishRunRecord(_progress.currentUrl);
       notifyListeners();
@@ -1064,6 +1129,12 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
                       : sequence),
             hints: pageProbe?.pageHints ?? const PageHints(),
             log: _addLog,
+            // A group about to exist is named by the person making it. Asked
+            // here and nowhere else, because this is the only place a
+            // collection is created — and only when one actually is: joining
+            // an existing collection and saving a standalone entry both return
+            // before the prompt.
+            confirmNewName: asksForCollectionName ? _askCollectionName : null,
           );
         }
 
@@ -1080,6 +1151,12 @@ class SaveRunController extends ChangeNotifier implements SelectionHost {
           );
         }
       }
+
+      // Cancelling the naming prompt is a way out of the whole run, and this
+      // is the last point where that is still free: the preflight below is
+      // what first reaches for the disk. The loop head writes the cancelled
+      // state and returns.
+      if (_stopRequested) continue;
 
       final preflight = await SavePreflight(
         db: db,

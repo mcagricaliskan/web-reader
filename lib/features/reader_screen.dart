@@ -230,6 +230,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _reading = ref.read(readingRepositoryProvider);
     _cleanup = ref.read(cleanupProvider);
     _entryId = widget.entryId;
+    _chromeVisibility = ref.read(readerChromeVisibleProvider);
     // The open entry is locked against offline-file removal for as long
     // as this screen exists.
     _cleanup.openReaderEntryId.value = widget.entryId;
@@ -250,6 +251,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (_cleanup.openReaderEntryId.value == _entryId) {
       _cleanup.openReaderEntryId.value = null;
     }
+    // Whatever this reader hid, it stops hiding on the way out — otherwise the
+    // running-operation indicator would stay gone on every screen after it.
+    //
+    // Deferred rather than written here: `dispose` runs with the element tree
+    // locked, where a listener that rebuilds is an error the framework asserts
+    // on, and this flag exists precisely to make something else rebuild. A
+    // microtask rather than a post-frame callback, because
+    // `addPostFrameCallback` does not schedule a frame — a reader disposed on
+    // the last frame of a teardown would leave the flag stuck false and the
+    // indicator hidden for good. The microtask queue drains at the end of this
+    // same frame whether another frame comes or not.
+    final chrome = _chromeVisibility;
+    scheduleMicrotask(() => chrome.publish(true));
     super.dispose();
   }
 
@@ -966,6 +980,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   /// the way on the first tap. Tapping the page toggles it.
   bool _chromeVisible = true;
 
+  /// Where [_chromeVisible] is published for anything drawn above the router.
+  ///
+  /// The reader's bars are the app's statement about whether the page is being
+  /// read or being managed, so the running-operation indicator follows them
+  /// rather than keeping a second opinion.
+  late final ReaderChromeVisibility _chromeVisibility;
+
   /// True once the reader has scrolled far enough from the restored position
   /// that offering a way back is useful rather than confusing.
   bool _showJump = false;
@@ -1121,6 +1142,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _pendingTapVerdict = null;
     if (verdict == false) return;
     setState(() => _chromeVisible = !_chromeVisible);
+    _chromeVisibility.publish(_chromeVisible);
   }
 
   /// Bring an entry back that has no local files — the same queued save

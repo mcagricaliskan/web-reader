@@ -165,9 +165,11 @@ void main() {
       const Duration(milliseconds: 700),
       'to Library',
     );
-    final leave = find.text('Leave and pause');
+    // The leave sheet, whatever shape it takes for this build's entitlement:
+    // *Pause and leave* is the one answer that is always offered, to everyone.
+    final leave = find.byKey(const ValueKey('leavePauseAndLeave'));
     if (leave.evaluate().isNotEmpty) {
-      harness.note('leave-Browser confirmation shown — answered');
+      harness.note('leave-Browser sheet shown — held the task and left');
       await tester.tap(leave);
       await harness.pumpFor(
         tester,

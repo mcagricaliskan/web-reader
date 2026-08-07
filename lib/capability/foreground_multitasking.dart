@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'entitlement.dart';
+import 'foreground_gate.dart';
 
 /// Whether one user-started operation may keep running while the user is
 /// somewhere else in the app.
@@ -94,6 +95,39 @@ class ForegroundMultitasking extends ChangeNotifier {
   /// this and nothing reads the two halves separately, so there is one answer
   /// and it cannot drift.
   bool get enabled => foregroundMultitaskingActive(
+    effective: effectiveEntitlement,
+    preferenceEnabled: _enabled,
+  );
+
+  /// The capability the operation currently holding the Browser started with.
+  ///
+  /// Kept here rather than in the shell because it is part of the answer to
+  /// "is this happening", and the shell is only the thing that happens to
+  /// notice ownership changing. See [TaskCapabilitySnapshot].
+  final TaskCapabilitySnapshot taskSnapshot = TaskCapabilitySnapshot();
+
+  /// **Is the task in flight multitasking?**
+  ///
+  /// [enabled] answers for the *next* task; this answers for the one already
+  /// running. They differ exactly when the user changed something mid-task,
+  /// which is the case the snapshot exists for — and the reason the leave sheet
+  /// can honestly say a new preference applies to the next task.
+  bool get enabledForActiveTask => taskSnapshot.held ?? enabled;
+
+  /// What a start surface should offer. One question, one answer, everywhere.
+  StartGate get startGate => resolveStartGate(
+    effective: effectiveEntitlement,
+    preferenceEnabled: _enabled,
+  );
+
+  /// What should happen when the user tries to leave the Browser now.
+  ///
+  /// [phaseNeedsBrowser] is the caller's own knowledge of the operation in
+  /// flight — a download or commit phase that is already safe away from the
+  /// page answers false, and gets [LeaveGate.allowed] for everyone.
+  LeaveGate leaveGate({required bool phaseNeedsBrowser}) => resolveLeaveGate(
+    phaseNeedsBrowser: phaseNeedsBrowser,
+    taskMultitaskingActive: enabledForActiveTask,
     effective: effectiveEntitlement,
     preferenceEnabled: _enabled,
   );

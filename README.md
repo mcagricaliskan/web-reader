@@ -37,3 +37,8 @@ Not a bulk fetcher, an automated harvester, a site archiver, a client for
 particular websites, or a tool for getting past paywalls, logins, access
 controls, DRM, verification checks or rate limits. It ships no site list and no
 site-specific behaviour, and a build-time test enforces that.
+
+
+
+flutter run --release \
+  --dart-define=SCROLLARY_INTERNAL_BUILD=true

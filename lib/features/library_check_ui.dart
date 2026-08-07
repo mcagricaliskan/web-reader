@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../library/library_check.dart';
+import '../capability/foreground_gate.dart';
 import '../providers.dart';
 import '../storage/database.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../ui/theme.dart';
+import 'foreground_gate_sheet.dart';
 import 'library_check_flow.dart';
 import 'library_screen.dart' show LibraryCollection, formatRelative;
 
@@ -126,19 +128,35 @@ Future<void> startLibraryCheck(BuildContext context, WidgetRef ref) async {
   // touches the widget's context or `ref`: the card that offered the check is
   // replaced by the card that reports it, and a run must not be lost because
   // the element that started it went away.
-  if (!await showLibraryCheckSheet(context, preview)) return;
+  final choice = await showLibraryCheckSheet(context, ref, preview);
+  // Dismissed, or *Not now*: nothing is scheduled and nothing moves.
+  if (choice == null) return;
+  if (choice == StartChoice.enableAndKeepUsingApp) {
+    await setKeepWorkingPreference(ref, true);
+  }
+  // The one difference the capability makes here. A visible-Browser run owns
+  // the foreground: it takes the user to the Browser and owes them the way
+  // back, which is what `beginForeground` records. A multitasking run claims
+  // nothing about what the user is looking at — it checks, reports and
+  // navigates nobody — which is the `unattached` presentation this flow was
+  // built with from the start. Same queue, same checker, same report.
+  final keepUsingApp = choice != StartChoice.inBrowser;
 
   // Stamped before the first row exists: everything discovered or checked at
   // or after this instant belongs to this run.
   final startedAt = DateTime.now();
-  flow.beginForeground(
-    plan: LibraryCheckPlan.preparing(startedAt),
-    returnTab: tab,
-    surfaceBefore: presentation.surface,
-    // Only Browser-dependent work moves the user. A run that schedules
-    // nothing never leaves the Library, so it has nothing to hand back.
-    willUseBrowser: preview.hasAnything,
-  );
+  if (keepUsingApp) {
+    flow.beginUnattached(LibraryCheckPlan.preparing(startedAt));
+  } else {
+    flow.beginForeground(
+      plan: LibraryCheckPlan.preparing(startedAt),
+      returnTab: tab,
+      surfaceBefore: presentation.surface,
+      // Only Browser-dependent work moves the user. A run that schedules
+      // nothing never leaves the Library, so it has nothing to hand back.
+      willUseBrowser: preview.hasAnything,
+    );
+  }
   final scheduled = await queue.enqueueLibraryCheck();
   flow.attachPlan(
     LibraryCheckPlan(
@@ -172,11 +190,13 @@ void dismissLibraryCheck(WidgetRef ref) =>
 
 // --- the pre-run sheet ------------------------------------------------------
 
-Future<bool> showLibraryCheckSheet(
+Future<StartChoice?> showLibraryCheckSheet(
   BuildContext context,
+  WidgetRef ref,
   LibraryCheckPreview preview,
 ) async {
-  final result = await showModalBottomSheet<bool>(
+  final gate = ref.read(foregroundMultitaskingProvider).startGate;
+  return showModalBottomSheet<StartChoice>(
     context: context,
     isScrollControlled: true,
     builder: (sheetContext) {
@@ -246,12 +266,15 @@ Future<bool> showLibraryCheckSheet(
                     'WHAT HAPPENS',
                     padding: EdgeInsets.only(bottom: 8),
                   ),
-                  const _SheetPoint(
+                  _SheetPoint(
                     icon: Icons.visibility,
-                    text:
-                        'One collection at a time, in the Browser, while you '
-                        'watch. It runs only while the app is open — there is '
-                        'no background or scheduled checking.',
+                    text: gate == StartGate.multitaskingReady
+                        ? 'One collection at a time, in the Browser. It runs '
+                              'only while the app is open — there is no '
+                              'background or scheduled checking.'
+                        : 'One collection at a time, in the Browser, while you '
+                              'watch. It runs only while the app is open — '
+                              'there is no background or scheduled checking.',
                   ),
                   const _SheetPoint(
                     icon: Icons.cloud,
@@ -269,34 +292,27 @@ Future<bool> showLibraryCheckSheet(
                   ),
                 ],
                 const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(sheetContext).pop(false),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: Text(preview.hasAnything ? 'Not now' : 'Close'),
-                      ),
+                if (preview.hasAnything) ...[
+                  ForegroundStartActions(
+                    key: const ValueKey('confirmLibraryCheck'),
+                    gate: gate,
+                    action: ForegroundGateAction.startCollectionCheck,
+                    inBrowserLabel: 'Check in Browser',
+                    keepUsingAppLabel: 'Check and keep using Scrollary',
+                    onChoice: (choice) =>
+                        Navigator.of(sheetContext).pop(choice),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
-                    if (preview.hasAnything) ...[
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton(
-                          key: const ValueKey('confirmLibraryCheck'),
-                          onPressed: () => Navigator.of(sheetContext).pop(true),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                          child: const FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text('Check all collections'),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
+                    child: Text(preview.hasAnything ? 'Not now' : 'Close'),
+                  ),
                 ),
               ],
             ),
@@ -305,7 +321,6 @@ Future<bool> showLibraryCheckSheet(
       );
     },
   );
-  return result ?? false;
 }
 
 class _SheetFact extends StatelessWidget {

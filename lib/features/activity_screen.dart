@@ -81,7 +81,10 @@ class ActivityScreen extends ConsumerWidget {
             ),
           ];
 
-          if (list.isEmpty) {
+          // A direct save holds no queue row while it runs (D58), so an empty
+          // list is not the same as an idle app — and this screen is where the
+          // activity indicator sends the user to stop exactly that run.
+          if (list.isEmpty && !run.hasActiveRun) {
             return const _NothingHappening();
           }
 

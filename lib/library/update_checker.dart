@@ -19,6 +19,14 @@ import '../storage/database.dart';
 import '../storage/manifest.dart';
 import 'collection_identity.dart';
 import 'content_shape.dart';
+import 'entry_identity.dart';
+
+export 'entry_identity.dart'
+    show
+        EntryIdentityConcern,
+        EntryIdentityDoubt,
+        EntryIdentityReading,
+        kEntryIdentityUnreliableMessage;
 
 const _uuid = Uuid();
 
@@ -91,6 +99,7 @@ class UpdateCheckOutcome {
     this.pagesInspected = 0,
     this.error,
     this.detail = '',
+    this.concerns = const [],
   });
 
   final UpdateCheckState state;
@@ -98,6 +107,18 @@ class UpdateCheckOutcome {
   final int pagesInspected;
   final String? error;
   final String detail;
+
+  /// Present when the check stopped because it could not justify an entry's
+  /// number. [error] is the sentence; this is the evidence behind it, kept
+  /// structured so a report can eventually show which entry, what each source
+  /// read, and what the addresses around it said — none of which is shown
+  /// anywhere yet.
+  final List<EntryIdentityConcern> concerns;
+
+  /// The check stopped on an unsupportable entry identity rather than on a
+  /// network or navigation failure. Both are [UpdateCheckState.failed]; only
+  /// this one has evidence to show.
+  bool get stoppedOnEntryIdentity => concerns.isNotEmpty;
 }
 
 /// Foreground, user-triggered "has this collection published anything since?".
@@ -167,6 +188,24 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
 
   /// URLs walked or already known this check; what stops loops.
   final Set<String> _visited = {};
+
+  /// Entry identities this check could not justify. Populated by the write
+  /// gate and by the list reading, and emptied at the start of every check.
+  final List<EntryIdentityConcern> _concerns = [];
+
+  /// What the entries already held read like, from both sources — the evidence
+  /// the chain walk judges a newly walked page against. Built from rows that
+  /// are already in hand, so no extra page is loaded to obtain it.
+  final List<EntryIdentityReading> _identityEvidence = [];
+
+  /// The outcome for a check that stopped on an entry it could not identify.
+  UpdateCheckOutcome _identityRefusal() => UpdateCheckOutcome(
+    state: UpdateCheckState.failed,
+    error: kEntryIdentityUnreliableMessage,
+    newEntries: _newEntries,
+    pagesInspected: _pagesInspected,
+    concerns: List.unmodifiable(_concerns),
+  );
 
   void _addLog(String message) {
     final stamp = DateTime.now().toIso8601String().substring(11, 19);
@@ -365,6 +404,8 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     _cancelRequested = false;
     _visited.clear();
     _log.clear();
+    _concerns.clear();
+    _identityEvidence.clear();
     _pagesInspected = 0;
     _newEntries = 0;
     _forwardDepth = 0;
@@ -456,6 +497,12 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
 
     for (final c in entries) {
       _visited.add(c.urlKey);
+      // Read afresh from the stored title and address rather than trusting the
+      // stored number, which may itself have come from either source. The two
+      // readings are only evidence while they are still independent.
+      _identityEvidence.add(
+        EntryIdentityReading.read(url: c.sourceUrl, label: c.title),
+      );
     }
 
     double? latestNumber;
@@ -504,6 +551,19 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
             'check (limit ${config.maxNewEntries})',
           );
         }
+        // The list contradicted itself about at least one entry's number.
+        // Stopping here is the point: not writing the doubted row would still
+        // leave us reading the rest of the same page with the same fault, and
+        // falling through to the chain walk would re-read those same entries
+        // from their own pages and call a second wrong answer a second opinion.
+        if (discovery.concerns.isNotEmpty) {
+          _concerns.addAll(discovery.concerns);
+          for (final concern in discovery.concerns) {
+            _addLog(concern.summary);
+          }
+          _addLog(kEntryIdentityUnreliableMessage);
+          return _identityRefusal();
+        }
         // Trusting an empty result means declaring the collection up to date
         // without looking any further. That is only safe when the list's own
         // ordering was unambiguous; otherwise "nothing above the checkpoint"
@@ -533,8 +593,10 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
               entryOrder: maxEntryOrder,
               basis: 'entryList',
               confidence: 'high',
+              inView: _identityEvidence,
             );
-            if (!recorded) continue;
+            if (recorded == _DiscoveryWrite.refused) return _identityRefusal();
+            if (recorded != _DiscoveryWrite.written) continue;
             _newEntries++;
             _addLog('found: ${found_.title}');
           }
@@ -698,10 +760,17 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
         basis: 'nextChain',
         confidence: resolved.confidence ?? 'high',
         nextSourceUrl: resolved.url,
+        inView: _identityEvidence,
       );
-      if (recorded) {
+      if (recorded == _DiscoveryWrite.refused) return _identityRefusal();
+      if (recorded == _DiscoveryWrite.written) {
         _newEntries++;
         _addLog('found: $title');
+        // Each page the walk accepts becomes evidence for the next one, so a
+        // chain that starts agreeing with itself keeps its own record of that.
+        _identityEvidence.add(
+          EntryIdentityReading.read(url: landed, label: title),
+        );
       }
 
       if (resolved.cancelled) {
@@ -867,9 +936,15 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     }
   }
 
-  /// Write a discovered entry. False when nothing was written — the address is
-  /// restricted, or the entry is already known.
-  Future<bool> _recordDiscovered({
+  /// Write a discovered entry.
+  ///
+  /// The single place a discovery of any kind becomes a row, and therefore the
+  /// place the identity is cross-checked one last time. Both strategies reach
+  /// it, so neither can grow a way past it.
+  ///
+  /// [inView] is the evidence the caller had — the other entries on the list it
+  /// read, or the entries already held plus the pages walked so far.
+  Future<_DiscoveryWrite> _recordDiscovered({
     required Collection item,
     required String url,
     required String title,
@@ -877,6 +952,7 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     required int entryOrder,
     required String basis,
     required String confidence,
+    required List<EntryIdentityReading> inView,
     String? nextSourceUrl,
   }) async {
     // A discovered entry is a row the user is invited to save. One on a
@@ -884,12 +960,32 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
     // work through the "save new entries" path.
     if (isCaptureRestricted(url)) {
       _addLog(kCaptureRestrictedMessage);
-      return false;
+      return _DiscoveryWrite.skipped;
     }
+
+    // Nothing is written on a number the evidence contradicts. This is the
+    // boundary that matters: a row that never exists cannot be read back as a
+    // checkpoint, cannot order anything, and cannot be repaired later by
+    // guessing what the source meant.
+    final reading = EntryIdentityReading.read(url: url, label: title);
+    final concerns = reviewEntryIdentities(
+      candidates: [reading],
+      inView: [...inView, reading],
+    );
+    if (concerns.isNotEmpty) {
+      _concerns.addAll(concerns);
+      for (final concern in concerns) {
+        _addLog(concern.summary);
+      }
+      return _DiscoveryWrite.refused;
+    }
+
     final key = normalizeUrl(url);
     _visited.add(key);
     final existing = await db.findEntryByUrlKey(item.id, key);
-    if (existing != null) return false; // already known — never a duplicate row
+    if (existing != null) {
+      return _DiscoveryWrite.skipped; // already known — never a duplicate row
+    }
 
     await db.upsertEntry(
       Entry(
@@ -933,8 +1029,23 @@ class UpdateChecker extends ChangeNotifier implements SelectionHost {
         discoveryConfidence: confidence,
       ),
     );
-    return true;
+    return _DiscoveryWrite.written;
   }
+}
+
+/// What one attempt to write a discovered entry did.
+enum _DiscoveryWrite {
+  /// A new discovered entry row exists.
+  written,
+
+  /// Nothing was written and nothing is wrong — the entry is already known, or
+  /// its address is on a restricted service. The caller carries on.
+  skipped,
+
+  /// Nothing was written because the entry's number is not supported by the
+  /// evidence. The caller stops; carrying on would mean reading the rest of a
+  /// source we have just shown we are reading incorrectly.
+  refused,
 }
 
 /// One entry link found on a collection page.
@@ -961,6 +1072,7 @@ class EntryListDiscovery {
     this.direction = EntryListDirection.unknown,
     this.orderingConfident = false,
     this.dropped = 0,
+    this.concerns = const [],
   });
 
   /// Whether the page plausibly showed this collection's entry list at all.
@@ -983,6 +1095,12 @@ class EntryListDiscovery {
   /// New entries found but cut by `maxNew`. Reported rather than silently
   /// dropped: the next check picks them up, and the log should say so.
   final int dropped;
+
+  /// Entries whose number the list's own evidence contradicts. Never empty and
+  /// ignorable: they are already absent from [newEntries], and a caller that
+  /// finds any of these must stop rather than treat the rest as a clean
+  /// reading of the page.
+  final List<EntryIdentityConcern> concerns;
 }
 
 /// One same-collection link, with the two things ordering can be read from: the
@@ -993,14 +1111,22 @@ class _EntryLink {
     required this.url,
     required this.key,
     required this.title,
-    required this.number,
+    required this.reading,
     required this.depth,
-  }) : position = number;
+  }) : number = reading.labelNumber ?? reading.urlNumber,
+       position = reading.labelNumber ?? reading.urlNumber;
 
   final int index;
   final String url;
   final String key;
   final String title;
+
+  /// Both readings of this entry's number, kept apart so they can be compared.
+  /// [number] is the one discovery acts on and is exactly what
+  /// `parseEntryNumber(title:, url:)` would have returned — the label's number
+  /// when it has one, the address's otherwise.
+  final EntryIdentityReading reading;
+
   final double? number;
   final int depth;
 
@@ -1080,7 +1206,7 @@ EntryListDiscovery discoverFromEntryList(
         url: resolved,
         key: key,
         title: link.text.trim().isEmpty ? resolved : link.text.trim(),
-        number: parseEntryNumber(title: link.text, url: resolved),
+        reading: EntryIdentityReading.read(url: resolved, label: link.text),
         depth: _pathDepth(resolved),
       ),
     );
@@ -1188,9 +1314,28 @@ EntryListDiscovery discoverFromEntryList(
   // "up to date".
   final recognised = knownSeen > 0 || numbered.length >= 2;
 
+  // --- does the list contradict itself? -----------------------------------
+  //
+  // Asked of every entry that would be written, not only the first `maxNew` of
+  // them: a contradiction beyond the bound is a fault now, and deferring it to
+  // the next check would just discover it later with less context.
+  //
+  // A doubted candidate is *removed* as well as reported. The caller stops the
+  // whole check on `concerns`, so the removal is belt and braces — but this
+  // function is public and pure, and a future caller that reads `newEntries`
+  // without reading `concerns` must still be unable to persist one.
+  final concerns = reviewEntryIdentities(
+    candidates: fresh.map((c) => c.reading).toList(),
+    inView: candidates.map((c) => c.reading).toList(),
+  );
+  final doubted = concerns.map((c) => c.url).toSet();
+  final trusted = doubted.isEmpty
+      ? fresh
+      : fresh.where((c) => !doubted.contains(c.url)).toList();
+
   return EntryListDiscovery(
     listRecognised: recognised,
-    newEntries: fresh
+    newEntries: trusted
         .take(maxNew)
         .map(
           (c) => DiscoveredEntry(url: c.url, title: c.title, number: c.number),
@@ -1199,7 +1344,8 @@ EntryListDiscovery discoverFromEntryList(
     knownSeen: knownSeen,
     direction: direction,
     orderingConfident: confident,
-    dropped: fresh.length > maxNew ? fresh.length - maxNew : 0,
+    dropped: trusted.length > maxNew ? trusted.length - maxNew : 0,
+    concerns: concerns,
   );
 }
 

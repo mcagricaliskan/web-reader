@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
+import '../capability/foreground_gate.dart';
 import '../providers.dart';
 import '../queue/task_queue.dart';
 import '../save/capture_policy.dart';
@@ -10,6 +11,7 @@ import '../storage/database.dart';
 import '../ui/palette.dart';
 import '../ui/status_style.dart';
 import '../library/entry_labels.dart';
+import 'foreground_gate_sheet.dart';
 import 'open_in_browser.dart';
 
 /// Everything the "queue it now, start it later" flow needs on screen.
@@ -297,50 +299,39 @@ Future<bool> confirmAndStartSaves(BuildContext context, WidgetRef ref) async {
     return false;
   }
 
-  final start = await showDialog<bool>(
+  final n = waiting.length;
+  final choice = await showStartOptionsSheet(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      icon: Icon(
-        Icons.play_circle,
-        size: 26,
-        color: AppPalette.of(dialogContext).primary,
-      ),
-      title: const Text('Start queued saves?'),
-      content: Text(
-        'The Browser will open and must remain visible while pages are '
-        'prepared.\n\n'
-        'You can add more entries to the queue before starting. Once each '
-        'page is prepared, its image downloads may continue from Activity.',
-        style: const TextStyle(fontSize: 13.5, height: 1.55),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            Navigator.of(dialogContext).pop(false);
-            LeaveBrowserGuard.push(context, '/activity');
-          },
-          child: const Text('View queue'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Not now'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Start and open Browser'),
-        ),
-      ],
-    ),
+    ref: ref,
+    action: ForegroundGateAction.startQueuedSaves,
+    title: 'Start ${n == 1 ? 'the queued save' : '$n queued saves'}?',
+    summary:
+        'Each page has to be prepared in the Browser before its images can '
+        'be downloaded. Once a page is prepared, its downloads carry on '
+        'without it — you can watch all of it from Activity.',
   );
-  if (start != true) return false;
+  // Dismissed, or *Not now*: nothing was authorised, so every row is still
+  // waiting exactly where it was.
+  if (choice == null) return false;
   if (!context.mounted) return false;
+
+  if (choice == StartChoice.enableAndKeepUsingApp) {
+    await setKeepWorkingPreference(ref, true);
+    if (!context.mounted) return false;
+  }
 
   // Browser first, automation second — never the other way round (D47), and
   // *visibly* first: this action is started from Activity, from the Library
   // and from a row's own play button, and the first of those is a route above
   // the shell. Setting the tab index without popping is what left the user
   // watching a queue screen while the save ran in a Browser behind it.
-  showBrowserSurface(context, ref);
+  //
+  // The one thing the paid capability changes: with it on, the work still
+  // needs the Browser drawn, but it does not need the *user* taken there — so
+  // the surface is left alone and they stay on the screen they started from.
+  // Everything below this line is identical either way; there is one save
+  // engine and one queue, and only the navigation differs.
+  if (choice == StartChoice.inBrowser) showBrowserSurface(context, ref);
   await queue.startQueuedSaves();
   return true;
 }

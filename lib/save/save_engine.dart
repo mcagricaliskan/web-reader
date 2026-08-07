@@ -1777,10 +1777,12 @@ Future<Collection?> ensureCollection({
   required SequenceShape sequence,
   PageHints hints = const PageHints(),
   void Function(String)? log,
+  Future<String?> Function(NewCollectionProposal)? confirmNewName,
 }) => CollectionRepository(db).resolveCollection(
   entryUrl: url,
   pageTitle: title,
   sequence: sequence,
   hints: hints,
   log: log,
+  confirmNewName: confirmNewName,
 );

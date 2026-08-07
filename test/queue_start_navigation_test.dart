@@ -153,8 +153,8 @@ void main() {
 
   Future<void> confirmStart(WidgetTester tester) async {
     await tester.pumpAndSettle();
-    expect(find.text('Start queued saves?'), findsOneWidget);
-    await tester.tap(find.text('Start and open Browser'));
+    expect(find.textContaining('queued save'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('startInBrowser')));
     await tester.pumpAndSettle();
     await settle(tester);
   }

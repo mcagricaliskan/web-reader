@@ -30,8 +30,17 @@ const kNoSourcePageMessage = 'This entry does not have a source page.';
 /// Any modal still open is dismissed on the way, which is the honest
 /// outcome: a sheet or dialog over the shell hides the Browser just as
 /// effectively as a route does.
-void showBrowserSurface(BuildContext context, WidgetRef ref) {
-  final router = GoRouter.of(context);
+void showBrowserSurface(BuildContext context, WidgetRef ref) =>
+    showBrowserSurfaceWith(GoRouter.of(context), ref);
+
+/// [showBrowserSurface] for a caller that already holds the router.
+///
+/// The running-operation indicator is built in `MaterialApp.router`'s builder,
+/// which sits *above* the router's own inherited widget — `GoRouter.of` cannot
+/// reach one from there. Rather than let that call site hand-roll the pop and
+/// the tab switch, it passes the router the app already owns. One
+/// implementation, two ways in.
+void showBrowserSurfaceWith(GoRouter router, WidgetRef ref) {
   while (router.canPop()) {
     router.pop();
   }

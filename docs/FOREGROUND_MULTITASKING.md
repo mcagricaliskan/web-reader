@@ -514,10 +514,83 @@ everything in the "both" column is unconditional.
   something away.
 - Losing the capability removes a future convenience. It never removes a saved
   Entry, a Collection, a reading position, or the ability to read any of them.
-- The capability may be flipped at any moment, including mid-run: routes above
-  the shell read it live and update their own opacity, and the render guard
-  simply starts or stops holding. No state is corrupted either way, which is
-  what `AppPage`'s live listener is for.
+- The capability may be flipped at any moment. What it does **not** do is
+  change the operation already running — see §10.5.
+
+### 10.5 The task capability snapshot
+
+**An operation keeps the surface it started with.** `TaskCapabilitySnapshot`
+(`lib/capability/foreground_gate.dart`) latches the capability on the edge where
+an operation acquires the Browser, and drops it the moment nothing owns it. The
+shell's surface recompute reads the latched value, never the live one.
+
+Why it exists: without it, turning the preference off — or an entitlement source
+answering differently — while a save is mid-page stops the app compositing the
+WebView underneath it, and the run stalls on a page it was in the middle of
+reading. The user changed a setting; they did not ask to interrupt anything.
+
+The latch holds in **both** directions, and that is deliberate:
+
+| Change, mid-task | This task | The next task |
+|---|---|---|
+| Preference off | keeps multitasking | visible Browser |
+| Preference on | keeps needing the Browser | multitasking |
+| Force Pro → Force Free | keeps its surface; nothing is deleted or corrupted | Free |
+| Force Free → Force Pro | unchanged | Pro |
+
+So the honest sentence, and the one the leave sheet uses, is *"turning this on
+now applies to the next check or save"*. `ForegroundMultitasking.enabled`
+answers for the next task; `enabledForActiveTask` answers for the one running.
+
+### 10.6 The gate, and the one surface that presents it
+
+Every screen that starts Browser-dependent work, or lets the user walk away from
+it, asks `lib/capability/foreground_gate.dart` — two pure functions over
+entitlement, preference and phase, so the whole boundary is testable without a
+WebView, a route or a widget. No screen reads the internal override;
+`foreground_gate_test.dart` fails the build if one starts to.
+
+**Queue start matrix** (`showStartOptionsSheet`, one sheet, three shapes):
+
+| | Primary | Also offered |
+|---|---|---|
+| Free | **Start in Browser** — fully functional | **Start and keep using Scrollary · PRO**, locked and tappable |
+| Pro, preference on | **Start and keep using Scrollary** | Start in Browser |
+| Pro, preference off | **Start in Browser** | **Turn on Keep working while I read and start** |
+
+Dismissing the sheet chooses nothing: every queued row stays exactly where it
+was. The two paths share one save engine and one queue — only the navigation
+differs. `StartChoice.inBrowser` calls `showBrowserSurface`; the multitasking
+paths do not, and the shell keeps the WebView drawn under whatever the user is
+looking at instead.
+
+**Browser-leave matrix** (`showLeaveBrowserSheet`), decided by the *phase*
+first:
+
+| Phase | Free | Pro, task started with it | Pro, task started without it |
+|---|---|---|---|
+| Download, commit, paused, idle | leave, no question | leave, no question | leave, no question |
+| Browser-dependent | Stay · Pause and leave · **What Pro does here** | leave, no question | Stay · Pause and leave · **Turn on for next time** |
+
+There is deliberately no outcome that refuses navigation. *Pause and leave* is
+always on the table, for everyone: it holds the run at its next safe point, keeps
+everything saved so far, releases nothing destructively, and resumes when the
+user returns to the Browser. Dismissing the sheet means **stay** — walking away
+from a question about work in flight is never permission to strand it.
+
+**Locked-action UX.** A locked control is *visible, tappable, and explains
+itself*. A disabled widget cannot: a screen reader announces it as unavailable
+and stops there. Every locked row carries a `PRO` badge, a semantics label that
+begins with the action and contains *"Requires Pro"*, and a tap action that
+opens the Pro sheet. `foreground_gate_ui_test.dart` holds all three.
+
+**The Pro information sheet** says what the user was trying to do, that the
+capability is Pro, that Scrollary must stay open in front, that this is not OS
+background downloading, and that the Free visible-Browser flow is unchanged.
+There is **no Buy button**: there is no billing in this build, and a button that
+cannot charge anybody would be the one genuinely dishonest thing on the screen.
+A line of text stands where the purchase entry point will go (`_upgradeSeat` in
+`lib/features/foreground_gate_sheet.dart`) — that is the whole billing seam.
 
 ### 10.4 Entitlement, capability, preference — and the internal build
 
@@ -645,9 +718,25 @@ Treated as release blockers.
   focusable, not read, not in the swipe order.
 - The Reader's semantics must be unchanged with an operation running.
 - The Browser's semantics must return intact when it becomes interactive again.
-- The operation indicator must be readable: what is running, which phase, and
-  how far.
-- Cancel must be reachable and labelled.
+- The operation indicator must be readable: how much work is outstanding, and
+  whether it is moving, held or needs a person. It is a compact pill and says
+  no more than that; the phase, the progress and the log are one tap away on
+  the surface it opens.
+- **Where it opens is the state's own answer.** A held operation opens the
+  Browser, because that is where a "Needs you" is answered (§9) and the only
+  live control a list could offer for one is a button that opens the Browser.
+  Everything else opens Activity. The label names the destination either way,
+  so the button never has to be pressed to find out.
+- Cancel must be reachable and labelled — from the indicator, that means
+  reachable *through* it: on Activity for a queued task and for a direct run
+  alike, and on the Browser's own save and check panels for a held one. The
+  pill is a status, not a control surface; one tap to the place that owns the
+  controls is the trade, and it is the same trade the Library's activity strip
+  has always made.
+- The indicator must not mark a run with somebody else's failure. A `failed`
+  row is kept as history, so the marker is scoped to failures that finished
+  after the oldest still-outstanding row was queued — the batch you are
+  watching, not the one you already saw.
 - "Needs you" must be announced as an action, with what it will do.
 - Focus must not jump when operation state changes.
 - No composition workaround may disable accessibility to achieve occlusion.

@@ -17,6 +17,26 @@ String displayNameFor(Collection collection) {
   return collection.host.isEmpty ? 'Unknown source' : collection.host;
 }
 
+/// What the app is about to create, handed to whoever can ask the user.
+///
+/// [suggestedName] is exactly what the app would have used on its own, so
+/// accepting it reproduces the previous behaviour and declining it is not an
+/// argument with a hidden default. It is empty when nothing was detected — the
+/// page carried no usable title and the alternative was the bare host.
+class NewCollectionProposal {
+  const NewCollectionProposal({
+    required this.suggestedName,
+    required this.host,
+    required this.entryUrl,
+  });
+
+  final String suggestedName;
+  final String host;
+
+  /// The page the save started on, for a prompt that wants to show it.
+  final String entryUrl;
+}
+
 /// Owns collection membership: which collection an entry belongs to, whether it
 /// belongs to one at all, and what shape that collection has.
 ///
@@ -46,6 +66,15 @@ class CollectionRepository {
     String? pageTitle,
     PageHints hints = const PageHints(),
     void Function(String)? log,
+
+    /// Asked once, immediately before a new collection row is written — never
+    /// when an existing collection is joined, and never for a standalone entry.
+    ///
+    /// Returns the name to store on `user_title`, or null to decline, in which
+    /// case **no row is written and null is returned**. Declining is not by
+    /// itself a stop: the caller decides what a page with no collection means.
+    /// `SaveRunController` stops the run rather than saving the page loose.
+    Future<String?> Function(NewCollectionProposal)? confirmNewName,
   }) async {
     if (sequence.kind == SequenceKind.none) {
       log?.call(
@@ -86,11 +115,33 @@ class CollectionRepository {
       }
     }
 
+    // Nothing has been written yet, and this is the last moment before
+    // something is: a group about to exist gets its name from the person
+    // making it. The detected title is offered as the suggestion and stays on
+    // `title` regardless — what the source called this is a fact worth
+    // keeping, and it is not what the library will print.
+    String? userTitle;
+    if (confirmNewName != null) {
+      final chosen = await confirmNewName(
+        NewCollectionProposal(
+          suggestedName: identity.detectedTitle ?? '',
+          host: identity.host,
+          entryUrl: entryUrl,
+        ),
+      );
+      if (chosen == null || chosen.trim().isEmpty) {
+        log?.call('no collection created: naming was declined');
+        return null;
+      }
+      userTitle = chosen.trim();
+    }
+
     final now = DateTime.now();
     final collection = Collection(
       id: _uuid.v4(),
       lifecycle: 'active',
       title: identity.detectedTitle ?? identity.host,
+      userTitle: userTitle,
       sourceUrl: identity.collectionIndexUrl ?? entryUrl,
       host: identity.host,
       collectionKey: identity.canMerge
@@ -112,7 +163,8 @@ class CollectionRepository {
     );
     await db.upsertCollection(collection);
     log?.call(
-      'collection: created "${collection.title}" '
+      'collection: created "${displayNameFor(collection)}"'
+      '${userTitle == null ? '' : ' (named by you)'} '
       '(${identity.basis}, ${identity.confidence.name} confidence, '
       '$sequence)',
     );

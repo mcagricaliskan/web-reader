@@ -429,6 +429,21 @@ final keepBrowserPaintedProvider = Provider<ValueNotifier<bool>>((ref) {
   return notifier;
 });
 
+/// A multitasking start has asked for the Browser surface, and the operation
+/// that asked does not exist yet.
+///
+/// The gap is real and unavoidable: the shell has to bring the WebView up
+/// *before* the queue claims a task, and until that claim happens nothing owns
+/// the Browser — so the ownership test the surface rule runs would say no and
+/// the page would never be drawn. Counted as ownership for exactly as long as
+/// the start takes, then released by the first real owner (or by the shell's
+/// fallback timer, so a start that never happens cannot hold it).
+final pendingSurfaceClaimProvider = Provider<ValueNotifier<bool>>((ref) {
+  final notifier = ValueNotifier<bool>(false);
+  ref.onDispose(notifier.dispose);
+  return notifier;
+});
+
 /// True when the Browser is what the user is looking at — its tab is selected
 /// and nothing is stacked over the shell.
 ///
@@ -437,6 +452,45 @@ final keepBrowserPaintedProvider = Provider<ValueNotifier<bool>>((ref) {
 /// the Browser already reports the same run in full.
 final browserOnScreenProvider = Provider<ValueNotifier<bool>>((ref) {
   final notifier = ValueNotifier<bool>(false);
+  ref.onDispose(notifier.dispose);
+  return notifier;
+});
+
+/// True unless the Reader is hiding its chrome.
+///
+/// The Reader is the one writer: it publishes its own bar visibility here and
+/// restores `true` on the way out. Read by the running-operation indicator,
+/// which floats above the router and therefore cannot see the Reader's state
+/// any other way — the bars and the indicator hide and return together, on the
+/// Reader's own tap, rather than each keeping a timer and disagreeing.
+///
+/// Starts true, which is the honest answer on every screen that is not a
+/// Reader and what a test without one should see.
+class ReaderChromeVisibility extends ValueNotifier<bool> {
+  ReaderChromeVisibility() : super(true);
+
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  /// Write the flag.
+  ///
+  /// Safe from a lifecycle edge, which is the whole reason it exists rather
+  /// than a bare setter: an unchanged value notifies nobody, and a Reader
+  /// leaving restores this one frame later — by which time the container may
+  /// already be gone, which is exactly what a widget test does on teardown.
+  void publish(bool visible) {
+    if (_disposed || value == visible) return;
+    value = visible;
+  }
+}
+
+final readerChromeVisibleProvider = Provider<ReaderChromeVisibility>((ref) {
+  final notifier = ReaderChromeVisibility();
   ref.onDispose(notifier.dispose);
   return notifier;
 });

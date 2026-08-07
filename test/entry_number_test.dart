@@ -146,6 +146,94 @@ void main() {
     });
   });
 
+  /// A list row is not one string on the page — it is several elements, and
+  /// `Node.textContent` concatenates them with **no separator**. A row built as
+  ///
+  ///     <a href="/chapter/101"><span>Chapter 101</span><span>2 weeks ago</span></a>
+  ///
+  /// used to reach Dart as `"Chapter 1012 weeks ago"` whenever the markup
+  /// carried no whitespace between the two elements. Entry 101 became entry
+  /// 1012, and the digit it gained was the age of the page, so it moved.
+  ///
+  /// **The fix is upstream of this file**, in the bridge's `elementText`, which
+  /// reads what the element says rather than what characters it contains. These
+  /// tests exist to hold that line from below, and they are the reason the
+  /// parser was left alone:
+  ///
+  /// * the reading the bridge now produces parses correctly;
+  /// * the reading it used to produce is **irrecoverable**, so no rule added
+  ///   here could have fixed it — `"Chapter 1012 weeks ago"` does not contain
+  ///   the information that the entry is 101.
+  ///
+  /// The second half is asserted rather than described. A future attempt to
+  /// paper over a producer fault by teaching the parser to guess at digit runs
+  /// has to delete a test that says, in so many words, that guessing is what
+  /// this must not do. If glued text ever reaches discovery again, it is caught
+  /// by cross-checking against the URL — see `entry_identity_test.dart` — and
+  /// refused, not decoded.
+  group('a label welded to the metadata beside it', () {
+    test('the separated reading — what the bridge now produces', () {
+      // The rows from the reported failure, as `elementText` renders them.
+      expect(parseEntryNumber(title: 'Chapter 101 2 weeks ago'), 101);
+      expect(parseEntryNumber(title: 'Chapter 102 2 weeks ago'), 102);
+      expect(parseEntryNumber(title: 'Chapter 103 last week'), 103);
+      expect(parseEntryNumber(title: 'Chapter 104 6 days ago'), 104);
+      expect(parseEntryNumber(title: 'Chapter 104 5 days ago'), 104);
+      // Indented markup always separated correctly; it is why the failure
+      // looked intermittent rather than systematic.
+      expect(parseEntryNumber(title: 'Chapter 101\n  2 weeks ago'), 101);
+    });
+
+    test('the glued reading cannot be recovered, and is not guessed at', () {
+      // Not the behaviour anyone wants — the behaviour that is honest. The
+      // digit is gone into the number and nothing in the string says which one
+      // it was. Anything that "fixed" these would be inventing a number.
+      expect(parseEntryNumber(title: 'Chapter 1012 weeks ago'), 1012);
+      expect(parseEntryNumber(title: 'Chapter 1022 weeks ago'), 1022);
+      expect(parseEntryNumber(title: 'Chapter 1045 days ago'), 1045);
+      expect(parseEntryNumber(title: 'Chapter 1046 days ago'), 1046);
+    });
+
+    test('a timestamp with no digit was never affected either way', () {
+      // "last week" is the only reason one row in the report looked correct.
+      expect(parseEntryNumber(title: 'Chapter 103last week'), 103);
+      expect(parseEntryNumber(title: 'Chapter 101new'), 101);
+    });
+
+    test('separation is what fixes every metadata shape, not just dates', () {
+      // Nothing about this was ever specific to dates: a rating, a view count
+      // or a numbered badge in the next element glued exactly as hard.
+      expect(parseEntryNumber(title: 'Chapter 101 4.7'), 101);
+      expect(parseEntryNumber(title: 'Chapter 101 12k views'), 101);
+      expect(parseEntryNumber(title: 'Chapter 101 Vol. 3'), 101);
+      // And the priority rule still picks the entry over the volume.
+      expect(parseEntryNumber(title: 'Vol. 3 Chapter 101 4.7'), 101);
+    });
+
+    test('a decimal entry survives separation', () {
+      // Glued, this read 12.53 — which sorts plausibly beside 12.5 and so hid
+      // better than a large wrong integer would have.
+      expect(parseEntryNumber(title: 'Chapter 12.5 3 days ago'), 12.5);
+      expect(parseEntryNumber(title: 'Chapter 12.53 days ago'), 12.53);
+    });
+
+    test('metadata separated in front no longer suppresses the number', () {
+      // The other symptom of the same missing separator: the word fence
+      // rejects an entry word preceded by a digit — the rule that stops
+      // `Watch 1080p` — so a glued badge made the row parse as *unnumbered*.
+      expect(parseEntryNumber(title: 'Season 2 Chapter 12'), 12);
+      expect(parseEntryNumber(title: 'Season 2Chapter 12'), isNull);
+    });
+
+    test('the marker kept for display is separated too', () {
+      expect(
+        sourceMarkerFrom(title: 'Chapter 101 2 weeks ago'),
+        'Chapter 101',
+        reason: 'the row prints what the source said, so this is on screen',
+      );
+    });
+  });
+
   group('collection titles', () {
     test('drop the entry marker they carry', () {
       expect(

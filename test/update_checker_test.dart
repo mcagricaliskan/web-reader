@@ -927,5 +927,286 @@ void main() {
         reason: 'oldest new first, so save continues in reading order',
       );
     });
+
+    /// A list row's label used to be `a.textContent`, which concatenates the
+    /// row's elements with no separator: `<span>Entry 101</span><span>2 weeks
+    /// ago</span>` reached the probe as `"Entry 1012 weeks ago"`. The bridge no
+    /// longer produces that reading — see `elementText` — so the `separated`
+    /// fixture below is what a real page now yields, and it is the case that
+    /// has to keep working.
+    ///
+    /// The `glued` fixture is kept as the **second** line: a producer fault
+    /// that gets past the bridge again, whether from a future change here or
+    /// from a page where the browser could give no rendered text at all. What
+    /// is asserted about it is not that the numbers come out right — nothing
+    /// downstream can know that 1012 was meant to be 101 — but that the
+    /// contradiction is noticed and nothing is written on it.
+    ///
+    /// The wrong number was never the whole damage. Ordering, the list's
+    /// measured direction and the checkpoint the next check starts from were
+    /// all derived from it, so each is checked separately.
+    group('a label welded to its metadata', () {
+      // The same five rows twice: newest first, one already held, differing
+      // only in whether the markup separated the two elements.
+      const glued = [
+        PageLink(href: '/guide/foo/104', text: 'Entry 1046 days ago'),
+        PageLink(href: '/guide/foo/103', text: 'Entry 103last week'),
+        PageLink(href: '/guide/foo/102', text: 'Entry 1022 weeks ago'),
+        PageLink(href: '/guide/foo/101', text: 'Entry 1012 weeks ago'),
+        PageLink(href: '/guide/foo/100', text: 'Entry 1003 weeks ago'),
+      ];
+      const separated = [
+        PageLink(href: '/guide/foo/104', text: 'Entry 104 6 days ago'),
+        PageLink(href: '/guide/foo/103', text: 'Entry 103 last week'),
+        PageLink(href: '/guide/foo/102', text: 'Entry 102 2 weeks ago'),
+        PageLink(href: '/guide/foo/101', text: 'Entry 101 2 weeks ago'),
+        PageLink(href: '/guide/foo/100', text: 'Entry 100 3 weeks ago'),
+      ];
+
+      EntryListDiscovery discover(List<PageLink> links) =>
+          discoverFromEntryList(
+            listProbe(links),
+            collectionKey: '/guide/foo',
+            latestKnownNumber: 100,
+            knownUrlKeys: {entryUrl(100)},
+          );
+
+      test('the separated list is read correctly, and doubts nothing', () {
+        final result = discover(separated);
+
+        expect(result.direction, EntryListDirection.newestFirst);
+        expect(result.orderingConfident, isTrue);
+        expect(result.knownSeen, 1);
+        expect(result.newEntries.map((c) => c.number), [
+          101.0,
+          102.0,
+          103.0,
+          104.0,
+        ]);
+        expect(
+          result.concerns,
+          isEmpty,
+          reason: 'an ordinary list must never trip the safety net',
+        );
+      });
+
+      test('a glued label is doubted, with both readings kept', () {
+        final result = discover(glued);
+
+        // Entry 103's metadata began with a letter, so its two readings still
+        // agree — which is what proves this source numbers its addresses the
+        // way it numbers its labels, and therefore what makes the other four
+        // disagreements mean something.
+        expect(result.concerns.map((c) => c.url), [
+          entryUrl(101),
+          entryUrl(102),
+          entryUrl(104),
+        ]);
+        final first = result.concerns.first;
+        expect(first.labelNumber, 1012.0);
+        expect(first.urlNumber, 101.0);
+        expect(first.nearbyNumbers, [100.0, 101.0, 102.0, 103.0, 104.0]);
+        expect(first.doubt, EntryIdentityDoubt.labelFarFromAddressRun);
+      });
+
+      test('a doubted entry is not offered for persistence', () {
+        // Removed here as well as reported: the caller stops on `concerns`,
+        // but this function is public and pure, and a caller that read only
+        // `newEntries` must still be unable to write one.
+        final result = discover(glued);
+
+        expect(result.newEntries.map((c) => c.url), [entryUrl(103)]);
+        expect(result.newEntries.map((c) => c.number), [103.0]);
+      });
+
+      test('no doubted number can reach the checkpoint', () {
+        // The durable half of the original bug: `latestKnownNumber` is the
+        // highest number held, so a corrupted 1046 written once would make
+        // every later check ask for entries above 1046 and find none — the
+        // collection reporting up to date forever.
+        final highest = discover(glued).newEntries
+            .map((c) => c.number ?? 0)
+            .fold<double>(100, (a, b) => a > b ? a : b);
+
+        expect(
+          highest,
+          lessThanOrEqualTo(104.0),
+          reason: 'a checkpoint above the real list silently ends discovery',
+        );
+      });
+
+      test('an unnumbered entry beside a doubted one is still unaffected', () {
+        // The safety net judges numbers, and only against addresses. A row
+        // with no number of its own is not evidence and is not a suspect.
+        final result = discover([
+          ...glued,
+          const PageLink(href: '/guide/foo/side-story', text: 'Side Story'),
+        ]);
+
+        expect(
+          result.concerns.map((c) => c.url),
+          isNot(contains('$host/guide/foo/side-story')),
+        );
+      });
+    });
+  });
+
+  /// What the check *does* when it cannot justify an entry's number.
+  ///
+  /// The pure tests above prove the reading is doubted. These prove the doubt
+  /// is load-bearing: nothing is written, the checkpoint the next check starts
+  /// from is untouched, and the run ends where the doubt was found rather than
+  /// carrying on into the chain walk and asking a second question of a source
+  /// we have just shown we are reading wrongly.
+  group('a check that cannot identify an entry', () {
+    PageProbe listPage(List<PageLink> links) => PageProbe(
+      url: collectionIndexUrl,
+      title: 'Foo — all entries',
+      readyState: 'complete',
+      documentHeight: 2000,
+      viewportHeight: 800,
+      links: links,
+    );
+
+    // As a lost element boundary renders it: every address clean, the labels
+    // carrying the first digit of the timestamp beside them. Entry 103's
+    // metadata began with a letter, so its readings still agree.
+    PageProbe gluedPage() => listPage(const [
+      PageLink(href: '/guide/foo/104', text: 'Entry 1046 days ago'),
+      PageLink(href: '/guide/foo/103', text: 'Entry 103last week'),
+      PageLink(href: '/guide/foo/102', text: 'Entry 1022 weeks ago'),
+      PageLink(href: '/guide/foo/101', text: 'Entry 1012 weeks ago'),
+      PageLink(href: '/guide/foo/100', text: 'Entry 100 3 weeks ago'),
+    ]);
+
+    Future<void> seedHolding100() async {
+      await seedCollection(withCollectionUrl: collectionIndexUrl);
+      await seedSaved(100);
+    }
+
+    test('stops, and says so without naming its internals', () async {
+      await seedHolding100();
+      browser.addPage(collectionIndexUrl, gluedPage());
+
+      final outcome = await checker.check('collection-1');
+
+      expect(outcome.state, UpdateCheckState.failed);
+      expect(outcome.stoppedOnEntryIdentity, isTrue);
+      expect(outcome.error, kEntryIdentityUnreliableMessage);
+      expect(outcome.newEntries, 0);
+    });
+
+    test('writes no entry at all, not even the rows it could read', () async {
+      // Entry 103 read cleanly and would have been a correct row. It is still
+      // not written: the page it came from is being read incorrectly, and
+      // taking the parts that happen to look right is how a half-corrupt
+      // reading becomes permanent.
+      await seedHolding100();
+      browser.addPage(collectionIndexUrl, gluedPage());
+
+      await checker.check('collection-1');
+
+      final discovered = (await db.allEntries())
+          .where((c) => c.saveStatus == 'knownRemote')
+          .toList();
+      expect(discovered, isEmpty);
+    });
+
+    test('leaves the checkpoint exactly where it was', () async {
+      // The failure this exists to prevent: one 1046 written once makes every
+      // later check ask for entries above 1046 and find none, so the
+      // collection reports up to date for good.
+      await seedHolding100();
+      browser.addPage(collectionIndexUrl, gluedPage());
+
+      await checker.check('collection-1');
+
+      final numbers = (await db.allEntries()).map((c) => c.entryNumber);
+      expect(numbers, [100.0]);
+    });
+
+    test('does not fall through to the chain walk', () async {
+      await seedHolding100();
+      browser.addPage(collectionIndexUrl, gluedPage());
+      // Reachable, and full of entries — none of which may be walked, because
+      // the doubt was about how this source is being read, not about this page.
+      serveChain(100, 110);
+
+      final outcome = await checker.check('collection-1');
+
+      expect(outcome.state, UpdateCheckState.failed);
+      expect(
+        outcome.pagesInspected,
+        1,
+        reason: 'the collection page, and nothing after it',
+      );
+    });
+
+    test('records the failure on the collection like any other', () async {
+      await seedHolding100();
+      browser.addPage(collectionIndexUrl, gluedPage());
+
+      await checker.check('collection-1');
+
+      final item = (await db.collectionById('collection-1'))!;
+      expect(item.lastCheckResult, 'failed');
+      expect(item.lastCheckError, kEntryIdentityUnreliableMessage);
+      expect(
+        item.lastCheckSuccessAt,
+        isNull,
+        reason: 'a refusal is not a successful check',
+      );
+    });
+
+    test('keeps the evidence for a report that does not exist yet', () async {
+      await seedHolding100();
+      browser.addPage(collectionIndexUrl, gluedPage());
+
+      final outcome = await checker.check('collection-1');
+
+      final first = outcome.concerns.first;
+      expect(outcome.concerns.map((c) => c.url), [
+        entryUrl(101),
+        entryUrl(102),
+        entryUrl(104),
+      ]);
+      expect(first.labelNumber, 1012.0);
+      expect(first.urlNumber, 101.0);
+      expect(first.label, 'Entry 1012 weeks ago');
+      expect(first.nearbyNumbers, contains(103.0));
+    });
+
+    test('a collection numbered its own way still checks normally', () async {
+      // Gaps, a decimal, and a step that is not one — none of which is this
+      // check's business. The whole point of the net is that it does not have
+      // an opinion about numbering.
+      await seedHolding100();
+      browser.addPage(
+        collectionIndexUrl,
+        listPage(const [
+          PageLink(href: '/guide/foo/130', text: 'Entry 130 2 days ago'),
+          PageLink(href: '/guide/foo/120-5', text: 'Entry 120.5 a week ago'),
+          PageLink(href: '/guide/foo/120', text: 'Entry 120 3 weeks ago'),
+          PageLink(href: '/guide/foo/110', text: 'Entry 110 2 months ago'),
+          PageLink(href: '/guide/foo/100', text: 'Entry 100 4 months ago'),
+        ]),
+      );
+
+      final outcome = await checker.check('collection-1');
+
+      expect(outcome.state, UpdateCheckState.updatesAvailable);
+      expect(outcome.concerns, isEmpty);
+      final discovered =
+          (await db.allEntries())
+              .where((c) => c.saveStatus == 'knownRemote')
+              .toList()
+            ..sort((a, b) => a.entryOrder.compareTo(b.entryOrder));
+      expect(discovered.map((c) => c.entryNumber), [
+        110.0,
+        120.0,
+        120.5,
+        130.0,
+      ]);
+    });
   });
 }

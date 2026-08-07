@@ -126,7 +126,7 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('startSaveButton')));
       await tester.pumpAndSettle();
-      expect(find.text('Start queued saves?'), findsOneWidget);
+      expect(find.text('Start the queued save?'), findsOneWidget);
 
       await tester.tap(find.text('Not now'));
       await tester.pumpAndSettle();
@@ -146,7 +146,7 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('startSaveButton')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Start and open Browser'));
+      await tester.tap(find.byKey(const ValueKey('startInBrowser')));
       await tester.pumpAndSettle();
       for (var i = 0; i < 20; i++) {
         await tester.pump(const Duration(milliseconds: 30));

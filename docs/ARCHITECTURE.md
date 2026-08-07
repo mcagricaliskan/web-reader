@@ -152,6 +152,23 @@ getting it backwards saves the wrong end of a blog.
 6. A text extraction that finds nothing is reported and walked past. It
    deliberately does **not** route into reader-area selection: that assistance
    hands back a container of images and cannot help a page with no prose.
+7. **A new collection is named by the user.** Membership is decided once per
+   run, on page 1, and `CollectionRepository.resolveCollection` is the only
+   place a `collections` row is written. When it is about to write one it asks
+   first, through `confirmNewName`, and the run holds in the panel slot the
+   duplicate prompt uses (`features/collection_name_panel.dart`). The detected
+   title is the *suggestion*, and it stays on `title` either way — what the
+   source called this is a fact worth keeping. The answer lands on
+   `user_title`, which is presentation-only and never part of matching, so a
+   page titled "Part 24: The Quiet Year" can no longer name a whole collection
+   after one of its parts. Declining writes nothing and stops the run through
+   the ordinary `stop()` path, before the preflight and therefore before the
+   first entry: no collection, no entry, no file, and everything already held
+   untouched. Joining an existing collection and saving a standalone entry both
+   return before the prompt, so neither is ever interrupted. A run with nothing
+   able to answer — a test harness, a headless run — is built with
+   `asksForCollectionName: false` and keeps the detected title; `main.dart` is
+   the only place it is true.
 
 **Deferred — modelled but not on screen.** The domain layer computes everything
 the review step needs (`detectSequence` returns the kind, direction, known total

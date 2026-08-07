@@ -195,6 +195,9 @@ class AppStartup {
       browser: browser,
       db: db,
       fileStore: fileStore,
+      // The Browser renders `CollectionNamePanel`, so this is the one place a
+      // run has somebody to ask before it names a group on their behalf.
+      asksForCollectionName: true,
     );
 
     // Browsing history (M18). The controller emits every completed load; the

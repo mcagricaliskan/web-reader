@@ -14,6 +14,63 @@ window.__wr = window.__wr || (function () {
     try { return new URL(u, document.baseURI).href; } catch (e) { return null; }
   }
 
+  // --- what an element says -------------------------------------------------
+  //
+  // `Node.textContent` concatenates every descendant text node with **no
+  // separator**. A list row written as
+  //
+  //     <span>Entry 101</span><span>2 weeks ago</span>
+  //
+  // reads back as "Entry 1012 weeks ago" whenever the markup carries no
+  // whitespace between the two elements — minified or framework-rendered
+  // output, which is most of them. Two independent visible strings become one
+  // numeric token, and an entry's number is then read out of a number that was
+  // never on the page. That is not a parser problem: by the time Dart sees the
+  // string, 101 is unrecoverable.
+  //
+  // `innerText` is the browser's own answer to "what does this element say".
+  // It is defined in terms of layout, so it separates two block or flex
+  // children and keeps inline formatting welded — `Chapt<b>er</b> 5` stays one
+  // word. No tag list can make that distinction, because the same <span> does
+  // both jobs depending only on how it is styled. Layout is already forced by
+  // the `getBoundingClientRect` calls these callers make anyway, so this is a
+  // read of a computed value rather than an extra reflow.
+  var SKIP_TEXT_TAGS = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1 };
+
+  // The reading for anything `innerText` cannot answer for: a hidden row, a
+  // detached clone. Joining text nodes with a space **over**-separates
+  // (`Chapt er 5`) rather than gluing, which is the safe direction to be wrong
+  // in — a split entry word simply stops matching and the number falls through
+  // to the URL, whereas a glued number is silently and confidently wrong.
+  function joinTextNodes(el) {
+    if (!el) return '';
+    var walker;
+    try {
+      walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    } catch (e) {
+      return el.textContent || '';
+    }
+    var parts = [], node, guard = 0;
+    while ((node = walker.nextNode()) && guard++ < 4000) {
+      var p = node.parentElement;
+      if (p && SKIP_TEXT_TAGS[p.tagName]) continue;
+      var v = node.nodeValue || '';
+      if (v.trim()) parts.push(v);
+    }
+    return parts.join(' ');
+  }
+
+  /// The visible text of one element, with the boundaries between its parts
+  /// preserved and whitespace collapsed. Every place that reads an element in
+  /// order to *name* something goes through here.
+  function elementText(el) {
+    if (!el) return '';
+    var t = null;
+    try { t = el.innerText; } catch (e) { t = null; }
+    if (typeof t !== 'string' || !t.trim()) t = joinTextNodes(el);
+    return t.replace(/\s+/g, ' ').trim();
+  }
+
   var CHROME_TAGS = { HEADER: 1, FOOTER: 1, NAV: 1, ASIDE: 1 };
 
   // Generic structural words that name page furniture in every language's
@@ -156,7 +213,7 @@ window.__wr = window.__wr || (function () {
     return {
       href: a.href || '',
       rel: (a.getAttribute('rel') || '').toLowerCase(),
-      text: (a.textContent || '').trim().slice(0, 120),
+      text: elementText(a).slice(0, 120),
       ariaLabel: (a.getAttribute('aria-label') || '').trim().slice(0, 120),
       title: (a.getAttribute('title') || '').trim().slice(0, 120),
       className: (typeof a.className === 'string' ? a.className : ''),
@@ -272,7 +329,7 @@ window.__wr = window.__wr || (function () {
       prefixLinks.push({
         href: info.href,
         path: info.path,
-        text: (a.textContent || '').trim().slice(0, 120)
+        text: elementText(a).slice(0, 120)
       });
     }
     // Deepest first: the collection index sits closer to the entry than the
@@ -290,7 +347,7 @@ window.__wr = window.__wr || (function () {
       crumbs.push({
         href: c.href,
         path: c.path,
-        text: (crumbNodes[j].textContent || '').trim().slice(0, 120)
+        text: elementText(crumbNodes[j]).slice(0, 120)
       });
     }
 
@@ -298,7 +355,7 @@ window.__wr = window.__wr || (function () {
     return {
       ogTitle: meta('og:title'),
       ogSiteName: meta('og:site_name'),
-      h1: h1 ? (h1.textContent || '').trim().slice(0, 200) : '',
+      h1: elementText(h1).slice(0, 200),
       breadcrumbs: crumbs,
       prefixLinks: prefixLinks.slice(0, 8)
     };
@@ -325,7 +382,9 @@ window.__wr = window.__wr || (function () {
     for (var i = 0; i < drop.length; i++) {
       if (drop[i].parentNode) drop[i].parentNode.removeChild(drop[i]);
     }
-    return (clone.textContent || '').replace(/\s+/g, ' ').trim();
+    // A detached clone is not rendered, so `innerText` degrades to the glued
+    // reading here — the node walk is asked for by name instead.
+    return joinTextNodes(clone).replace(/\s+/g, ' ').trim();
   }
 
   /// The part of the page a reader would actually read.
@@ -429,7 +488,7 @@ window.__wr = window.__wr || (function () {
     if (pager) {
       var pageLinks = pager.querySelectorAll('a,button,span');
       for (var pi = 0; pi < pageLinks.length; pi++) {
-        var n = parseInt((pageLinks[pi].textContent || '').trim(), 10);
+        var n = parseInt(elementText(pageLinks[pi]), 10);
         if (!isNaN(n) && n > 0 && n < 100000) pageNumbers.push(n);
       }
     }
@@ -456,7 +515,7 @@ window.__wr = window.__wr || (function () {
       hasRelPrev: !!document.querySelector('link[rel=prev], a[rel=prev]'),
       pagerNumbers: pageNumbers,
       listedDates: dates,
-      headingText: (document.querySelector('h1') || {}).textContent || ''
+      headingText: elementText(document.querySelector('h1'))
     };
   }
 
@@ -660,7 +719,7 @@ window.__wr = window.__wr || (function () {
 
     var h1 = root.querySelector('h1') || document.querySelector('h1');
     return {
-      title: (h1 ? (h1.textContent || '').trim() : '') || document.title || '',
+      title: elementText(h1) || document.title || '',
       blocks: blocks,
       truncated: truncated,
       regionBasis: region.basis
@@ -925,7 +984,7 @@ window.__wr = window.__wr || (function () {
       var out = {
         mode: mode || 'link',
         tag: el.tagName.toLowerCase(),
-        text: (el.textContent || '').trim().slice(0, 120),
+        text: elementText(el).slice(0, 120),
         ariaLabel: (el.getAttribute('aria-label') || '').trim().slice(0, 120),
         title: (el.getAttribute('title') || '').trim().slice(0, 120),
         id: el.id || '',
@@ -981,8 +1040,16 @@ window.__wr = window.__wr || (function () {
           } catch (e) {}
         }
         if (loc.linkText) {
-          var t = (a.textContent || '').trim().toLowerCase();
-          if (t && t === loc.linkText.toLowerCase()) { score += 3; why.push('text'); }
+          // Both readings are compared, because a hint the user taught before
+          // `elementText` existed holds the glued text this element no longer
+          // produces. Nothing is rewritten on disk to fix that: the stored hint
+          // is the user's, and the second comparison is what keeps it working.
+          var want = loc.linkText.toLowerCase();
+          var t = elementText(a).toLowerCase();
+          var legacy = (a.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if ((t && t === want) || (legacy && legacy === want)) {
+            score += 3; why.push('text');
+          }
         }
         if (loc.ariaLabel) {
           var al = (a.getAttribute('aria-label') || '').trim().toLowerCase();
